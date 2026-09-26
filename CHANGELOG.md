@@ -4,7 +4,7 @@ All notable changes to the Job-Apply Harness kit are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.1.0] — 2026-09-26
 
 ### Added
 - **Status reasons**: `applications.status_reason` + optional `reason` on
