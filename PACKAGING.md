@@ -60,7 +60,7 @@ needs, and the doctor reports drift.
 Path A — git works in the customer's VM:
 
 ```sh
-git clone --branch v1.2.1 <repo-with-one-time-deploy-key> ~/workspace/harness-kit  # private repo; key revoked after install
+git clone --branch v1.2.2 <repo-with-one-time-deploy-key> ~/workspace/harness-kit  # private repo; key revoked after install
 cd ~/workspace/harness-kit && ./install/install.sh
 ```
 
@@ -72,7 +72,7 @@ when you cut a new version.
 Path B — no network: upload the release tarball, then
 
 ```sh
-tar xzf harness-kit-1.2.1.tar.gz -C ~/workspace/
+tar xzf harness-kit-1.2.2.tar.gz -C ~/workspace/
 cd ~/workspace/harness-kit && ./install/install.sh
 ```
 
@@ -85,7 +85,7 @@ complete Excel-first onboarding (or the dashboard setup wizard), connect account
 ## Upgrade / rollback
 
 ```sh
-cd ~/workspace/harness-kit && ./install/upgrade.sh v1.2.1
+cd ~/workspace/harness-kit && ./install/upgrade.sh v1.2.2
 ```
 
 `upgrade.sh` checks the current `VERSION` against the target, runs pending
