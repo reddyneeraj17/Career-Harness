@@ -11,6 +11,19 @@ never pushed, so v1.1.0 never shipped. That stale tag is left untouched; this
 release is cut as v1.2.0 and supersedes it._
 
 ### Added
+- **Proprietary licensing**: Apache 2.0 replaced by the Career Harness
+  Proprietary License (use + configure; no redistribution, sharing, or
+  export; core files read-only). New root `NOTICE`; proprietary banners on
+  all 28 skills, installer scripts, README, INSTALL, OPERATOR, PACKAGING.
+- **Distribution strategy** (`DISTRIBUTION.md`, blueprint §28): private
+  GitHub repo, managed-service-first; licensed self-host installs via
+  supervised install with a one-time read-only deploy key (revoked after).
+  Customers never pull from the repo; the judging rules and mappings stay
+  in the private repo only.
+- **CUSTOMER_RULES.md**: copying/sharing/exporting kit files is a license
+  breach; unlicensed copies are reported, not used.
+
+### Added
 - **Status reasons**: `applications.status_reason` + optional `reason` on
   every `app_transition`; the Applications tab shows a Reason column and the
   run-detail drawer surfaces reasons inline.
