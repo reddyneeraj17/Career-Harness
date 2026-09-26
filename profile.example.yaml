@@ -34,6 +34,7 @@ targeting:
   tiers: [1, 2]                             # company tiers to target
   industries: ["fintech", "healthcare"]     # industries to target
   seniority: ["senior"]                     # senior | staff | architect | principal | lead
+  titles: ["Senior Data Engineer"]          # target job titles (free-form, at least one)
 
 comp:
   floor: null                               # minimum acceptable, null = negotiable
@@ -67,6 +68,12 @@ resumes:
   filename_rule: "REPLACE_ME"               # exact portal upload filename, always
 
 campaigns:
+  # Optional per-job overrides for all 12 schedules (morning_run, linkedin_feed,
+  # career_portal, job_board, email_scan, linkedin_replies, approval_judge,
+  # daily_report, token_usage, weekly_review, harness_doctor, profile_watch).
+  # Absent entries use built-in default cadences and are treated as enabled.
+  # The dashboard Schedules tab edits these via the schedule_update action
+  # (cadence and/or enabled); enabled: false disables the job WITHOUT deleting it.
   morning_run: {cadence: "daily 07:00"}
   linkedin_feed: {cadence: "2h weekdays"}
   career_portal: {cadence: "daily 14:20"}

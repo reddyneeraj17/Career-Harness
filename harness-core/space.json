@@ -1,7 +1,7 @@
 {
   "entry": "client/dist/index.html",
   "managedCronJobs": [],
-  "name": "harness-core",
+  "name": "Career Harness",
   "platformVersion": 22,
   "runtime": "typescript",
   "slug": "harness-core"

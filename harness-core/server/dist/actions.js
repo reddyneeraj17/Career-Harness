@@ -4647,9 +4647,34 @@ var privileged = definePrivilegedContracts({
     timeoutMs: 5000
   },
   readRegisteredResume: {
-    request: object({ filename: string2().regex(/^[A-Za-z0-9][A-Za-z0-9._ -]*$/), location: _enum(["user_files", "user_file_resumes", "workspace_resumes"]) }),
+    request: object({ filename: string2().regex(/^[A-Za-z0-9][A-Za-z0-9._ -]*\.pdf$/i), location: _enum(["user_files", "user_file_resumes", "workspace_resumes"]) }),
     response: object({ filename: string2(), bytesBase64: string2(), contentType: literal("application/pdf") }),
     timeoutMs: 15000
+  },
+  writeResumeUpload: {
+    request: object({ filename: string2().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*\.pdf$/i), bytes_base64: string2().min(1) }),
+    response: object({ path: string2(), filename: string2() }),
+    timeoutMs: 20000
+  },
+  trashResumeFile: {
+    request: object({ variant_id: string2().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/), filename: string2().regex(/^[A-Za-z0-9][A-Za-z0-9._ -]*\.pdf$/i), location: _enum(["user_files", "user_file_resumes", "workspace_resumes"]) }),
+    response: object({ file_moved: boolean2(), trashed_path: string2().nullable() }),
+    timeoutMs: 15000
+  },
+  readTrashedResume: {
+    request: object({ variant_id: string2().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/), filename: string2().regex(/^[A-Za-z0-9][A-Za-z0-9._ -]*\.pdf$/i), sha256: string2().regex(/^[a-f0-9]{64}$/i).nullable().optional() }),
+    response: object({ found: boolean2(), filename: string2().optional(), bytesBase64: string2().optional(), contentType: literal("application/pdf").optional() }),
+    timeoutMs: 15000
+  },
+  renderPdfPreview: {
+    request: object({ bytesBase64: string2().min(1), maxPages: number2().int().min(1).max(8) }),
+    response: object({ pages: array(object({ page: number2().int().positive(), bytesBase64: string2() })), truncated: boolean2() }),
+    timeoutMs: 30000
+  },
+  readSchedulesManifest: {
+    request: object({}),
+    response: object({ manifestText: string2().nullable() }),
+    timeoutMs: 5000
   },
   readProfileYaml: {
     request: object({}),
@@ -6154,31 +6179,55 @@ var workStatus = _enum(["H-1B", "H1B", "US citizen", "Green card", "OPT", "STEM 
 var roleType = _enum(["full_time", "part_time", "w2_contract", "c2c_contract", "internship"]);
 var seniority = _enum(["junior", "mid", "senior", "staff", "architect", "principal", "lead", "director"]);
 var answerValue = union([string2(), number2(), boolean2(), _null3()]);
+var placeholderPattern = /\[FILL IN\]/i;
+var bracketPlaceholderPattern = /^\[.*\]$/;
+var isPlaceholderString = (value) => placeholderPattern.test(value.trim()) || bracketPlaceholderPattern.test(value.trim());
 var strictProfile = object({
   identity: object({ name: string2().trim().min(1), email: string2().email(), phone: string2().trim().min(1), location: string2().trim().min(1), linkedin: string2().url(), timezone: string2().trim().min(1) }).catchall(jsonValue),
   work_auth: object({ status: workStatus, sponsor_required: boolean2(), h1b_gate: _enum(["hard", "soft"]) }).catchall(jsonValue),
-  role_types: array(roleType).min(1),
+  role_types: array(roleType).min(1, "Select at least one employment type."),
   locations: object({ priority: array(string2().trim().min(1)).min(1), relocation: string2().trim().min(1) }).catchall(jsonValue),
-  targeting: object({ industries: array(string2().trim().min(1)).min(1), seniority: array(seniority).min(1), tiers: array(number2().int().min(1).max(3)).min(1) }).catchall(jsonValue),
+  targeting: object({ industries: array(string2().trim().min(1)).min(1), seniority: array(seniority).min(1), tiers: array(number2().int().min(1).max(3)).min(1), titles: array(string2().trim().min(1)).min(1) }).catchall(jsonValue),
   comp: object({ floor: union([number2().nonnegative(), string2().trim().min(1), _null3()]), note: string2().trim().min(1) }).catchall(jsonValue),
   start_date: string2().regex(/^\d{4}-\d{2}-\d{2}$/),
   answers: object({ relocate: string2().trim().min(1), covenants: string2().trim().min(1), drivers_license: string2().trim().min(1), degree_dates: string2().trim().min(1), home_zip: string2().trim().min(1), work_authorized_us: string2().trim().min(1) }).catchall(answerValue),
   caps: object({ per_run: number2().int().min(1), per_day: number2().int().min(1), appliers: number2().int().min(1) }).catchall(jsonValue),
   reply_tiers: object({ auto_send: array(string2().regex(/^R[1-8]$/)).min(1), draft_for_review: array(string2().trim().min(1)).min(1), never: array(string2().trim().min(1)).min(1) }).catchall(jsonValue)
+}).superRefine((value, ctx) => {
+  const requiredStrings = [
+    ...Object.entries(value.identity).filter(([key]) => ["name", "email", "phone", "location", "linkedin", "timezone"].includes(key)).map(([key, text]) => ({ path: ["identity", key], value: String(text) })),
+    { path: ["work_auth", "status"], value: value.work_auth.status },
+    { path: ["work_auth", "h1b_gate"], value: value.work_auth.h1b_gate },
+    ...value.locations.priority.map((text, index) => ({ path: ["locations", "priority", index], value: text })),
+    { path: ["locations", "relocation"], value: value.locations.relocation },
+    ...value.targeting.industries.map((text, index) => ({ path: ["targeting", "industries", index], value: text })),
+    ...value.targeting.titles.map((text, index) => ({ path: ["targeting", "titles", index], value: text })),
+    ...typeof value.comp.floor === "string" ? [{ path: ["comp", "floor"], value: value.comp.floor }] : [],
+    { path: ["comp", "note"], value: value.comp.note },
+    { path: ["start_date"], value: value.start_date },
+    ...["relocate", "covenants", "drivers_license", "degree_dates", "home_zip", "work_authorized_us"].map((key) => ({ path: ["answers", key], value: String(value.answers[key] ?? "") })),
+    ...value.reply_tiers.auto_send.map((text, index) => ({ path: ["reply_tiers", "auto_send", index], value: text })),
+    ...value.reply_tiers.draft_for_review.map((text, index) => ({ path: ["reply_tiers", "draft_for_review", index], value: text })),
+    ...value.reply_tiers.never.map((text, index) => ({ path: ["reply_tiers", "never", index], value: text }))
+  ];
+  for (const field of requiredStrings) {
+    if (isPlaceholderString(field.value))
+      ctx.addIssue({ code: ZodIssueCode.custom, path: field.path, message: "Replace the placeholder with the real value." });
+  }
 });
 var yamlProfileSchema = object({
   identity: object({ name: string2().min(1), email: string2().email(), phone: string2().min(1), city: string2().min(1), state: string2().min(1), linkedin_url: string2().url() }),
   work_auth: object({ status: workStatus, sponsor_required: boolean2(), h1b_gate: _enum(["hard", "soft"]) }),
-  role_types: array(roleType).min(1),
+  role_types: array(roleType).min(1, "Select at least one employment type."),
   locations: object({ us_only: boolean2(), remote: _enum(["ok", "only", "no"]), metros: array(string2()).optional() }),
-  targeting: object({ tiers: array(number2().int().min(1).max(3)), industries: array(string2()).min(1), seniority: array(seniority).min(1) }),
+  targeting: object({ tiers: array(number2().int().min(1).max(3)), industries: array(string2()).min(1), seniority: array(seniority).min(1), titles: array(string2()).min(1) }),
   comp: object({ floor: union([number2(), string2(), _null3()]), negotiable_answer: string2().min(1), zero_ok: boolean2() }),
   start_date: string2().regex(/^\d{4}-\d{2}-\d{2}$/),
   answers: object({ relocate: string2(), restrictive_covenants: string2(), drivers_license: string2(), degree_dates: string2() }).catchall(answerValue),
   caps: object({ per_run: number2().int().min(1), per_day: number2().int().min(1), appliers: number2().int().min(1), linkedin_actions_per_hour: number2().int().min(1) }),
   reply_tiers: object({ auto_send: array(string2().regex(/^R[1-8]$/)).min(1), draft_for_review: array(string2()).min(1), never: array(string2()).min(1) }),
   resumes: object({ dir: string2().min(1), filename_rule: string2().min(1) }),
-  campaigns: record(string2(), unknown())
+  campaigns: record(string2(), object({ cadence: string2().min(1), enabled: boolean2().optional() }).catchall(unknown()))
 });
 var q = (value) => JSON.stringify(value);
 var yamlList = (values) => `[${values.map((value) => typeof value === "number" ? String(value) : q(value)).join(", ")}]`;
@@ -6227,7 +6276,7 @@ function deriveYamlLocations(locations, previous) {
   const metroNames = metro.map((entry) => entry.replace(/,\s*[A-Z]{2}$/, ""));
   return { block: `locations:
   us_only: ${outsideUs ? "false" : "true"}
-  remote: ${remoteValue}
+  remote: ${q(remoteValue)}
   metros: ${yamlList(metroNames)}` };
 }
 function renderProfileYaml(profile2, existing, existingParsed) {
@@ -6276,6 +6325,7 @@ function renderProfileYaml(profile2, existing, existingParsed) {
     `  tiers: ${yamlList(profile2.targeting.tiers)}`,
     `  industries: ${yamlList(profile2.targeting.industries)}`,
     `  seniority: ${yamlList(profile2.targeting.seniority)}`,
+    `  titles: ${yamlList(profile2.targeting.titles)}`,
     "",
     "comp:",
     `  floor: ${floor}`,
@@ -6318,6 +6368,148 @@ var profileSaveResponse = union([
   object({ ok: literal(true), updated_at: string2(), yaml_bytes: number2(), warnings: array(object({ field: string2(), message: string2() })) }),
   object({ ok: literal(false), step: _enum(["validation", "yaml_write", "database"]), field: string2().optional(), message: string2() })
 ]);
+var manifestJobSchema = object({
+  job_id: string2().min(1),
+  title: string2().min(1),
+  campaign: string2().min(1),
+  cadence: string2().min(1),
+  schedule: string2().min(1),
+  enabled: boolean2(),
+  body_hash: string2().min(1)
+});
+var schedulesManifestSchema = object({ jobs: array(manifestJobSchema) });
+var scheduleStatusRowSchema = manifestJobSchema.extend({
+  manifest_body_hash: string2(),
+  last_run_at: string2().nullable(),
+  last_run_status: string2().nullable(),
+  live_body_hash: string2().nullable(),
+  drift: _enum(["in_sync", "drift", "unknown"])
+});
+var schedulesStatusResponse = object({
+  generated_at: string2(),
+  manifest_missing: boolean2(),
+  rows: array(scheduleStatusRowSchema)
+});
+var SCHEDULE_CAMPAIGNS = ["morning_run", "linkedin_feed", "career_portal", "job_board", "email_scan", "linkedin_replies", "approval_judge", "daily_report", "token_usage", "weekly_review", "harness_doctor", "profile_watch"];
+var scheduleJobId = (campaign) => `harness-${campaign.replace(/_/g, "-")}`;
+function jobIdToCampaign(jobId) {
+  if (!jobId.startsWith("harness-"))
+    return null;
+  const campaign = jobId.slice("harness-".length).replace(/-/g, "_");
+  return SCHEDULE_CAMPAIGNS.includes(campaign) ? campaign : null;
+}
+var CADENCE_ACCEPTED = 'Accepted cadence formats: "daily HH:MM" (e.g. "daily 07:00"), "nightly HH:MM" (e.g. "nightly 23:20"), "hourly", "hourly weekdays", "every Nm" (e.g. "every 15m"), "every Nh" (e.g. "every 2h"), "Nh weekdays" (e.g. "2h weekdays"), "H:MMam/pm CT" (e.g. "9:00am CT"), "Weekday H:MMam/pm CT" (e.g. "Friday 5:00pm CT").';
+function cadenceError(value) {
+  const text = value.trim();
+  if (!text)
+    return `Cadence must not be empty. ${CADENCE_ACCEPTED}`;
+  const weekday = "(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)";
+  const patterns = [
+    /^(?:daily|nightly) (?:[01][0-9]|2[0-3]):[0-5][0-9]$/,
+    /^hourly$/,
+    /^hourly weekdays$/,
+    /^every [1-9][0-9]*(?:m|h)$/,
+    /^[1-9][0-9]*h weekdays$/,
+    /^(?:[1-9]|1[0-2]):[0-5][0-9](?:am|pm) CT$/,
+    new RegExp(`^${weekday} (?:[1-9]|1[0-2]):[0-5][0-9](?:am|pm) CT$`, "i")
+  ];
+  if (patterns.some((pattern) => pattern.test(text)))
+    return null;
+  return `Cadence ${q(text)} is not a recognized schedule. ${CADENCE_ACCEPTED}`;
+}
+function campaignEntryLine(campaign, fields) {
+  const keys = ["cadence", "enabled", ...Object.keys(fields).filter((key) => key !== "cadence" && key !== "enabled")];
+  const parts = [];
+  for (const key of keys) {
+    const value = fields[key];
+    if (value === undefined)
+      continue;
+    if (key === "enabled" && value === true)
+      continue;
+    parts.push(`${key}: ${value === null ? "null" : typeof value === "boolean" || typeof value === "number" ? String(value) : q(String(value))}`);
+  }
+  return `  ${campaign}: {${parts.join(", ")}}`;
+}
+function spliceCampaignEntry(yamlText, campaign, line) {
+  const lines = yamlText.split(`
+`);
+  const start = lines.findIndex((text) => text === "campaigns:");
+  if (start < 0)
+    throw new Error("The campaigns section is missing from profile.yaml.");
+  let end = lines.length;
+  for (let index = start + 1;index < lines.length; index += 1) {
+    if (/^[A-Za-z_][A-Za-z0-9_-]*:/.test(lines[index] ?? "")) {
+      end = index;
+      break;
+    }
+  }
+  const section = lines.slice(start + 1, end);
+  const flowRe = new RegExp(`^\\s*${campaign}:\\s*\\{[^}]*\\}\\s*(?:#.*)?$`);
+  const headRe = new RegExp(`^\\s*${campaign}:\\s*(?:#.*)?$`);
+  const before = lines.slice(0, start + 1);
+  const after = lines.slice(end);
+  for (let index = 0;index < section.length; index += 1) {
+    const text = section[index] ?? "";
+    if (flowRe.test(text)) {
+      const indent = text.match(/^\s*/)?.[0] ?? "  ";
+      return [...before, ...section.slice(0, index), `${indent}${line.trimStart()}`, ...section.slice(index + 1), ...after].join(`
+`);
+    }
+    const head = text.match(headRe);
+    if (head) {
+      const indent = text.match(/^\s*/)?.[0] ?? "";
+      let stop = index + 1;
+      while (stop < section.length) {
+        const next = section[stop] ?? "";
+        if (next.trim() === "") {
+          stop += 1;
+          continue;
+        }
+        if (next.length > indent.length && next.startsWith(indent) && /^\s/.test(next.slice(indent.length))) {
+          stop += 1;
+          continue;
+        }
+        break;
+      }
+      return [...before, ...section.slice(0, index), `${indent}${line.trimStart()}`, ...section.slice(stop), ...after].join(`
+`);
+    }
+  }
+  let insertAt = section.length;
+  while (insertAt > 0 && (section[insertAt - 1] ?? "").trim() === "")
+    insertAt -= 1;
+  return [...before, ...section.slice(0, insertAt), line, ...section.slice(insertAt), ...after].join(`
+`);
+}
+var scheduleUpdateResponse = union([
+  object({ ok: literal(true), job_id: string2(), campaign: string2(), cadence: string2(), enabled: boolean2(), note: string2() }),
+  object({ ok: literal(false), error: string2() })
+]);
+var hashPattern = /^[a-f0-9]{64}$/i;
+function findBodyHash(value, depth = 0) {
+  if (depth > 4 || !value || typeof value !== "object")
+    return null;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findBodyHash(item, depth + 1);
+      if (found)
+        return found;
+    }
+    return null;
+  }
+  const record2 = value;
+  for (const key of ["body_hash", "bodyHash"]) {
+    const candidate = record2[key];
+    if (typeof candidate === "string" && hashPattern.test(candidate))
+      return candidate.toLowerCase();
+  }
+  for (const nested of Object.values(record2)) {
+    const found = findBodyHash(nested, depth + 1);
+    if (found)
+      return found;
+  }
+  return null;
+}
 var LEGAL = {
   discovered: ["screened", "rejected"],
   screened: ["resume_picked"],
@@ -6409,6 +6601,21 @@ async function publishFilePayload(ctx, result) {
   await ctx.blobs.put(key, bytes, { contentType: result.contentType });
   return { filename: result.filename, file_url: await ctx.blobs.getUrl(key, { expiresInSeconds: 900 }), content_type: result.contentType };
 }
+async function publishFileWithPreview(ctx, result) {
+  const published = await publishFilePayload(ctx, result);
+  if (result.contentType !== "application/pdf")
+    return { ...published, preview_pages: [], preview_truncated: false };
+  try {
+    const preview = await ctx.executePrivileged(privileged.renderPdfPreview, { bytesBase64: result.bytesBase64, maxPages: 8 });
+    const previewPages = await Promise.all(preview.pages.map(async (page) => {
+      const image = await publishFilePayload(ctx, { filename: `page-${page.page}.png`, bytesBase64: page.bytesBase64, contentType: "image/png" });
+      return { page: page.page, file_url: image.file_url };
+    }));
+    return { ...published, preview_pages: previewPages, preview_truncated: preview.truncated };
+  } catch {
+    return { ...published, preview_pages: [], preview_truncated: false };
+  }
+}
 function pathFilename(path) {
   return path.split(/[\\/]/).filter(Boolean).at(-1) ?? "";
 }
@@ -6483,6 +6690,45 @@ function recordsFromCsv(csv) {
   const rows = csvRows(csv);
   const headers = (rows[0] ?? []).map((x) => norm(x).replaceAll(" ", "_"));
   return rows.slice(1).map((row) => Object.fromEntries(headers.map((h, i) => [h, row[i] ?? ""])));
+}
+var safeResumeFilenamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]*\.pdf$/i;
+var safeResumeVariantPattern = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+var resumeUploadResponse = union([
+  object({ ok: literal(true), variant_id: string2(), path: string2(), filename: string2(), sha256: string2() }),
+  object({ ok: literal(false), message: string2() })
+]);
+var resumeDeleteResponse = union([
+  object({ ok: literal(true), variant_id: string2(), usage_count: number2(), trashed_path: string2().nullable(), file_moved: boolean2() }),
+  object({ ok: literal(false), message: string2() })
+]);
+function decodeBase64(value) {
+  const text = value.trim();
+  if (!text || text.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(text))
+    return null;
+  try {
+    const bytes = Buffer.from(text, "base64");
+    const canonical = bytes.toString("base64");
+    return canonical === text ? bytes : null;
+  } catch {
+    return null;
+  }
+}
+function pdfBytes(bytes) {
+  return bytes.length >= 5 && bytes[0] === 37 && bytes[1] === 80 && bytes[2] === 68 && bytes[3] === 70 && bytes[4] === 45;
+}
+async function bytesSha256(bytes) {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest)).map((value) => value.toString(16).padStart(2, "0")).join("");
+}
+function profileYearsMatrix(row) {
+  if (!row)
+    return {};
+  for (const section of [row.identity, row.workAuth, row.locations, row.targeting, row.comp, row.answers, row.caps, row.replyTiers]) {
+    const candidate = jsonObject(section).years_matrix;
+    if (candidate && typeof candidate === "object" && !Array.isArray(candidate))
+      return candidate;
+  }
+  return {};
 }
 var Actions = {
   profile_get: defineAction({
@@ -6739,6 +6985,87 @@ var Actions = {
       await db.insert(resumeVariants).values({ variantId: args.variant_id, path: args.path, sha256: args.sha256, roleFamily: args.role_family, industryTags: args.industry_tags, yearsMatrix: args.years_matrix, keywordVector: args.keyword_vector }).onConflictDoUpdate({ target: resumeVariants.variantId, set: { path: args.path, sha256: args.sha256, roleFamily: args.role_family, industryTags: args.industry_tags, yearsMatrix: args.years_matrix, keywordVector: args.keyword_vector } });
       ctx.invalidateQueries();
       return { ok: true };
+    }
+  }),
+  resume_upload: defineAction({
+    request: object({ filename: string2(), bytes_base64: string2(), variant_id: string2(), role_family: string2(), industry_tags: array(string2()).optional() }),
+    response: resumeUploadResponse,
+    privileged: [privileged.writeResumeUpload, privileged.trashResumeFile],
+    async handler(ctx, args) {
+      const bytes = decodeBase64(args.bytes_base64);
+      if (!bytes)
+        return { ok: false, message: "The uploaded file could not be decoded." };
+      if (bytes.byteLength > 15 * 1024 * 1024)
+        return { ok: false, message: "The uploaded PDF is larger than the 15 MB limit." };
+      if (!pdfBytes(bytes))
+        return { ok: false, message: "The uploaded file is not a PDF." };
+      const filename = args.filename.split(/[\\/]/).filter(Boolean).at(-1) ?? "";
+      if (!safeResumeFilenamePattern.test(filename))
+        return { ok: false, message: "Use a PDF filename that starts with a letter or number and contains only letters, numbers, dots, underscores, or hyphens." };
+      const variantId = args.variant_id.trim();
+      if (!variantId || !safeResumeVariantPattern.test(variantId))
+        return { ok: false, message: "Variant id is required and may contain only letters, numbers, dots, underscores, or hyphens." };
+      const roleFamily = args.role_family.trim();
+      if (!roleFamily)
+        return { ok: false, message: "Role family is required." };
+      const db = ctx.db();
+      const existing = (await db.select({ variantId: resumeVariants.variantId }).from(resumeVariants).where(eq(resumeVariants.variantId, variantId)).limit(1))[0];
+      if (existing)
+        return { ok: false, message: `Variant id '${variantId}' is already registered. Choose a different id.` };
+      const profileRow = (await db.select().from(profile).where(eq(profile.id, 1)).limit(1))[0];
+      let written;
+      try {
+        written = await ctx.executePrivileged(privileged.writeResumeUpload, { filename, bytes_base64: args.bytes_base64 });
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : "The PDF could not be saved to the resume library." };
+      }
+      const sha256 = await bytesSha256(bytes);
+      try {
+        await db.insert(resumeVariants).values({
+          variantId,
+          path: written.path,
+          sha256,
+          roleFamily,
+          industryTags: args.industry_tags ?? [],
+          yearsMatrix: profileYearsMatrix(profileRow),
+          keywordVector: {}
+        });
+      } catch {
+        try {
+          await ctx.executePrivileged(privileged.trashResumeFile, { variant_id: variantId, filename: written.filename, location: "user_files" });
+        } catch {}
+        const duplicate = (await db.select({ variantId: resumeVariants.variantId }).from(resumeVariants).where(eq(resumeVariants.variantId, variantId)).limit(1))[0];
+        return { ok: false, message: duplicate ? `Variant id '${variantId}' is already registered. Choose a different id.` : "The PDF was saved but could not be registered. It was moved to recoverable trash when possible." };
+      }
+      ctx.invalidateQueries();
+      return { ok: true, variant_id: variantId, path: written.path, filename: written.filename, sha256 };
+    }
+  }),
+  resume_delete: defineAction({
+    request: object({ variant_id: string2().min(1) }),
+    response: resumeDeleteResponse,
+    privileged: [privileged.trashResumeFile],
+    async handler(ctx, args) {
+      const variantId = args.variant_id.trim();
+      const db = ctx.db();
+      const row = (await db.select().from(resumeVariants).where(eq(resumeVariants.variantId, variantId)).limit(1))[0];
+      if (!row)
+        return { ok: false, message: `Variant '${variantId}' is not in the library.` };
+      const usage = (await db.select({ count: sql`count(*)` }).from(applications).where(eq(applications.variantId, variantId)))[0];
+      const usageCount = countNumber(usage?.count);
+      const location = registeredResumeLocation(row.path);
+      const filename = pathFilename(row.path);
+      if (!location || !filename)
+        return { ok: false, message: "This resume is outside the registered library locations and was not removed." };
+      let moved;
+      try {
+        moved = await ctx.executePrivileged(privileged.trashResumeFile, { variant_id: variantId, filename, location });
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : "The PDF could not be moved to recoverable trash. The library entry was kept." };
+      }
+      await db.delete(resumeVariants).where(eq(resumeVariants.variantId, variantId));
+      ctx.invalidateQueries();
+      return { ok: true, variant_id: variantId, usage_count: usageCount, trashed_path: moved.trashed_path, file_moved: moved.file_moved };
     }
   }),
   resume_pick: defineAction({
@@ -7049,6 +7376,133 @@ var Actions = {
       return parsed.data;
     }
   }),
+  schedules_status: defineAction({
+    request: emptyRequest,
+    response: schedulesStatusResponse,
+    privileged: [privileged.readSchedulesManifest],
+    async handler(ctx) {
+      const generatedAt = now().toISOString();
+      const result = await ctx.executePrivileged(privileged.readSchedulesManifest, {});
+      if (!result.manifestText)
+        return { generated_at: generatedAt, manifest_missing: true, rows: [] };
+      let parsed = null;
+      try {
+        const checked = schedulesManifestSchema.safeParse(JSON.parse(result.manifestText));
+        parsed = checked.success ? checked.data : null;
+      } catch {
+        parsed = null;
+      }
+      if (!parsed)
+        return { generated_at: generatedAt, manifest_missing: true, rows: [] };
+      const runRows = await ctx.db().select().from(runs).orderBy(desc(runs.started));
+      const latestByCampaign = new Map;
+      for (const run of runRows)
+        if (!latestByCampaign.has(run.campaignId))
+          latestByCampaign.set(run.campaignId, run);
+      const rows = parsed.jobs.map((job) => {
+        const latest = latestByCampaign.get(job.campaign);
+        const liveBodyHash = latest ? findBodyHash(latest.liveConfig) ?? findBodyHash(latest.compiledConfig) : null;
+        const latestRunDrift = latest ? JSON.stringify(latest.compiledConfig) === JSON.stringify(latest.liveConfig) ? "in_sync" : "drift" : null;
+        const hashDrift = liveBodyHash && job.body_hash ? liveBodyHash === job.body_hash.toLowerCase() ? "in_sync" : "drift" : null;
+        return {
+          ...job,
+          manifest_body_hash: job.body_hash,
+          last_run_at: latest ? latest.started.toISOString() : null,
+          last_run_status: latest?.status ?? null,
+          live_body_hash: liveBodyHash,
+          drift: latest ? latestRunDrift ?? hashDrift ?? "unknown" : "unknown"
+        };
+      });
+      return { generated_at: generatedAt, manifest_missing: false, rows };
+    }
+  }),
+  schedule_update: defineAction({
+    request: object({ job_id: string2().min(1), cadence: string2().optional(), enabled: boolean2().optional() }).superRefine((value, ctx) => {
+      if (value.cadence === undefined && value.enabled === undefined) {
+        ctx.addIssue({ code: ZodIssueCode.custom, message: "Provide at least one of cadence or enabled." });
+      }
+    }),
+    response: scheduleUpdateResponse,
+    privileged: [privileged.readProfileYaml, privileged.parseProfileYaml, privileged.writeProfileYaml, privileged.readSchedulesManifest],
+    async handler(ctx, args) {
+      const jobId = args.job_id.trim();
+      const campaign = jobIdToCampaign(jobId);
+      if (!campaign) {
+        return { ok: false, error: `Unknown job_id ${q(jobId)}. Known job ids: ${SCHEDULE_CAMPAIGNS.map(scheduleJobId).join(", ")}.` };
+      }
+      let cadence;
+      if (args.cadence !== undefined) {
+        const problem = cadenceError(args.cadence);
+        if (problem)
+          return { ok: false, error: problem };
+        cadence = args.cadence.trim();
+      }
+      let originalText;
+      let parsed;
+      try {
+        originalText = (await ctx.executePrivileged(privileged.readProfileYaml, {})).yamlText;
+        parsed = jsonObject((await ctx.executePrivileged(privileged.parseProfileYaml, { yamlText: originalText })).parsed);
+      } catch {
+        return { ok: false, error: "profile.yaml could not be read or parsed; nothing was changed." };
+      }
+      const campaigns2 = jsonObject(parsed.campaigns);
+      const rawExisting = campaigns2[campaign];
+      if (rawExisting !== undefined && (typeof rawExisting !== "object" || rawExisting === null || Array.isArray(rawExisting))) {
+        return { ok: false, error: `campaigns.${campaign} is malformed in profile.yaml; fix it by hand before editing from the dashboard.` };
+      }
+      const existing = rawExisting ? rawExisting : null;
+      let nextCadence = cadence ?? (typeof existing?.cadence === "string" && existing.cadence.trim() ? existing.cadence.trim() : undefined);
+      if (!nextCadence) {
+        try {
+          const manifest = await ctx.executePrivileged(privileged.readSchedulesManifest, {});
+          if (manifest.manifestText) {
+            const jobs = jsonArray(JSON.parse(manifest.manifestText).jobs);
+            const row = jobs.map(jsonObject).find((job) => job.job_id === jobId);
+            const found = row && typeof row.cadence === "string" ? row.cadence.trim() : "";
+            if (found)
+              nextCadence = found;
+          }
+        } catch {}
+        if (!nextCadence)
+          return { ok: false, error: `campaigns.${campaign} has no cadence yet and the manifest has no row for ${q(jobId)}; pass cadence explicitly.` };
+      }
+      const nextFields = { ...existing ?? {}, cadence: nextCadence };
+      if (args.enabled !== undefined)
+        nextFields.enabled = args.enabled;
+      let updatedText;
+      try {
+        updatedText = spliceCampaignEntry(originalText, campaign, campaignEntryLine(campaign, nextFields));
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : "The campaigns section could not be edited." };
+      }
+      try {
+        const reparsed = jsonObject((await ctx.executePrivileged(privileged.parseProfileYaml, { yamlText: updatedText })).parsed);
+        const checked = yamlProfileSchema.safeParse(reparsed);
+        if (!checked.success)
+          throw new Error(checked.error.issues[0]?.message ?? "The edited profile did not validate.");
+      } catch (error) {
+        try {
+          await ctx.executePrivileged(privileged.writeProfileYaml, { yaml_text: originalText });
+        } catch {}
+        return { ok: false, error: `Edited profile failed validation; the previous profile.yaml was restored. ${error instanceof Error ? error.message : ""}`.trim() };
+      }
+      try {
+        await ctx.executePrivileged(privileged.writeProfileYaml, { yaml_text: updatedText });
+      } catch {
+        return { ok: false, error: "profile.yaml could not be written; nothing was changed." };
+      }
+      ctx.invalidateQueries();
+      const enabled = nextFields.enabled === false ? false : true;
+      return {
+        ok: true,
+        job_id: jobId,
+        campaign,
+        cadence: nextCadence,
+        enabled,
+        note: `Saved to profile.yaml campaigns.${campaign}. Recompiles within ~15 min via profile_watch \u2014 the job is never deleted.`
+      };
+    }
+  }),
   snapshot: defineAction({
     request: object({ view: _enum(["overview", "applications", "resumes", "runs", "replies", "health", "ask"]), query: string2().optional() }),
     response: object({ view: string2(), generated_at: string2(), data: unknown() }),
@@ -7246,8 +7700,8 @@ var Actions = {
       object({ app_id: string2().min(1), kind: _enum(["resume", "screenshot", "confirmation"]) }),
       object({ variant_id: string2().min(1) })
     ]),
-    response: object({ filename: string2(), file_url: string2(), content_type: _enum(["application/pdf", "image/png", "text/plain"]) }),
-    privileged: [privileged.readApplicationEvidence, privileged.readRegisteredResume],
+    response: object({ filename: string2(), file_url: string2(), content_type: _enum(["application/pdf", "image/png", "text/plain"]), preview_pages: array(object({ page: number2().int().positive(), file_url: string2() })), preview_truncated: boolean2() }),
+    privileged: [privileged.readApplicationEvidence, privileged.readRegisteredResume, privileged.readTrashedResume, privileged.renderPdfPreview],
     async handler(ctx, args) {
       const db = ctx.db();
       if ("variant_id" in args) {
@@ -7257,9 +7711,9 @@ var Actions = {
         if (!row || !location || !filename)
           throw new Error("The requested resume is not available from a registered location.");
         const result = await ctx.executePrivileged(privileged.readRegisteredResume, { filename, location });
-        return publishFilePayload(ctx, result);
+        return publishFileWithPreview(ctx, result);
       }
-      const row = (await db.select({ appId: applications.appId, campaignId: applications.campaignId, runId: applications.runId, variantId: applications.variantId, resumePath: applications.resumePath, screenshotPath: applications.screenshotPath, confirmationPath: applications.confirmationPath }).from(applications).where(eq(applications.appId, args.app_id)).limit(1))[0];
+      const row = (await db.select({ appId: applications.appId, campaignId: applications.campaignId, runId: applications.runId, variantId: applications.variantId, resumePath: applications.resumePath, resumeHash: applications.resumeHash, screenshotPath: applications.screenshotPath, confirmationPath: applications.confirmationPath }).from(applications).where(eq(applications.appId, args.app_id)).limit(1))[0];
       const path = row ? args.kind === "resume" ? row.resumePath : args.kind === "screenshot" ? row.screenshotPath : row.confirmationPath : null;
       if (!row || !path)
         throw new Error("The requested file is not attached to this application.");
@@ -7268,15 +7722,20 @@ var Actions = {
         const filename = pathFilename(path);
         if (location) {
           const registered = row.variantId ? (await db.select({ path: resumeVariants.path }).from(resumeVariants).where(and(eq(resumeVariants.variantId, row.variantId), eq(resumeVariants.path, path))).limit(1))[0] : null;
-          if (!registered)
-            throw new Error("The application resume is not bound to its registered variant.");
-          return publishFilePayload(ctx, await ctx.executePrivileged(privileged.readRegisteredResume, { filename, location }));
+          if (registered)
+            return publishFileWithPreview(ctx, await ctx.executePrivileged(privileged.readRegisteredResume, { filename, location }));
+          if (!row.variantId)
+            throw new Error("The application resume has no recorded variant id.");
+          const trashed = await ctx.executePrivileged(privileged.readTrashedResume, { variant_id: row.variantId, filename, sha256: row.resumeHash });
+          if (!trashed.found || !trashed.filename || !trashed.bytesBase64 || !trashed.contentType)
+            throw new Error(`Removed resume variant '${row.variantId}' is no longer available in recoverable trash.`);
+          return publishFileWithPreview(ctx, { filename: trashed.filename, bytesBase64: trashed.bytesBase64, contentType: trashed.contentType });
         }
       }
       if (!row.runId)
         throw new Error("The application has no run-bound evidence directory.");
       const result = await ctx.executePrivileged(privileged.readApplicationEvidence, { appId: row.appId, campaignId: row.campaignId, runId: row.runId, kind: args.kind, filename: pathFilename(path) });
-      return publishFilePayload(ctx, result);
+      return publishFileWithPreview(ctx, result);
     }
   }),
   get_resume: defineAction({

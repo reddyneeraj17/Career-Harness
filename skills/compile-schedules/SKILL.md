@@ -27,7 +27,17 @@ The profile is the single human-editable rule source. Templates live at `~/works
 1. **Validate.** Validate `profile.yaml` against `templates/profile.schema.yaml` (required keys, enums). Fail loudly on any missing key. Never render a half-profile.
 2. **Sync.** `profile_put` — the DB and the bodies must agree; a compiled body rendered from stale facts is a bug.
 3. **Render.** Render each `templates/<campaign>.body.md` with `{{ }}` placeholders filled from the profile. A placeholder with no value FAILS the compile. `[FILL IN]` never ships.
-4. **Save.** `cron.update` for existing jobs; `cron.add` on first install. Bodies are thin: invoke the run-coordinator skill with `campaign_id`, then the standard footer (run_close, report rule). Disabled campaigns are saved with `enabled: false`, never deleted — re-enabling is a recompile, not archaeology.
+4. **Save.** `cron.update` for existing jobs whose rendered body actually changed
+   (compare against `cron.view` first); `cron.add` if a job is missing, or on
+   first install. Bodies are thin: invoke the run-coordinator skill with
+   `campaign_id`, then the standard footer (run_close, report rule).
+   **Cadence and enabled come from `campaigns.<name>` in the profile:** when the
+   entry is present, its `cadence` sets the job's schedule and `enabled: false`
+   saves the job DISABLED — never deleted; re-enabling is a recompile, not
+   archaeology. When the entry is absent, fall back to the template/skill-convention
+   default cadence and treat the job as enabled. (The dashboard's `schedule_update`
+   action is the supported writer of these entries; the profile_watch job picks
+   them up within ~15 min.)
 5. **Verify and manifest.** `cron.view` each job back; sha256 each saved body; write `~/workspace/schedules_manifest.json` with: job id, campaign, cadence, body hash, skill versions, profile_hash, compiled_at.
 6. **Log.** `event_log` the manifest summary.
 
@@ -49,7 +59,9 @@ The profile is the single human-editable rule source. Templates live at `~/works
 - Never render a body from an unvalidated profile. Missing key -> fail loudly, fix the profile, re-run.
 - Never ship a placeholder with no value; never ship `[FILL IN]`.
 - Never delete a cron job to disable a campaign; use `enabled: false`.
-- Never hand-edit a saved cron body; recompile from the profile. The doctor reports drift; it never auto-recompiles.
+- Never hand-edit a saved cron body; recompile from the profile. The profile-watch
+  ops job auto-recompiles within ~15 min of any profile.yaml change; the doctor
+  remains report-only as the drift backstop.
 - The manifest is the compiled-vs-live truth; dashboards read it, not chat history.
 - No personal data in this file; customer facts come from the profile only.
 - Append one `event_log` row on exit, always.

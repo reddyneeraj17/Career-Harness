@@ -69,7 +69,7 @@ cd ~/workspace/harness-kit && ./install/install.sh
 verifies checksums, and prints the agent runbook: build the harness-core
 artifact from `harness-core/` source, run drizzle migrations in order,
 import seeds, copy `profile.example.yaml` → `~/workspace/profile.yaml`,
-fill it in (intake interview), run compile-schedules, smoke-test, doctor.
+complete the dashboard setup wizard, run compile-schedules, smoke-test, doctor.
 
 ## Upgrade / rollback
 

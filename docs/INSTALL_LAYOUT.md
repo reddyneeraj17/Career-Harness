@@ -25,7 +25,7 @@ folder except the kit's own source files, which the agent reads in place.
 | `seed/h1b_employer_hub.csv` | imported into `h1b_sponsors` table | **agent** (`h1b_import`) | H-1B sponsorship data. Read from the kit in place. |
 | `seed/companies_seed.csv` | imported into `companies` table | **agent** (`companies_import`) | Tier/industry/ATS seed list. Read from the kit in place. |
 | `goal-skeletons/*/` | `~/workspace/goals/<campaign>/` (+ `crons/`, `files/`, `hidden_files/`, `briefs/`, `agent_notes/`, `references/` subdirs) | **script** | Per-campaign goal dirs. Script never overwrites an existing goal dir. |
-| `profile.example.yaml` | `~/workspace/profile.yaml` | **script** (only if missing) | The customer's live profile. The **human** fills it in the intake interview; the dashboard's Profile tab edits it afterwards. This is the one customer-owned config file. |
+| `profile.example.yaml` | `~/workspace/profile.yaml` | **script** (only if missing) | The customer's live profile. The **customer** fills it in the dashboard's guided setup wizard on first run; the dashboard's Profile tab edits it afterwards. This is the one customer-owned config file. |
 | *(customer's resume PDF)* | `~/workspace/user/files/` | **human** | Script creates the folder. The customer drops their resume here; the filename must match `profile.yaml`. |
 | `install/install.sh` | *stays in the kit* | — | Fresh-install staging. Idempotent; safe to re-run. |
 | `install/upgrade.sh` | *stays in the kit* | — | Version upgrades / rollbacks. |

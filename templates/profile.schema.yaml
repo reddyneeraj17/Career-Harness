@@ -53,6 +53,10 @@ targeting:
     tiers:      {required: true, type: list, items: {type: integer, enum: [1, 2, 3]}}
     industries: {required: true, type: list, items: {type: string}, min_items: 1}
     seniority:  {required: true, type: list, items: {type: string, enum: [junior, mid, senior, staff, architect, principal, lead, director]}, min_items: 1}
+    # Target job titles. Free-form strings (titles vary too much for an enum),
+    # e.g. "Senior Data Engineer", "Staff Data Scientist", "ML Engineer".
+    # Scouts build search queries from titles x seniority x industries.
+    titles:     {required: true, type: list, items: {type: string}, min_items: 1}
 
 comp:
   required: true
@@ -105,10 +109,19 @@ campaigns:
   required: true
   type: map
   fields:
-    morning_run:      {required: false, type: map, fields: {cadence: {required: true, type: string}}}
-    linkedin_feed:    {required: false, type: map, fields: {cadence: {required: true, type: string}}}
-    career_portal:    {required: false, type: map, fields: {cadence: {required: true, type: string}}}
-    job_board:        {required: false, type: map, fields: {cadence: {required: true, type: string}}}
-    # ops control jobs — optional in profile; driven by template/skill-convention cadences
-    email_scan:       {required: false, type: map, fields: {cadence: {required: true, type: string}}}
-    linkedin_replies: {required: false, type: map, fields: {cadence: {required: true, type: string}}}
+    # cadence: free-text schedule ("daily 07:00", "2h weekdays", "hourly", "every 15m", "Friday 5:00pm CT").
+    #   When an entry is absent, compile-schedules falls back to the template/skill-convention default.
+    # enabled: optional, defaults true. enabled: false saves the cron job DISABLED (never deleted);
+    #   re-enabling is a recompile. Dashboard edits via the schedule_update action.
+    morning_run:      {required: false, type: map, fields: {cadence: {required: true, type: string}, enabled: {required: false, type: boolean}}}
+    linkedin_feed:    {required: false, type: map, fields: {cadence: {required: true, type: string}, enabled: {required: false, type: boolean}}}
+    career_portal:    {required: false, type: map, fields: {cadence: {required: true, type: string}, enabled: {required: false, type: boolean}}}
+    job_board:        {required: false, type: map, fields: {cadence: {required: true, type: string}, enabled: {required: false, type: boolean}}}
+    email_scan:       {required: false, type: map, fields: {cadence: {required: true, type: string}, enabled: {required: false, type: boolean}}}
+    linkedin_replies: {required: false, type: map, fields: {cadence: {required: true, type: string}, enabled: {required: false, type: boolean}}}
+    approval_judge:   {required: false, type: map, fields: {cadence: {required: true, type: string}, enabled: {required: false, type: boolean}}}
+    daily_report:     {required: false, type: map, fields: {cadence: {required: true, type: string}, enabled: {required: false, type: boolean}}}
+    token_usage:      {required: false, type: map, fields: {cadence: {required: true, type: string}, enabled: {required: false, type: boolean}}}
+    weekly_review:    {required: false, type: map, fields: {cadence: {required: true, type: string}, enabled: {required: false, type: boolean}}}
+    harness_doctor:   {required: false, type: map, fields: {cadence: {required: true, type: string}, enabled: {required: false, type: boolean}}}
+    profile_watch:    {required: false, type: map, fields: {cadence: {required: true, type: string}, enabled: {required: false, type: boolean}}}

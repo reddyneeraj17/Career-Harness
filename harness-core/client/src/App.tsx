@@ -1,9 +1,9 @@
-import { useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { SafeAreaTopScrim } from "@hatch/space-sdk/client";
+import { SafeAreaTopScrim, bytesToBase64 } from "@hatch/space-sdk/client";
 import { api } from "./api";
 
-type Tab = "overview" | "applications" | "resumes" | "runs" | "replies" | "profile";
+type Tab = "overview" | "applications" | "resumes" | "runs" | "schedules" | "replies" | "profile";
 type AnyData = Record<string, any>;
 
 const tabs: { id: Tab; label: string; icon: string }[] = [
@@ -11,6 +11,7 @@ const tabs: { id: Tab; label: string; icon: string }[] = [
   { id: "applications", label: "Applications", icon: "file" },
   { id: "resumes", label: "Resumes", icon: "resume" },
   { id: "runs", label: "Runs", icon: "play" },
+  { id: "schedules", label: "Schedules", icon: "schedule" },
   { id: "replies", label: "Replies", icon: "reply" },
   { id: "profile", label: "Profile", icon: "profile" },
 ];
@@ -20,6 +21,7 @@ function Icon({ name, size = 18 }: { name: string; size?: number }) {
   if (name === "file") return <svg {...common}><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v5h5M10 13h5M10 17h5"/></svg>;
   if (name === "resume") return <svg {...common}><path d="M6 3h12v18H6z"/><path d="M9 7h6M9 11h6M9 15h4"/></svg>;
   if (name === "play") return <svg {...common}><circle cx="12" cy="12" r="9"/><path d="m10 8 6 4-6 4z"/></svg>;
+  if (name === "schedule") return <svg {...common}><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4M16 3v4M4 10h16"/><path d="m9 15 2 2 4-4"/></svg>;
   if (name === "reply") return <svg {...common}><path d="m9 17-5-5 5-5"/><path d="M4 12h9a6 6 0 0 1 6 6"/></svg>;
   if (name === "shield") return <svg {...common}><path d="M12 3 5 6v5c0 4.6 2.8 8.1 7 10 4.2-1.9 7-5.4 7-10V6z"/><path d="m9 12 2 2 4-5"/></svg>;
   if (name === "profile") return <svg {...common}><circle cx="12" cy="8" r="3.5"/><path d="M5 21a7 7 0 0 1 14 0"/><path d="M4 4h2M18 4h2"/></svg>;
@@ -27,11 +29,19 @@ function Icon({ name, size = 18 }: { name: string; size?: number }) {
   if (name === "search") return <svg {...common}><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>;
   if (name === "chevron") return <svg {...common}><path d="m9 18 6-6-6-6"/></svg>;
   if (name === "external") return <svg {...common}><path d="M14 4h6v6M10 14 20 4M20 14v6H4V4h6"/></svg>;
+  if (name === "eye") return <svg {...common}><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.6"/></svg>;
+  if (name === "eye-off") return <svg {...common}><path d="m3 3 18 18"/><path d="M10.6 6.2A10.8 10.8 0 0 1 12 6c6 0 9.5 6 9.5 6a15.7 15.7 0 0 1-2.1 2.8M6.6 6.6C4 8.2 2.5 12 2.5 12s3.5 6 9.5 6a9.7 9.7 0 0 0 3.2-.5"/><path d="M10 10a2.8 2.8 0 0 0 4 4"/></svg>;
   return <svg {...common}><path d="M3 12h4l2-7 4 14 2-7h6"/></svg>;
 }
 
 const fmt = (n: unknown) => Number(n ?? 0).toLocaleString("en-US");
 const when = (value: unknown) => value ? new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(String(value))) : "—";
+const chicagoWhen = (value: unknown) => {
+  if (!value) return "—";
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(date);
+};
 const titleCase = (s: string) => s.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase());
 
 type DatePreset = "today" | "7d" | "30d" | "all" | "custom";
@@ -99,24 +109,35 @@ const fileName = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1) ??
 type WorkspaceFileRef = { app_id: string; kind: "resume" | "screenshot" | "confirmation" } | { variant_id: string };
 
 function WorkspaceFileButton({ fileRef, label, displayName }: { fileRef: WorkspaceFileRef; label: string; displayName: string }) {
-  const open = useMutation({ mutationFn: () => api.file_open(fileRef) });
-  const openFile = () => {
-    const popup = window.open("about:blank", "_blank");
-    if (popup) popup.opener = null;
-    open.mutate(undefined, {
-      onSuccess: (result) => {
-        const url = new URL(result.file_url, window.location.href).href;
-        if (popup) popup.location.replace(url);
-        else {
-          const anchor = document.createElement("a");
-          anchor.href = url; anchor.download = result.filename; anchor.target = "_blank"; anchor.rel = "noreferrer";
-          document.body.appendChild(anchor); anchor.click(); anchor.remove();
-        }
-      },
-      onError: () => popup?.close(),
-    });
-  };
-  return <span className="workspace-file-control"><button type="button" className="file-button" onClick={openFile} disabled={open.isPending} aria-label={`${label}: ${displayName}`}>{open.isPending ? "Opening…" : label} <Icon name="external" size={14} /></button>{open.isError && <small>File unavailable</small>}</span>;
+  const [preview, setPreview] = useState<{ filename: string; url: string; pages: { page: number; url: string }[]; truncated: boolean } | null>(null);
+  const open = useMutation({
+    mutationFn: () => api.file_open(fileRef),
+    onSuccess: (result) => setPreview({
+      filename: result.filename,
+      url: new URL(result.file_url, window.location.href).href,
+      pages: result.preview_pages.map((page) => ({ page: page.page, url: new URL(page.file_url, window.location.href).href })),
+      truncated: result.preview_truncated,
+    }),
+  });
+  useEffect(() => {
+    if (!preview) return;
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setPreview(null); };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [preview]);
+  return <>
+    <span className="workspace-file-control"><button type="button" className="file-button" onClick={() => open.mutate()} disabled={open.isPending} aria-label={`${label}: ${displayName}`}>{open.isPending ? "Opening…" : label} <Icon name="eye" size={14} /></button>{open.isError && <small>File unavailable</small>}</span>
+    {preview && <div className="dialog-backdrop pdf-preview-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setPreview(null); }}>
+      <div className="pdf-preview" role="dialog" aria-modal="true" aria-labelledby="pdf-preview-title">
+        <div className="pdf-preview-head"><div><span>PDF preview</span><h2 id="pdf-preview-title">{preview.filename}</h2></div><button type="button" className="pdf-close" onClick={() => setPreview(null)} aria-label={`Close ${preview.filename}`}>Close</button></div>
+        <div className="pdf-preview-pages" aria-label={`${preview.filename} preview pages`}>
+          {preview.pages.length > 0 ? preview.pages.map((page) => <figure key={page.page}><img src={page.url} alt={`Page ${page.page} of ${preview.filename}`} /><figcaption>Page {page.page}</figcaption></figure>) : <div className="pdf-preview-empty"><b>Preview unavailable</b><span>Download the original PDF below.</span></div>}
+          {preview.truncated && <p className="pdf-preview-note">Preview shows the first {preview.pages.length} pages. Download the PDF to see the rest.</p>}
+        </div>
+        <div className="pdf-preview-actions"><a href={preview.url} download={preview.filename}>Download PDF</a><span>The original PDF is unchanged.</span></div>
+      </div>
+    </div>}
+  </>;
 }
 
 function ScreenshotEvidence({ appId, path }: { appId: string; path: string }) {
@@ -181,15 +202,77 @@ function Applications({ data, onRefresh, refreshing }: { data: AnyData; onRefres
   </>;
 }
 
+function suggestedVariantId(filename: string): string {
+  return filename.replace(/\.pdf$/i, "").toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^[._-]+|[._-]+$/g, "");
+}
+
 function Resumes({ data, onRefresh, refreshing }: { data: AnyData; onRefresh: () => void; refreshing: boolean }) {
+  const queryClient = useQueryClient();
+  const inputRef = useRef<HTMLInputElement>(null);
   const resumes = Array.isArray(data.resumes) ? data.resumes : [];
   const totalUses = resumes.reduce((sum: number, resume: AnyData) => sum + Number(resume.exact_usage ?? 0), 0);
+  const [selected, setSelected] = useState<{ filename: string; bytes_base64: string } | null>(null);
+  const [variantId, setVariantId] = useState("");
+  const [roleFamily, setRoleFamily] = useState("");
+  const [industryTags, setIndustryTags] = useState("");
+  const [uploadError, setUploadError] = useState("");
+  const [notice, setNotice] = useState<{ tone: "good" | "error"; text: string } | null>(null);
+  const [confirming, setConfirming] = useState<AnyData | null>(null);
+  const duplicate = variantId.trim() ? resumes.some((resume: AnyData) => String(resume.variant_id).toLowerCase() === variantId.trim().toLowerCase()) : false;
+  const refreshLibrary = () => { void queryClient.invalidateQueries({ queryKey: ["snapshot", "resumes"] }); onRefresh(); };
+  const upload = useMutation({
+    mutationFn: () => api.resume_upload({ filename: selected?.filename ?? "", bytes_base64: selected?.bytes_base64 ?? "", variant_id: variantId.trim(), role_family: roleFamily.trim(), industry_tags: csvList(industryTags) }),
+    onSuccess: (result) => {
+      if (!result.ok) { setUploadError(result.message); return; }
+      setNotice({ tone: "good", text: `Variant '${result.variant_id}' uploaded. SHA-256 ${result.sha256}` });
+      setSelected(null); setVariantId(""); setRoleFamily(""); setIndustryTags(""); setUploadError("");
+      if (inputRef.current) inputRef.current.value = "";
+      refreshLibrary();
+    },
+    onError: () => setUploadError("The PDF could not be uploaded. No library entry was added."),
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) => api.resume_delete({ variant_id: id }),
+    onSuccess: (result) => {
+      if (!result.ok) { setNotice({ tone: "error", text: result.message }); return; }
+      setNotice({ tone: "good", text: result.file_moved ? `Variant '${result.variant_id}' removed from the library. PDF moved to ${result.trashed_path}.` : `Variant '${result.variant_id}' removed from the library; the file was already missing. Application history is untouched.` });
+      setConfirming(null); refreshLibrary();
+    },
+    onError: () => setNotice({ tone: "error", text: "The resume could not be removed. The library entry was kept." }),
+  });
+  const chooseFile = async (file: File | undefined) => {
+    setNotice(null); setUploadError(""); setSelected(null);
+    if (!file) return;
+    if (file.size > 15 * 1024 * 1024) { setUploadError("The uploaded PDF is larger than the 15 MB limit."); return; }
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (bytes.length < 5 || bytes[0] !== 0x25 || bytes[1] !== 0x50 || bytes[2] !== 0x44 || bytes[3] !== 0x46 || bytes[4] !== 0x2d) { setUploadError("The uploaded file is not a PDF."); return; }
+    const filename = file.name.split(/[\\/]/).filter(Boolean).at(-1) ?? "";
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.pdf$/i.test(filename)) { setUploadError("Rename the PDF so its filename starts with a letter or number and uses only letters, numbers, dots, underscores, or hyphens."); return; }
+    setSelected({ filename, bytes_base64: bytesToBase64(bytes) });
+    setVariantId(suggestedVariantId(filename));
+  };
+  const submitUpload = (event: FormEvent) => {
+    event.preventDefault(); setUploadError("");
+    if (!selected) { setUploadError("Choose a PDF first."); return; }
+    if (!variantId.trim() || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(variantId.trim())) { setUploadError("Variant id is required and may contain only letters, numbers, dots, underscores, or hyphens."); return; }
+    if (duplicate) { setUploadError(`Variant id '${variantId.trim()}' is already registered. Choose a different id.`); return; }
+    if (!roleFamily.trim()) { setUploadError("Role family is required."); return; }
+    upload.mutate();
+  };
   return <>
-    <div className="page-lead"><div><p className="eyebrow">Resume library</p><h1>Files that actually ship</h1><p>Open the source PDF and trace exact application usage.</p></div><RefreshButton onClick={onRefresh} active={refreshing} /></div>
+    <div className="page-lead"><div><p className="eyebrow">Resume library</p><h1>Files that actually ship</h1><p>Upload base PDFs, open the source file, and trace exact application usage.</p></div><RefreshButton onClick={onRefresh} active={refreshing} /></div>
+    {notice && <div className={`save-notice ${notice.tone}`} role="status">{notice.text}</div>}
     <div className="kpi-band"><Kpi hero label="Resume variants" value={resumes.length} note="Registered PDFs" /><Kpi label="Exact usage" value={totalUses} /><Kpi label="Used variants" value={resumes.filter((r: AnyData) => Number(r.exact_usage ?? 0) > 0).length} /><Kpi label="Unused variants" value={resumes.filter((r: AnyData) => Number(r.exact_usage ?? 0) === 0).length} /></div>
-    <Section title="Resume files" aside={<span className="count-label">{fmt(resumes.length)} files</span>}>
-      {resumes.length === 0 ? <Empty title="No resume variants" body="Imported resume variants will appear here with exact usage counts." /> : <div className="resume-list">{resumes.map((r: AnyData) => <article key={r.variant_id} className="resume-row"><div><h3>{r.variant_id}</h3><p>{r.role_family} · {fmt(r.exact_usage)} uses · {Math.round(Number(r.approval_rate ?? 0) * (Number(r.approval_rate ?? 0) <= 1 ? 100 : 1))}% approval</p><code className="resume-path">{r.path}</code></div><WorkspaceFileButton fileRef={{ variant_id: String(r.variant_id) }} label="Open PDF" displayName={fileName(String(r.path))} /></article>)}</div>}
+    <Section title="Resume files" aside={<div className="resume-section-actions"><span className="count-label">{fmt(resumes.length)} files</span><button type="button" className="upload-button" onClick={() => inputRef.current?.click()}>Upload PDF</button><input ref={inputRef} className="visually-hidden" type="file" accept="application/pdf,.pdf" aria-label="Choose resume PDF" onChange={(event) => void chooseFile(event.target.files?.[0])} /></div>}>
+      {(selected || uploadError) && <form className="resume-upload" onSubmit={submitUpload} noValidate>
+        <div className="resume-upload-file"><b>{selected?.filename ?? "No valid file selected"}</b><span>{selected ? "PDF ready · 15 MB maximum" : "Choose another PDF to continue"}</span></div>
+        {selected && <div className="field-grid"><Field label="Variant id" error={duplicate ? `Variant id '${variantId.trim()}' is already registered. Choose a different id.` : undefined}><input value={variantId} onChange={(event) => setVariantId(event.target.value)} autoComplete="off" /></Field><Field label="Role family"><input value={roleFamily} onChange={(event) => setRoleFamily(event.target.value)} placeholder="e.g. Data engineering" /></Field><Field label="Industry tags" hint="Optional, comma separated"><input value={industryTags} onChange={(event) => setIndustryTags(event.target.value)} placeholder="fintech, healthcare" /></Field></div>}
+        {uploadError && <p className="inline-error" role="alert">{uploadError}</p>}
+        <div className="resume-upload-actions"><button type="button" onClick={() => { setSelected(null); setUploadError(""); if (inputRef.current) inputRef.current.value = ""; }}>Cancel</button>{selected && <button type="submit" className="save-profile" disabled={upload.isPending || duplicate}>{upload.isPending ? "Uploading…" : "Add to library"}</button>}</div>
+      </form>}
+      {resumes.length === 0 ? <Empty title="No resume variants" body="Upload a base PDF to make it available to the resume picker." /> : <div className="resume-list">{resumes.map((r: AnyData) => <article key={r.variant_id} className="resume-row"><div><h3>{r.variant_id}</h3><p>{r.role_family} · {fmt(r.exact_usage)} uses · {Math.round(Number(r.approval_rate ?? 0) * (Number(r.approval_rate ?? 0) <= 1 ? 100 : 1))}% approval</p><code className="resume-path">{r.path}</code></div><div className="resume-row-actions"><WorkspaceFileButton fileRef={{ variant_id: String(r.variant_id) }} label="Open PDF" displayName={fileName(String(r.path))} /><button type="button" className="delete-resume" onClick={() => setConfirming(r)}>Delete</button></div></article>)}</div>}
     </Section>
+    {confirming && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !remove.isPending) setConfirming(null); }}><div className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-resume-title"><h2 id="delete-resume-title">Remove {String(confirming.variant_id)}?</h2><p><b>Used in {fmt(confirming.exact_usage)} applications.</b></p><p>The PDF moves to recoverable trash. Application history is untouched.</p><div><button type="button" onClick={() => setConfirming(null)} disabled={remove.isPending}>Cancel</button><button type="button" className="danger-button" onClick={() => remove.mutate(String(confirming.variant_id))} disabled={remove.isPending}>{remove.isPending ? "Moving…" : "Move to trash"}</button></div></div></div>}
   </>;
 }
 
@@ -252,6 +335,78 @@ function Runs({ data, onRefresh, refreshing }: { data: AnyData; onRefresh: () =>
   </>;
 }
 
+const CADENCE_HELP = 'Accepted formats: "daily HH:MM" (e.g. "daily 07:00"), "nightly HH:MM" (e.g. "nightly 23:20"), "hourly", "hourly weekdays", "every Nm" (e.g. "every 15m"), "every Nh" (e.g. "every 2h"), "Nh weekdays" (e.g. "2h weekdays"), "H:MMam/pm CT" (e.g. "9:00am CT"), "Weekday H:MMam/pm CT" (e.g. "Friday 5:00pm CT").';
+
+function ScheduleEditor({ jobId, cadence, enabled, onChanged }: { jobId: string; cadence: string; enabled: boolean; onChanged: () => void }) {
+  const [draft, setDraft] = useState(cadence);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ tone: "good" | "error"; text: string } | null>(null);
+  useEffect(() => { setDraft(cadence); }, [cadence]);
+  const save = async (args: { cadence?: string; enabled?: boolean }) => {
+    setBusy(true); setMessage(null);
+    try {
+      const result = await api.schedule_update({ job_id: jobId, ...args });
+      if (!result.ok) { setMessage({ tone: "error", text: result.error }); return; }
+      setMessage({ tone: "good", text: result.note });
+      onChanged();
+    } catch {
+      setMessage({ tone: "error", text: "The schedule could not be updated. No change was saved." });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const dirty = draft.trim() !== cadence;
+  return <div className="schedule-edit">
+    <div className="schedule-edit-row">
+      <button type="button" role="switch" aria-checked={enabled} className={`schedule-switch${enabled ? " on" : ""}`} disabled={busy} onClick={() => void save({ enabled: !enabled })}>
+        <span className="schedule-knob" aria-hidden="true" /><span className="schedule-switch-label">{enabled ? "Enabled" : "Disabled"}</span>
+      </button>
+      <span className="schedule-edit-hint">Disabling saves the cron job disabled — it is never deleted.</span>
+    </div>
+    <div className="schedule-edit-row">
+      <label className="schedule-cadence-field"><span>Cadence</span><input value={draft} onChange={(e) => setDraft(e.target.value)} disabled={busy} spellCheck={false} autoComplete="off" placeholder={cadence} aria-label={`Cadence for ${jobId}`} /></label>
+      <button type="button" className="schedule-save" disabled={busy || !dirty || !draft.trim()} onClick={() => void save({ cadence: draft.trim() })}>{busy ? "Saving…" : "Save cadence"}</button>
+    </div>
+    <p className="schedule-help">{CADENCE_HELP}</p>
+    {message && <p className={message.tone === "good" ? "schedule-note" : "inline-error"} role="status">{message.text}</p>}
+  </div>;
+}
+
+function Schedules() {
+  const status = useQuery({ queryKey: ["schedules-status"], queryFn: () => api.schedules_status({}), refetchOnMount: "always", staleTime: 0 });
+  const rows = status.data?.rows ?? [];
+  const refresh = () => { void status.refetch(); };
+  const shortHash = (value: string | null) => value ? `${value.slice(0, 12)}…` : "—";
+
+  if (status.isPending) return <div className="loading"><span /><p>Reading schedules manifest…</p></div>;
+  if (status.isError) return <div className="error-screen"><div className="health-orb"><Icon name="schedule" size={28} /></div><h1>Schedules unavailable</h1><p>The schedules manifest and run ledger could not be read.</p><button onClick={refresh}>Retry</button></div>;
+
+  const inSync = rows.filter((row) => row.drift === "in_sync").length;
+  const drift = rows.filter((row) => row.drift === "drift").length;
+  const unknown = rows.filter((row) => row.drift === "unknown").length;
+  return <>
+    <div className="page-lead"><div><p className="eyebrow">Schedule registry</p><h1>Cadence and configuration drift</h1><p>Compiled jobs reconciled against the latest recorded campaign run.</p></div><RefreshButton onClick={refresh} active={status.isFetching} /></div>
+    <div className="kpi-band"><Kpi hero label="Scheduled jobs" value={rows.length} note="Live manifest" /><Kpi label="In sync" value={inSync} /><Kpi label="Drift" value={drift} /><Kpi label="Unknown" value={unknown} /></div>
+    <Section title="Schedules" aside={<span className="count-label">{fmt(rows.length)} jobs</span>}>
+      {status.data.manifest_missing ? <Empty title="No schedules manifest found — run compile-schedules" body="The manifest is missing or unreadable, so no schedule status can be shown." /> : rows.length === 0 ? <Empty title="No schedules in manifest" body="Run compile-schedules after adding campaign jobs." /> : <div className="schedule-list" role="list" aria-label="Schedule drift status">{rows.map((row) => <article className="schedule-row" role="listitem" key={row.job_id}>
+        <div className="schedule-primary"><div><h3>{row.title}</h3><code>{row.job_id}</code></div><Status value={row.drift} /></div>
+        <div className="schedule-facts">
+          <div><span>Campaign</span><b>{row.campaign}</b></div>
+          <div><span>Cadence</span><b>{row.cadence}</b><small>{row.schedule}</small></div>
+          <div><span>Enabled</span><Status value={row.enabled ? "enabled" : "disabled"} /></div>
+          <div><span>Last run · Chicago</span><b>{chicagoWhen(row.last_run_at)}</b>{row.last_run_status && <small>{titleCase(row.last_run_status)}</small>}</div>
+        </div>
+        <div className="hash-pair">
+          <div><span>Saved body hash</span><code title={row.manifest_body_hash}>{shortHash(row.manifest_body_hash)}</code></div>
+          <div><span>Live body hash</span><code title={row.live_body_hash ?? "No live body hash recorded"}>{shortHash(row.live_body_hash)}</code></div>
+        </div>
+        <ScheduleEditor key={row.job_id} jobId={row.job_id} cadence={row.cadence} enabled={row.enabled} onChanged={refresh} />
+      </article>)}</div>}
+    </Section>
+    <p className="freshness">Checked {chicagoWhen(status.data.generated_at)}</p>
+  </>;
+}
+
 function Replies({ data, onRefresh, refreshing }: { data: AnyData; onRefresh: () => void; refreshing: boolean }) {
   const awaiting = Array.isArray(data.awaiting_me) ? data.awaiting_me : []; const funnel = data.funnel ?? {};
   const replies = useMemo(() => {
@@ -279,12 +434,6 @@ function Replies({ data, onRefresh, refreshing }: { data: AnyData; onRefresh: ()
       return fallsInDateRange(reply.at, dateRange) && (channelFilter === "all" || channel === channelFilter) && (actionFilter === "all" || action === actionFilter) && (!query || haystack.includes(query));
     });
   }, [replies, dateRange, channelFilter, actionFilter, search]);
-  const chicagoWhen = (value: unknown) => {
-    if (!value) return "—";
-    const date = new Date(String(value));
-    if (Number.isNaN(date.getTime())) return "—";
-    return new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(date);
-  };
   const toggleReason = (replyId: string) => setExpanded((previous) => {
     const next = new Set(previous); if (next.has(replyId)) next.delete(replyId); else next.add(replyId); return next;
   });
@@ -325,9 +474,92 @@ function Replies({ data, onRefresh, refreshing }: { data: AnyData; onRefresh: ()
 const objectValue = (value: unknown): AnyData => value && typeof value === "object" && !Array.isArray(value) ? value as AnyData : {};
 const stringList = (value: unknown): string[] => Array.isArray(value) ? value.map(String) : [];
 const csvList = (value: string) => value.split(",").map((item) => item.trim()).filter(Boolean);
+const EMPLOYMENT_TYPES = ["full_time", "part_time", "w2_contract", "c2c_contract", "internship"] as const;
 
 function Field({ label, error, hint, children }: { label: string; error?: string; hint?: string; children: ReactNode }) {
   return <label className={`profile-field ${error ? "field-error" : ""}`}><span>{label}</span>{children}{hint && <small>{hint}</small>}{error && <small className="input-error">{error}</small>}</label>;
+}
+
+function EditableStringList({ label, values, hint, error, onChange }: { label: string; values: string[]; hint: string; error?: string; onChange: (values: string[]) => void }) {
+  const updateAt = (index: number, value: string) => onChange(values.map((item, itemIndex) => itemIndex === index ? value : item));
+  const removeAt = (index: number) => onChange(values.filter((_, itemIndex) => itemIndex !== index));
+  return <div className={`profile-field editable-list-field ${error ? "field-error" : ""}`}>
+    <div className="editable-list-heading"><span>{label}</span><button type="button" onClick={() => onChange([...values, ""])}>Add title</button></div>
+    <div className="editable-list" aria-label={label}>
+      {values.length === 0 ? <p>No job titles added.</p> : values.map((value, index) => <div className="editable-list-row" key={index}>
+        <input aria-label={`Job title ${index + 1}`} value={value} onChange={(event) => updateAt(index, event.target.value)} placeholder="e.g. Senior Data Engineer" />
+        <button type="button" aria-label={`Remove job title ${value || index + 1}`} onClick={() => removeAt(index)}>Remove</button>
+      </div>)}
+    </div>
+    <small>{hint}</small>
+    {error && <small className="input-error">{error}</small>}
+  </div>;
+}
+
+const PROFILE_SAMPLES: Record<string, unknown> = {
+  identity: {
+    name: "Jordan Lee", email: "jordan.lee@example.com", phone: "+1 512 555 0142", location: "Austin, TX",
+    linkedin: "https://www.linkedin.com/in/jordan-lee-data", timezone: "America/Chicago",
+    _allowed_values: { location: "City, ST", timezone: "IANA timezone, e.g. America/Chicago" },
+  },
+  work_auth: {
+    status: "H-1B", sponsor_required: true, h1b_gate: "soft",
+    _allowed_values: { status: ["H-1B", "H1B", "US citizen", "Green card", "OPT", "STEM OPT", "TN", "EAD"], sponsor_required: [true, false], h1b_gate: ["soft", "hard"] },
+  },
+  caps: {
+    per_run: 10, per_day: 50, appliers: 2, linkedin_actions_per_hour: 12,
+    _allowed_values: { per_run: "integer >= 1", per_day: "integer >= 1", appliers: "integer >= 1", linkedin_actions_per_hour: "integer >= 1" },
+  },
+  targeting: {
+    industries: ["fintech", "healthcare", "enterprise software"], seniority: ["senior", "staff", "architect", "principal", "lead"], tiers: [1, 2, 3], titles: ["Senior Data Engineer", "Staff Data Engineer"],
+    _allowed_values: { seniority: ["junior", "mid", "senior", "staff", "architect", "principal", "lead", "director"], tiers: [1, 2, 3], industries: "one or more industry labels", titles: "free-form strings; at least one is required; scouts build search queries from titles × seniority × industries" },
+  },
+  locations: {
+    priority: ["Austin, TX", "Remote US", "US-wide onsite"], relocation: "Yes — anywhere in the US",
+    _allowed_values: { priority: ["City, ST", "Remote US", "US-wide onsite"], relocation: ["Yes", "No", "Conditional — describe conditions"] },
+  },
+  compensation: {
+    floor: 175000, note: "Negotiable based on level and total compensation", start_date: "2026-10-15",
+    _allowed_values: { floor: "non-negative number, text, or null", note: "required text", start_date: "YYYY-MM-DD" },
+  },
+  answers: {
+    relocate: "Yes", covenants: "Yes", drivers_license: "Yes", degree_dates: "Decline", home_zip: "78701", work_authorized_us: "Yes — H-1B transfer required", travel: "Up to 25%",
+    _allowed_values: { yes_no_fields: ["Yes", "No"], degree_dates: ["Yes", "No", "Decline"], custom_answers: "string, number, boolean, or null" },
+  },
+  reply_tiers: {
+    auto_send: ["R1", "R2"], draft_for_review: ["R3", "R4", "R5"], never: ["R6", "R7", "R8"],
+    _allowed_values: { rule_codes: ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8"] },
+  },
+  role_types: {
+    _about: "Employment types only. Job titles live under Targeting.",
+    role_types: ["full_time", "w2_contract", "c2c_contract"],
+    _allowed_values: ["full_time", "part_time", "w2_contract", "c2c_contract", "internship"],
+    _downstream_effect: "The eligibility judge rejects any posting whose employment type is not selected.",
+  },
+  schedules: {
+    job_id: "harness-morning-run", title: "Morning application run", campaign: "morning_run", cadence: "daily 07:00", enabled: true,
+    _about: "Jobs are edited from the Schedules tab, not here: each row has an enable/disable toggle and an editable cadence. Edits write to profile.yaml campaigns.<campaign>; profile_watch recompiles within ~15 min.",
+    _allowed_values: { enabled: [true, false], campaign: "compiled campaign ID", cadence: 'one of: "daily HH:MM", "nightly HH:MM", "hourly", "hourly weekdays", "every Nm", "every Nh", "Nh weekdays", "H:MMam/pm CT", "Weekday H:MMam/pm CT"' },
+    _downstream_effect: "enabled: false saves the cron job DISABLED — the job is never deleted. Re-enabling is a recompile. The Schedules tab shows the accepted cadence formats as help text.",
+  },
+};
+
+function ProfileSection({ title, description, sample, children, className = "", action }: { title: string; description: string; sample: unknown; children: ReactNode; className?: string; action?: ReactNode }) {
+  const [showSample, setShowSample] = useState(false);
+  return <Section title={title} className={`profile-section ${className}`} aside={<div className="profile-section-actions">{action}<button type="button" className="sample-toggle" onClick={() => setShowSample((open) => !open)} aria-expanded={showSample} aria-label={`${showSample ? "Hide" : "Show"} sample JSON for ${title}`}><Icon name={showSample ? "eye-off" : "eye"} size={16} /><span>{showSample ? "Hide sample" : "Sample JSON"}</span></button></div>}>
+    <p className="profile-section-description">{description}</p>
+    {children}
+    {showSample && <div className="sample-json" aria-label={`Sample JSON for ${title}`}><div><span className="sample-badge">SAMPLE</span><b>Example only — not your profile</b></div><pre>{JSON.stringify(sample, null, 2)}</pre></div>}
+  </Section>;
+}
+
+function ProfileSchedules({ onOpenSchedules }: { onOpenSchedules: () => void }) {
+  const status = useQuery({ queryKey: ["schedules-status"], queryFn: () => api.schedules_status({}), refetchOnMount: "always", staleTime: 0 });
+  const rows = status.data?.rows ?? [];
+  return <ProfileSection title="Schedules" description="Compiled jobs that use this profile, with their current cadence and enabled state." sample={PROFILE_SAMPLES.schedules} className="profile-wide profile-schedules" action={<button type="button" className="schedule-link" onClick={onOpenSchedules}>Open drift details <Icon name="chevron" size={15} /></button>}>
+    <div className="profile-schedule-intro"><div><span className="section-index">10</span><p>Profile changes are validated and reconciled by the profile watcher.</p></div><button type="button" className="inline-refresh" onClick={() => void status.refetch()} disabled={status.isFetching}><Icon name="refresh" size={15} />{status.isFetching ? "Refreshing" : "Refresh"}</button></div>
+    {status.isPending ? <div className="compact-loading">Reading schedules…</div> : status.isError ? <div className="compact-error"><b>Schedules unavailable</b><span>Retry here or open the full Schedules tab.</span></div> : status.data.manifest_missing ? <Empty title="No schedules manifest" body="Run compile-schedules to populate the registry." /> : rows.length === 0 ? <Empty title="No scheduled jobs" body="Compiled jobs will appear here." /> : <div className="profile-schedule-list" role="list" aria-label="Profile schedules">{rows.map((row) => <article key={row.job_id} role="listitem"><div><b>{row.title}</b><code>{row.job_id}</code></div><div className="profile-schedule-meta"><span>{row.campaign}</span><span>{row.cadence}</span></div><Status value={row.enabled ? "enabled" : "disabled"} /></article>)}</div>}
+  </ProfileSection>;
 }
 
 function normalizeProfile(raw: AnyData): AnyData {
@@ -337,11 +569,11 @@ function normalizeProfile(raw: AnyData): AnyData {
   if (priority.length === 0) { priority.push(...metros); if (remote === "ok" || remote === "only") priority.push("Remote US"); }
   return {
     ...raw,
-    identity: { ...identity, name: String(identity.name ?? ""), email: String(identity.email ?? ""), phone: String(identity.phone ?? ""), location: String(identity.location ?? [identity.city, identity.state].filter(Boolean).join(", ")), linkedin: String(identity.linkedin ?? identity.linkedin_url ?? ""), timezone: String(identity.timezone ?? "America/Chicago") },
-    work_auth: { ...objectValue(raw.work_auth), status: String(objectValue(raw.work_auth).status ?? ""), sponsor_required: objectValue(raw.work_auth).sponsor_required === true, h1b_gate: String(objectValue(raw.work_auth).h1b_gate ?? "") },
+    identity: { ...identity, name: String(identity.name ?? ""), email: String(identity.email ?? ""), phone: String(identity.phone ?? ""), location: String(identity.location ?? [identity.city, identity.state].filter(Boolean).join(", ")), linkedin: String(identity.linkedin ?? identity.linkedin_url ?? ""), timezone: String(identity.timezone ?? "") },
+    work_auth: { ...objectValue(raw.work_auth), status: String(objectValue(raw.work_auth).status ?? ""), sponsor_required: typeof objectValue(raw.work_auth).sponsor_required === "boolean" ? objectValue(raw.work_auth).sponsor_required : null, h1b_gate: String(objectValue(raw.work_auth).h1b_gate ?? "") },
     role_types: stringList(raw.role_types),
     locations: { ...locations, priority, relocation: String(locations.relocation ?? answers.relocate ?? "") },
-    targeting: { ...objectValue(raw.targeting), industries: stringList(objectValue(raw.targeting).industries), seniority: stringList(objectValue(raw.targeting).seniority), tiers: Array.isArray(objectValue(raw.targeting).tiers) ? objectValue(raw.targeting).tiers.map(Number) : [] },
+    targeting: { ...objectValue(raw.targeting), industries: stringList(objectValue(raw.targeting).industries), seniority: stringList(objectValue(raw.targeting).seniority), tiers: Array.isArray(objectValue(raw.targeting).tiers) ? objectValue(raw.targeting).tiers.map(Number) : [], titles: stringList(objectValue(raw.targeting).titles) },
     comp: { ...objectValue(raw.comp), floor: objectValue(raw.comp).floor ?? null, note: String(objectValue(raw.comp).note ?? objectValue(raw.comp).negotiable_answer ?? "") },
     start_date: String(raw.start_date ?? ""),
     answers: { ...answers, relocate: String(answers.relocate ?? ""), covenants: String(answers.covenants ?? answers.restrictive_covenants ?? ""), drivers_license: String(answers.drivers_license ?? ""), degree_dates: String(answers.degree_dates ?? ""), home_zip: String(answers.home_zip ?? ""), work_authorized_us: String(answers.work_authorized_us ?? "") },
@@ -353,24 +585,106 @@ function normalizeProfile(raw: AnyData): AnyData {
 const baseAnswers = new Set(["relocate", "covenants", "restrictive_covenants", "drivers_license", "degree_dates", "home_zip", "work_authorized_us"]);
 
 function validateProfile(profile: AnyData): Record<string, string> {
-  const errors: Record<string, string> = {}; const required = (path: string, value: unknown) => { if (!String(value ?? "").trim()) errors[path] = "Required"; };
+  const errors: Record<string, string> = {};
+  const placeholder = (value: unknown) => /\[FILL IN\]/i.test(String(value ?? "").trim()) || /^\[.*\]$/.test(String(value ?? "").trim());
+  const required = (path: string, value: unknown) => {
+    if (!String(value ?? "").trim()) errors[path] = "Required";
+    else if (placeholder(value)) errors[path] = "Replace the placeholder with the real value.";
+  };
+  const requiredList = (path: string, value: unknown, emptyMessage: string) => {
+    const values = stringList(value);
+    if (values.length === 0 || values.some((item) => !item.trim())) errors[path] = emptyMessage;
+    else if (values.some(placeholder)) errors[path] = "Replace placeholders with real values.";
+  };
   const identity = objectValue(profile.identity); ["name", "email", "phone", "location", "linkedin", "timezone"].forEach((key) => required(`identity.${key}`, identity[key]));
-  if (identity.email && !/^\S+@\S+\.\S+$/.test(String(identity.email))) errors["identity.email"] = "Enter a valid email address";
-  if (identity.location && !/^.+,\s*[A-Za-z]{2}$/.test(String(identity.location))) errors["identity.location"] = "Use City, ST so it can sync to YAML";
-  try { const url = new URL(String(identity.linkedin)); if (!/^https?:$/.test(url.protocol)) throw new Error(); } catch { if (identity.linkedin) errors["identity.linkedin"] = "Enter a full http(s) URL"; }
-  const work = objectValue(profile.work_auth); if (!["H-1B", "H1B", "US citizen", "Green card", "OPT", "STEM OPT", "TN", "EAD"].includes(String(work.status))) errors["work_auth.status"] = "Choose a supported status"; if (!["hard", "soft"].includes(String(work.h1b_gate))) errors["work_auth.h1b_gate"] = "Choose hard or soft";
-  const locations = objectValue(profile.locations); if (stringList(locations.priority).length === 0) errors["locations.priority"] = "Add at least one priority"; required("locations.relocation", locations.relocation);
-  const targeting = objectValue(profile.targeting); if (stringList(targeting.industries).length === 0) errors["targeting.industries"] = "Add at least one industry"; if (stringList(targeting.seniority).length === 0) errors["targeting.seniority"] = "Add at least one level"; if (!Array.isArray(targeting.tiers) || targeting.tiers.length === 0 || targeting.tiers.some((tier: unknown) => ![1, 2, 3].includes(Number(tier)))) errors["targeting.tiers"] = "Use tiers 1, 2, or 3";
+  if (!errors["identity.email"] && identity.email && !/^\S+@\S+\.\S+$/.test(String(identity.email))) errors["identity.email"] = "Enter a valid email address";
+  if (!errors["identity.location"] && identity.location && !/^.+,\s*[A-Za-z]{2}$/.test(String(identity.location))) errors["identity.location"] = "Use City, ST so it can sync to YAML";
+  try { const url = new URL(String(identity.linkedin)); if (!/^https?:$/.test(url.protocol)) throw new Error(); } catch { if (!errors["identity.linkedin"] && identity.linkedin) errors["identity.linkedin"] = "Enter a full http(s) URL"; }
+  const work = objectValue(profile.work_auth); if (!["H-1B", "H1B", "US citizen", "Green card", "OPT", "STEM OPT", "TN", "EAD"].includes(String(work.status))) errors["work_auth.status"] = placeholder(work.status) ? "Replace the placeholder with the real value." : "Choose a supported status"; if (typeof work.sponsor_required !== "boolean") errors["work_auth.sponsor_required"] = "Choose yes or no"; if (!["hard", "soft"].includes(String(work.h1b_gate))) errors["work_auth.h1b_gate"] = placeholder(work.h1b_gate) ? "Replace the placeholder with the real value." : "Choose hard or soft";
+  const locations = objectValue(profile.locations); requiredList("locations.priority", locations.priority, "Add at least one priority"); required("locations.relocation", locations.relocation);
+  const targeting = objectValue(profile.targeting); requiredList("targeting.industries", targeting.industries, "Add at least one industry"); if (stringList(targeting.seniority).length === 0) errors["targeting.seniority"] = "Add at least one level"; if (!Array.isArray(targeting.tiers) || targeting.tiers.length === 0 || targeting.tiers.some((tier: unknown) => ![1, 2, 3].includes(Number(tier)))) errors["targeting.tiers"] = "Use tiers 1, 2, or 3"; requiredList("targeting.titles", targeting.titles, "Add at least one job title");
   const caps = objectValue(profile.caps); ["per_run", "per_day", "appliers"].forEach((key) => { if (!Number.isInteger(Number(caps[key])) || Number(caps[key]) < 1) errors[`caps.${key}`] = "Enter an integer of 1 or more"; });
   const answers = objectValue(profile.answers); ["relocate", "covenants", "drivers_license", "degree_dates", "home_zip", "work_authorized_us"].forEach((key) => required(`answers.${key}`, answers[key]));
-  required("comp.note", objectValue(profile.comp).note); const floor = objectValue(profile.comp).floor; if (floor !== null && floor !== "" && (!Number.isFinite(Number(floor)) || Number(floor) < 0)) errors["comp.floor"] = "Use a positive number or leave blank";
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(profile.start_date ?? "")) || Number.isNaN(new Date(`${String(profile.start_date)}T00:00:00`).getTime())) errors.start_date = "Enter a valid date";
-  if (stringList(profile.role_types).length === 0) errors.role_types = "At least one role type is required";
-  const reply = objectValue(profile.reply_tiers); if (stringList(reply.auto_send).length === 0 || stringList(reply.auto_send).some((code) => !/^R[1-8]$/.test(code))) errors["reply_tiers.auto_send"] = "Use one or more codes R1–R8"; if (stringList(reply.draft_for_review).length === 0) errors["reply_tiers.draft_for_review"] = "Add at least one tier"; if (stringList(reply.never).length === 0) errors["reply_tiers.never"] = "Add at least one tier";
+  required("comp.note", objectValue(profile.comp).note); const floor = objectValue(profile.comp).floor; if (placeholder(floor)) errors["comp.floor"] = "Replace the placeholder with the real value."; else if (floor !== null && floor !== "" && (!Number.isFinite(Number(floor)) || Number(floor) < 0)) errors["comp.floor"] = "Use a positive number or leave blank";
+  if (placeholder(profile.start_date)) errors.start_date = "Replace the placeholder with the real value."; else if (!/^\d{4}-\d{2}-\d{2}$/.test(String(profile.start_date ?? "")) || Number.isNaN(new Date(`${String(profile.start_date)}T00:00:00`).getTime())) errors.start_date = "Enter a valid date";
+  if (stringList(profile.role_types).length === 0) errors.role_types = "Select at least one employment type.";
+  const reply = objectValue(profile.reply_tiers); if (stringList(reply.auto_send).length === 0 || stringList(reply.auto_send).some((code) => !/^R[1-8]$/.test(code))) errors["reply_tiers.auto_send"] = stringList(reply.auto_send).some(placeholder) ? "Replace placeholders with real values." : "Use one or more codes R1–R8"; requiredList("reply_tiers.draft_for_review", reply.draft_for_review, "Add at least one tier"); requiredList("reply_tiers.never", reply.never, "Add at least one tier");
   return errors;
 }
 
-function Profile() {
+const ONBOARDING_STEPS: Array<{ title: string; prefixes: string[] }> = [
+  { title: "Identity", prefixes: ["identity."] },
+  { title: "Work authorization", prefixes: ["work_auth."] },
+  { title: "Employment types", prefixes: ["role_types"] },
+  { title: "Targeting & location", prefixes: ["targeting.", "locations."] },
+  { title: "Screening answers", prefixes: ["answers."] },
+  { title: "Caps, compensation & replies", prefixes: ["caps.", "comp.", "start_date", "reply_tiers."] },
+];
+
+const emptyProfileDraft = () => normalizeProfile({
+  identity: { name: "", email: "", phone: "", location: "", linkedin: "", timezone: "" },
+  work_auth: { status: "", sponsor_required: null, h1b_gate: "" },
+  role_types: [],
+  locations: { priority: [], relocation: "" },
+  targeting: { titles: [], industries: [], seniority: [], tiers: [] },
+  comp: { floor: null, note: "" },
+  start_date: "",
+  answers: { relocate: "", covenants: "", drivers_license: "", degree_dates: "", home_zip: "", work_authorized_us: "" },
+  caps: { per_run: 0, per_day: 0, appliers: 0 },
+  reply_tiers: { auto_send: [], draft_for_review: [], never: [] },
+});
+
+function Onboarding({ onOpenDashboard }: { onOpenDashboard: () => void }) {
+  const [step, setStep] = useState(0);
+  const [draft, setDraft] = useState<AnyData>(() => emptyProfileDraft());
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [notice, setNotice] = useState("");
+  const [complete, setComplete] = useState(false);
+  const currentStep = ONBOARDING_STEPS[step] ?? ONBOARDING_STEPS[0];
+  const identity = objectValue(draft.identity); const work = objectValue(draft.work_auth); const locations = objectValue(draft.locations); const targeting = objectValue(draft.targeting); const answers = objectValue(draft.answers); const caps = objectValue(draft.caps); const comp = objectValue(draft.comp); const reply = objectValue(draft.reply_tiers);
+  const update = (section: string, key: string, value: unknown) => setDraft((previous) => ({ ...previous, [section]: { ...objectValue(previous[section]), [key]: value } }));
+  const updateRoot = (key: string, value: unknown) => setDraft((previous) => ({ ...previous, [key]: value }));
+  const toggleEmploymentType = (value: typeof EMPLOYMENT_TYPES[number]) => {
+    const selected = stringList(draft.role_types);
+    updateRoot("role_types", selected.includes(value) ? selected.filter((item) => item !== value) : [...selected, value]);
+  };
+  const stepErrors = () => {
+    const all = validateProfile(draft);
+    const prefixes = currentStep?.prefixes ?? [];
+    return Object.fromEntries(Object.entries(all).filter(([key]) => prefixes.some((prefix) => key === prefix || key.startsWith(prefix))));
+  };
+  const save = useMutation({
+    mutationFn: (profile: AnyData) => api.profile_save(profile as Parameters<typeof api.profile_save>[0]),
+    onSuccess: (result) => {
+      if (!result.ok) { setErrors(result.field ? { [result.field]: result.message } : {}); setNotice(`${titleCase(result.step)} failed: ${result.message}`); return; }
+      setComplete(true); setNotice("");
+    },
+    onError: () => setNotice("The profile could not be saved. Nothing was added to the live profile."),
+  });
+  const next = () => {
+    const found = stepErrors(); setErrors(found);
+    if (Object.keys(found).length) { setNotice("Complete the highlighted fields before continuing."); return; }
+    setNotice(""); setStep((value) => Math.min(5, value + 1)); window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+  const finish = (event: FormEvent) => {
+    event.preventDefault(); const found = validateProfile(draft); setErrors(found);
+    if (Object.keys(found).length) { setNotice("Complete every highlighted field before finishing setup."); return; }
+    const payload = { ...draft, comp: { ...comp, floor: comp.floor === "" || comp.floor === null ? null : Number(comp.floor) } };
+    save.mutate(payload);
+  };
+  if (complete) return <div className="onboarding-shell"><SafeAreaTopScrim backgroundColor="var(--bg)" /><main className="onboarding-workspace"><div className="onboarding-success"><div className="health-orb healthy"><Icon name="shield" size={28} /></div><p className="eyebrow">Setup complete</p><h1>Your profile is ready</h1><p>Schedules compile automatically within about 15 minutes through the <code>profile_watch</code> job. You do not need to do anything else.</p><button type="button" className="save-profile" onClick={onOpenDashboard}>Open dashboard</button></div></main></div>;
+  return <div className="onboarding-shell"><SafeAreaTopScrim backgroundColor="var(--bg)" /><main className="onboarding-workspace"><div className="onboarding-lead"><div><p className="eyebrow">First-run setup</p><h1>Set up your profile</h1><p>The harness uses these answers for eligibility, search, limits, and replies.</p></div><div className="step-count">Step {step + 1} of 6</div></div><div className="step-track" aria-label={`Step ${step + 1} of 6`}>{ONBOARDING_STEPS.map((item, index) => <span key={item.title} className={index <= step ? "active" : ""} />)}</div>{notice && <div className="save-notice error" role="alert">{notice}</div>}<form onSubmit={finish} noValidate>
+    {step === 0 && <ProfileSection title="Identity" description="Contact details and the timezone used for run dates." sample={PROFILE_SAMPLES.identity}><div className="field-grid"><Field label="Name" error={errors["identity.name"]}><input autoComplete="name" value={identity.name} onChange={(event) => update("identity", "name", event.target.value)} /></Field><Field label="Email" error={errors["identity.email"]}><input type="email" autoComplete="email" value={identity.email} onChange={(event) => update("identity", "email", event.target.value)} /></Field><Field label="Phone" error={errors["identity.phone"]}><input type="tel" autoComplete="tel" value={identity.phone} onChange={(event) => update("identity", "phone", event.target.value)} /></Field><Field label="Location" hint="Use City, ST" error={errors["identity.location"]}><input autoComplete="address-level2" value={identity.location} onChange={(event) => update("identity", "location", event.target.value)} /></Field><Field label="LinkedIn URL" error={errors["identity.linkedin"]}><input type="url" value={identity.linkedin} onChange={(event) => update("identity", "linkedin", event.target.value)} /></Field><Field label="Timezone" hint="IANA timezone, e.g. America/Chicago" error={errors["identity.timezone"]}><input value={identity.timezone} onChange={(event) => update("identity", "timezone", event.target.value)} /></Field></div></ProfileSection>}
+    {step === 1 && <ProfileSection title="Work authorization" description="Choose the authorization and sponsorship rules used before a role can advance." sample={PROFILE_SAMPLES.work_auth}><div className="field-grid"><Field label="Status" error={errors["work_auth.status"]}><select value={work.status} onChange={(event) => update("work_auth", "status", event.target.value)}><option value="" disabled>Choose status</option>{["H-1B", "H1B", "US citizen", "Green card", "OPT", "STEM OPT", "TN", "EAD"].map((value) => <option key={value}>{value}</option>)}</select></Field><Field label="Sponsor required" error={errors["work_auth.sponsor_required"]}><select value={typeof work.sponsor_required === "boolean" ? String(work.sponsor_required) : ""} onChange={(event) => update("work_auth", "sponsor_required", event.target.value === "true")}><option value="" disabled>Choose yes or no</option><option value="true">Yes</option><option value="false">No</option></select></Field><Field label="H-1B gate" hint="Soft holds unknowns; hard rejects them" error={errors["work_auth.h1b_gate"]}><select value={work.h1b_gate} onChange={(event) => update("work_auth", "h1b_gate", event.target.value)}><option value="" disabled>Choose gate</option><option value="soft">Soft</option><option value="hard">Hard</option></select></Field></div></ProfileSection>}
+    {step === 2 && <ProfileSection title="Employment types" description="Choose every employment category the harness may consider." sample={PROFILE_SAMPLES.role_types}><fieldset className={`employment-types ${errors.role_types ? "field-error" : ""}`}><legend>Allowed employment types</legend><div className="employment-type-options">{EMPLOYMENT_TYPES.map((value) => <label key={value} className={stringList(draft.role_types).includes(value) ? "selected" : ""}><input type="checkbox" checked={stringList(draft.role_types).includes(value)} onChange={() => toggleEmploymentType(value)} /><span>{value}</span></label>)}</div>{errors.role_types && <p className="inline-error" role="alert">{errors.role_types}</p>}</fieldset></ProfileSection>}
+    {step === 3 && <><ProfileSection title="Targeting" description="Titles, industries, seniority, and company tiers shape discovery and ranking." sample={PROFILE_SAMPLES.targeting}><div className="field-grid"><EditableStringList label="Job titles" values={stringList(targeting.titles)} hint="These titles drive the scouts’ search queries." error={errors["targeting.titles"]} onChange={(values) => update("targeting", "titles", values)} /><Field label="Industries" hint="Comma separated" error={errors["targeting.industries"]}><input value={stringList(targeting.industries).join(", ")} onChange={(event) => update("targeting", "industries", csvList(event.target.value))} /></Field><Field label="Seniority" hint="senior, staff, architect, principal, lead" error={errors["targeting.seniority"]}><input value={stringList(targeting.seniority).join(", ")} onChange={(event) => update("targeting", "seniority", csvList(event.target.value))} /></Field><Field label="Company tiers" hint="1, 2, or 3" error={errors["targeting.tiers"]}><input value={(Array.isArray(targeting.tiers) ? targeting.tiers : []).join(", ")} onChange={(event) => update("targeting", "tiers", csvList(event.target.value).map(Number))} /></Field></div></ProfileSection><ProfileSection title="Location preferences" description="Set search geography in priority order and your relocation position." sample={PROFILE_SAMPLES.locations}><div className="field-grid"><Field label="Priority list" hint="Comma separated: City, ST · Remote US · US-wide onsite" error={errors["locations.priority"]}><input value={stringList(locations.priority).join(", ")} onChange={(event) => update("locations", "priority", csvList(event.target.value))} /></Field><Field label="Relocation" error={errors["locations.relocation"]}><input value={locations.relocation} onChange={(event) => update("locations", "relocation", event.target.value)} /></Field></div></ProfileSection></>}
+    {step === 4 && <ProfileSection title="Screening answers" description="Enter settled answers the harness may reuse during applications." sample={PROFILE_SAMPLES.answers}><div className="field-grid">{[["relocate", "Relocate"], ["covenants", "Restrictive covenants"], ["drivers_license", "Driver’s license"], ["degree_dates", "Degree dates"], ["home_zip", "Home ZIP"], ["work_authorized_us", "Work authorized in US"]].map(([key = "", label = ""]) => <Field key={key} label={label} error={errors[`answers.${key}`]}><input value={String(answers[key] ?? "")} onChange={(event) => update("answers", key, event.target.value)} /></Field>)}</div></ProfileSection>}
+    {step === 5 && <><ProfileSection title="Run caps" description="Set ceilings for each run, each day, and concurrent application work." sample={PROFILE_SAMPLES.caps}><div className="field-grid three"><Field label="Per run" error={errors["caps.per_run"]}><input type="number" min="1" value={caps.per_run || ""} onChange={(event) => update("caps", "per_run", Number(event.target.value))} /></Field><Field label="Per day" error={errors["caps.per_day"]}><input type="number" min="1" value={caps.per_day || ""} onChange={(event) => update("caps", "per_day", Number(event.target.value))} /></Field><Field label="Appliers" error={errors["caps.appliers"]}><input type="number" min="1" value={caps.appliers || ""} onChange={(event) => update("caps", "appliers", Number(event.target.value))} /></Field></div></ProfileSection><ProfileSection title="Compensation & start" description="Set availability and the compensation language used in screening." sample={PROFILE_SAMPLES.compensation}><div className="field-grid"><Field label="Comp floor" hint="Leave blank for no floor" error={errors["comp.floor"]}><input inputMode="numeric" value={comp.floor ?? ""} onChange={(event) => update("comp", "floor", event.target.value)} /></Field><Field label="Comp note" error={errors["comp.note"]}><input value={comp.note} onChange={(event) => update("comp", "note", event.target.value)} /></Field><Field label="Start date" error={errors.start_date}><input type="date" value={draft.start_date} onChange={(event) => updateRoot("start_date", event.target.value)} /></Field></div></ProfileSection><ProfileSection title="Reply tiers" description="Choose which reply rules can send, require review, or must never act." sample={PROFILE_SAMPLES.reply_tiers}><div className="field-grid"><Field label="Auto-send" hint="R1–R8, comma separated" error={errors["reply_tiers.auto_send"]}><input value={stringList(reply.auto_send).join(", ")} onChange={(event) => update("reply_tiers", "auto_send", csvList(event.target.value))} /></Field><Field label="Draft for review" error={errors["reply_tiers.draft_for_review"]}><input value={stringList(reply.draft_for_review).join(", ")} onChange={(event) => update("reply_tiers", "draft_for_review", csvList(event.target.value))} /></Field><Field label="Never" error={errors["reply_tiers.never"]}><input value={stringList(reply.never).join(", ")} onChange={(event) => update("reply_tiers", "never", csvList(event.target.value))} /></Field></div></ProfileSection></>}
+    <div className="onboarding-actions">{step > 0 ? <button type="button" onClick={() => { setStep((value) => value - 1); setNotice(""); setErrors({}); }}>Back</button> : <span />}{step < 5 ? <button type="button" className="save-profile" onClick={next}>Continue</button> : <button type="submit" className="save-profile" disabled={save.isPending}>{save.isPending ? "Completing…" : "Complete setup"}</button>}</div>
+  </form></main></div>;
+}
+
+function Profile({ onOpenSchedules }: { onOpenSchedules: () => void }) {
   const queryClient = useQueryClient();
   const profileQuery = useQuery({ queryKey: ["profile"], queryFn: () => api.profile_get({}), refetchOnMount: "always", staleTime: 0 });
   const [draft, setDraft] = useState<AnyData | null>(null); const [errors, setErrors] = useState<Record<string, string>>({}); const [notice, setNotice] = useState<{ tone: "good" | "warn" | "error"; text: string } | null>(null);
@@ -379,6 +693,7 @@ function Profile() {
     mutationFn: (profile: AnyData) => api.profile_save(profile as Parameters<typeof api.profile_save>[0]),
     onSuccess: (result) => {
       if (!result.ok) { setErrors(result.field ? { [result.field]: result.message } : {}); setNotice({ tone: "error", text: `${titleCase(result.step)} failed: ${result.message}` }); return; }
+      setDraft(null);
       setNotice({ tone: result.warnings.length ? "warn" : "good", text: result.warnings.length ? `Saved to the live profile and YAML. ${result.warnings.map((warning) => warning.message).join(" ")}` : "Saved to the live profile and profile.yaml. New runs will use these values." });
       void queryClient.invalidateQueries({ queryKey: ["profile"] });
     },
@@ -394,21 +709,64 @@ function Profile() {
   const extras = Object.entries(answers).filter(([key]) => !baseAnswers.has(key));
   const addAnswer = () => { let index = 1; while (`new_answer_${index}` in answers) index += 1; update("answers", `new_answer_${index}`, ""); };
   const renameAnswer = (oldKey: string, newKey: string) => { const cleaned = newKey.trim().replace(/\s+/g, "_"); if (!cleaned || cleaned === oldKey || cleaned in answers) return; const next = { ...answers, [cleaned]: answers[oldKey] }; delete next[oldKey]; setDraft({ ...current, answers: next }); };
+  const toggleEmploymentType = (value: typeof EMPLOYMENT_TYPES[number]) => {
+    const selected = stringList(current.role_types);
+    const next = selected.includes(value) ? selected.filter((item) => item !== value) : [...selected, value];
+    updateRoot("role_types", next);
+    if (next.length > 0 && errors.role_types) setErrors((previous) => { const remaining = { ...previous }; delete remaining.role_types; return remaining; });
+  };
+  const dirty = draft !== null;
   return <form className="profile-page" onSubmit={submit} noValidate>
-    <div className="page-lead"><div><p className="eyebrow">Run configuration</p><h1>Profile</h1><p>Edit once here. Saving updates the live profile and its readable YAML source together.</p></div><button className="save-profile top-save" type="submit" disabled={save.isPending}>{save.isPending ? "Saving…" : "Save profile"}</button></div>
+    <div className="page-lead profile-lead"><div><p className="eyebrow">Run configuration</p><h1>Profile settings</h1><p>One source of truth for eligibility, targeting, run limits, and replies.</p></div><button className="save-profile top-save" type="submit" disabled={save.isPending || !dirty}>{save.isPending ? "Saving…" : dirty ? "Save changes" : "Saved"}</button></div>
     {notice && <div className={`save-notice ${notice.tone}`} role="status">{notice.text}</div>}
-    <div className="profile-grid">
-      <Section title="Identity" className="profile-section"><div className="field-grid"><Field label="Name" error={errors["identity.name"]}><input value={identity.name} onChange={(e) => update("identity", "name", e.target.value)} /></Field><Field label="Email" error={errors["identity.email"]}><input type="email" value={identity.email} onChange={(e) => update("identity", "email", e.target.value)} /></Field><Field label="Phone" error={errors["identity.phone"]}><input type="tel" value={identity.phone} onChange={(e) => update("identity", "phone", e.target.value)} /></Field><Field label="Location" hint="City, ST" error={errors["identity.location"]}><input value={identity.location} onChange={(e) => update("identity", "location", e.target.value)} /></Field><Field label="LinkedIn" error={errors["identity.linkedin"]}><input type="url" value={identity.linkedin} onChange={(e) => update("identity", "linkedin", e.target.value)} /></Field><Field label="Timezone" error={errors["identity.timezone"]}><input value={identity.timezone} onChange={(e) => update("identity", "timezone", e.target.value)} /></Field></div></Section>
-      <Section title="Work authorization" className="profile-section"><div className="field-grid"><Field label="Status" error={errors["work_auth.status"]}><select value={work.status} onChange={(e) => update("work_auth", "status", e.target.value)}>{["H-1B", "H1B", "US citizen", "Green card", "OPT", "STEM OPT", "TN", "EAD"].map((value) => <option key={value}>{value}</option>)}</select></Field><Field label="Sponsor required"><select value={work.sponsor_required ? "true" : "false"} onChange={(e) => update("work_auth", "sponsor_required", e.target.value === "true")}><option value="true">Yes</option><option value="false">No</option></select></Field><Field label="H-1B gate" error={errors["work_auth.h1b_gate"]}><select value={work.h1b_gate} onChange={(e) => update("work_auth", "h1b_gate", e.target.value)}><option value="soft">Soft</option><option value="hard">Hard</option></select></Field></div></Section>
-      <Section title="Run caps" className="profile-section"><div className="field-grid three"><Field label="Per run" error={errors["caps.per_run"]}><input type="number" min="1" value={caps.per_run} onChange={(e) => update("caps", "per_run", Number(e.target.value))} /></Field><Field label="Per day" error={errors["caps.per_day"]}><input type="number" min="1" value={caps.per_day} onChange={(e) => update("caps", "per_day", Number(e.target.value))} /></Field><Field label="Appliers" error={errors["caps.appliers"]}><input type="number" min="1" value={caps.appliers} onChange={(e) => update("caps", "appliers", Number(e.target.value))} /></Field></div></Section>
-      <Section title="Targeting" className="profile-section"><div className="field-grid"><Field label="Industries" hint="Comma separated" error={errors["targeting.industries"]}><input value={stringList(targeting.industries).join(", ")} onChange={(e) => update("targeting", "industries", csvList(e.target.value))} /></Field><Field label="Seniority" hint="junior, mid, senior, staff, architect, principal, lead, director" error={errors["targeting.seniority"]}><input value={stringList(targeting.seniority).join(", ")} onChange={(e) => update("targeting", "seniority", csvList(e.target.value))} /></Field><Field label="Tiers" hint="1, 2, or 3" error={errors["targeting.tiers"]}><input value={(Array.isArray(targeting.tiers) ? targeting.tiers : []).join(", ")} onChange={(e) => update("targeting", "tiers", csvList(e.target.value).map(Number))} /></Field></div></Section>
-      <Section title="Locations" className="profile-section"><div className="field-grid"><Field label="Priority list" hint="Comma separated; use City, ST, Remote US, or US-wide onsite" error={errors["locations.priority"]}><input value={stringList(locations.priority).join(", ")} onChange={(e) => update("locations", "priority", csvList(e.target.value))} /></Field><Field label="Relocation" error={errors["locations.relocation"]}><input value={locations.relocation} onChange={(e) => update("locations", "relocation", e.target.value)} /></Field></div></Section>
-      <Section title="Compensation & start" className="profile-section"><div className="field-grid"><Field label="Comp floor" hint="Leave blank for no floor" error={errors["comp.floor"]}><input inputMode="numeric" value={comp.floor ?? ""} onChange={(e) => update("comp", "floor", e.target.value)} /></Field><Field label="Comp note" error={errors["comp.note"]}><input value={comp.note} onChange={(e) => update("comp", "note", e.target.value)} /></Field><Field label="Start date" error={errors.start_date}><input type="date" value={current.start_date} onChange={(e) => updateRoot("start_date", e.target.value)} /></Field></div></Section>
-      <Section title="Screening answers" aside={<button type="button" onClick={addAnswer}>Add answer</button>} className="profile-section profile-wide"><div className="field-grid">{[["relocate", "Relocate"], ["covenants", "Restrictive covenants"], ["drivers_license", "Driver’s license"], ["degree_dates", "Degree dates"], ["home_zip", "Home ZIP"], ["work_authorized_us", "Work authorized in US"]].map(([key = "", label = ""]) => <Field key={key} label={label} error={errors[`answers.${key}`]}><input value={String(answers[key] ?? "")} onChange={(e) => update("answers", key, e.target.value)} /></Field>)}{extras.map(([key, value]) => <div className="extra-answer" key={key}><Field label="Answer key"><input defaultValue={key} onBlur={(e) => renameAnswer(key, e.target.value)} /></Field><Field label="Value"><input value={String(value ?? "")} onChange={(e) => update("answers", key, e.target.value)} /></Field><button type="button" aria-label={`Remove ${key}`} onClick={() => { const next = { ...answers }; delete next[key]; setDraft({ ...current, answers: next }); }}>Remove</button></div>)}</div></Section>
-      <Section title="Reply tiers" className="profile-section"><div className="field-grid"><Field label="Auto-send" hint="R1–R8, comma separated" error={errors["reply_tiers.auto_send"]}><input value={stringList(reply.auto_send).join(", ")} onChange={(e) => update("reply_tiers", "auto_send", csvList(e.target.value))} /></Field><Field label="Draft for review" error={errors["reply_tiers.draft_for_review"]}><input value={stringList(reply.draft_for_review).join(", ")} onChange={(e) => update("reply_tiers", "draft_for_review", csvList(e.target.value))} /></Field><Field label="Never" error={errors["reply_tiers.never"]}><input value={stringList(reply.never).join(", ")} onChange={(e) => update("reply_tiers", "never", csvList(e.target.value))} /></Field></div></Section>
-      <Section title="Role types" aside={<span className="source-note">Read only</span>} className="profile-section"><div className="readonly-list">{stringList(current.role_types).map((value) => <Status key={value} value={value} />)}</div>{errors.role_types && <p className="inline-error">{errors.role_types}</p>}</Section>
+    <div className="profile-summary" aria-label="Current profile summary">
+      <div><span>Work authorization</span><b>{String(work.status || "Not set")}</b><small>{work.sponsor_required ? "Sponsor required" : "No sponsorship required"}</small></div>
+      <div><span>Target levels</span><b>{stringList(targeting.seniority).map(titleCase).join(" · ") || "Not set"}</b><small>Tiers {(Array.isArray(targeting.tiers) ? targeting.tiers : []).join(", ") || "—"}</small></div>
+      <div><span>Daily capacity</span><b>{fmt(caps.per_day)} applications</b><small>{fmt(caps.appliers)} concurrent appliers</small></div>
     </div>
-    <div className="save-bar"><div><b>Ready for the next run</b><span>{profileQuery.data?.updated_at ? `Last saved ${when(profileQuery.data.updated_at)}` : "Not saved yet"}</span></div><button className="save-profile" type="submit" disabled={save.isPending}>{save.isPending ? "Saving…" : "Save profile"}</button></div>
+    <div className="profile-guide"><Icon name="eye" size={17} /><p><b>Need the exact shape?</b> Use the eye on any section to see clearly labeled sample JSON, including valid values. Your live fields never use the sample.</p></div>
+    <div className="profile-grid">
+      <ProfileSection title="Identity" description="Contact details and the timezone used for run dates." sample={PROFILE_SAMPLES.identity}>
+        <span className="section-index">01</span><div className="field-grid"><Field label="Name" error={errors["identity.name"]}><input autoComplete="name" value={identity.name} onChange={(e) => update("identity", "name", e.target.value)} /></Field><Field label="Email" error={errors["identity.email"]}><input type="email" autoComplete="email" value={identity.email} onChange={(e) => update("identity", "email", e.target.value)} /></Field><Field label="Phone" error={errors["identity.phone"]}><input type="tel" autoComplete="tel" value={identity.phone} onChange={(e) => update("identity", "phone", e.target.value)} /></Field><Field label="Location" hint="Use City, ST" error={errors["identity.location"]}><input autoComplete="address-level2" value={identity.location} onChange={(e) => update("identity", "location", e.target.value)} /></Field><Field label="LinkedIn" error={errors["identity.linkedin"]}><input type="url" value={identity.linkedin} onChange={(e) => update("identity", "linkedin", e.target.value)} /></Field><Field label="Timezone" hint="IANA timezone" error={errors["identity.timezone"]}><input value={identity.timezone} onChange={(e) => update("identity", "timezone", e.target.value)} /></Field></div>
+      </ProfileSection>
+      <ProfileSection title="Work authorization" description="The eligibility gate applied before a role can advance." sample={PROFILE_SAMPLES.work_auth}>
+        <span className="section-index">02</span><div className="field-grid"><Field label="Status" error={errors["work_auth.status"]}><select value={work.status} onChange={(e) => update("work_auth", "status", e.target.value)}>{["H-1B", "H1B", "US citizen", "Green card", "OPT", "STEM OPT", "TN", "EAD"].map((value) => <option key={value}>{value}</option>)}</select></Field><Field label="Sponsor required"><select value={work.sponsor_required ? "true" : "false"} onChange={(e) => update("work_auth", "sponsor_required", e.target.value === "true")}><option value="true">Yes</option><option value="false">No</option></select></Field><Field label="H-1B gate" hint="Soft holds unknowns; hard rejects them" error={errors["work_auth.h1b_gate"]}><select value={work.h1b_gate} onChange={(e) => update("work_auth", "h1b_gate", e.target.value)}><option value="soft">Soft</option><option value="hard">Hard</option></select></Field></div>
+      </ProfileSection>
+      <ProfileSection title="Targeting" description="Job titles, industries, seniority, and company tiers used to find and rank opportunities." sample={PROFILE_SAMPLES.targeting}>
+        <span className="section-index">03</span><div className="field-grid"><EditableStringList label="Job titles" values={stringList(targeting.titles)} hint="These titles drive the scouts’ search queries." error={errors["targeting.titles"]} onChange={(values) => update("targeting", "titles", values)} /><Field label="Industries" hint="Comma separated" error={errors["targeting.industries"]}><input value={stringList(targeting.industries).join(", ")} onChange={(e) => update("targeting", "industries", csvList(e.target.value))} /></Field><Field label="Seniority" hint="senior, staff, architect, principal, lead" error={errors["targeting.seniority"]}><input value={stringList(targeting.seniority).join(", ")} onChange={(e) => update("targeting", "seniority", csvList(e.target.value))} /></Field><Field label="Company tiers" hint="1, 2, or 3" error={errors["targeting.tiers"]}><input value={(Array.isArray(targeting.tiers) ? targeting.tiers : []).join(", ")} onChange={(e) => update("targeting", "tiers", csvList(e.target.value).map(Number))} /></Field></div>
+      </ProfileSection>
+      <ProfileSection title="Location preferences" description="Ordered search geography and relocation flexibility." sample={PROFILE_SAMPLES.locations}>
+        <span className="section-index">04</span><div className="field-grid"><Field label="Priority list" hint="City, ST · Remote US · US-wide onsite" error={errors["locations.priority"]}><input value={stringList(locations.priority).join(", ")} onChange={(e) => update("locations", "priority", csvList(e.target.value))} /></Field><Field label="Relocation" error={errors["locations.relocation"]}><input value={locations.relocation} onChange={(e) => update("locations", "relocation", e.target.value)} /></Field></div>
+      </ProfileSection>
+      <ProfileSection title="Compensation & start" description="Availability and the compensation language used in screening." sample={PROFILE_SAMPLES.compensation}>
+        <span className="section-index">05</span><div className="field-grid"><Field label="Comp floor" hint="Leave blank for no floor" error={errors["comp.floor"]}><input inputMode="numeric" value={comp.floor ?? ""} onChange={(e) => update("comp", "floor", e.target.value)} /></Field><Field label="Comp note" error={errors["comp.note"]}><input value={comp.note} onChange={(e) => update("comp", "note", e.target.value)} /></Field><Field label="Start date" error={errors.start_date}><input type="date" value={current.start_date} onChange={(e) => updateRoot("start_date", e.target.value)} /></Field></div>
+      </ProfileSection>
+      <ProfileSection title="Run caps" description="Hard ceilings for each run, each day, and concurrent application work." sample={PROFILE_SAMPLES.caps}>
+        <span className="section-index">06</span><div className="field-grid three"><Field label="Per run" error={errors["caps.per_run"]}><input type="number" min="1" value={caps.per_run} onChange={(e) => update("caps", "per_run", Number(e.target.value))} /></Field><Field label="Per day" error={errors["caps.per_day"]}><input type="number" min="1" value={caps.per_day} onChange={(e) => update("caps", "per_day", Number(e.target.value))} /></Field><Field label="Appliers" error={errors["caps.appliers"]}><input type="number" min="1" value={caps.appliers} onChange={(e) => update("caps", "appliers", Number(e.target.value))} /></Field></div>
+      </ProfileSection>
+      <ProfileSection title="Screening answers" description="Deterministic answers only. Add a key when a new recurring question is settled." sample={PROFILE_SAMPLES.answers} className="profile-wide" action={<button type="button" className="add-answer" onClick={addAnswer}>Add answer</button>}>
+        <span className="section-index">07</span><div className="field-grid">{[["relocate", "Relocate"], ["covenants", "Restrictive covenants"], ["drivers_license", "Driver’s license"], ["degree_dates", "Degree dates"], ["home_zip", "Home ZIP"], ["work_authorized_us", "Work authorized in US"]].map(([key = "", label = ""]) => <Field key={key} label={label} error={errors[`answers.${key}`]}><input value={String(answers[key] ?? "")} onChange={(e) => update("answers", key, e.target.value)} /></Field>)}{extras.map(([key, value]) => <div className="extra-answer" key={key}><Field label="Answer key"><input defaultValue={key} onBlur={(e) => renameAnswer(key, e.target.value)} /></Field><Field label="Value"><input value={String(value ?? "")} onChange={(e) => update("answers", key, e.target.value)} /></Field><button type="button" aria-label={`Remove ${key}`} onClick={() => { const next = { ...answers }; delete next[key]; setDraft({ ...current, answers: next }); }}>Remove</button></div>)}</div>
+      </ProfileSection>
+      <ProfileSection title="Reply tiers" description="Which reply rules can send, require review, or must never act." sample={PROFILE_SAMPLES.reply_tiers}>
+        <span className="section-index">08</span><div className="field-grid"><Field label="Auto-send" hint="R1–R8, comma separated" error={errors["reply_tiers.auto_send"]}><input value={stringList(reply.auto_send).join(", ")} onChange={(e) => update("reply_tiers", "auto_send", csvList(e.target.value))} /></Field><Field label="Draft for review" error={errors["reply_tiers.draft_for_review"]}><input value={stringList(reply.draft_for_review).join(", ")} onChange={(e) => update("reply_tiers", "draft_for_review", csvList(e.target.value))} /></Field><Field label="Never" error={errors["reply_tiers.never"]}><input value={stringList(reply.never).join(", ")} onChange={(e) => update("reply_tiers", "never", csvList(e.target.value))} /></Field></div>
+      </ProfileSection>
+      <ProfileSection title="Employment type" description="Choose every employment category the harness may consider. Job titles are configured under Targeting." sample={PROFILE_SAMPLES.role_types}>
+        <span className="section-index">09</span>
+        <fieldset className={`employment-types ${errors.role_types ? "field-error" : ""}`} aria-describedby={errors.role_types ? "employment-type-error" : "employment-type-hint"}>
+          <legend>Allowed employment types</legend>
+          <div className="employment-type-options">
+            {EMPLOYMENT_TYPES.map((value) => <label key={value} className={stringList(current.role_types).includes(value) ? "selected" : ""}>
+              <input type="checkbox" checked={stringList(current.role_types).includes(value)} onChange={() => toggleEmploymentType(value)} />
+              <span>{value}</span>
+            </label>)}
+          </div>
+          <small id="employment-type-hint">Select one or more. The eligibility judge rejects postings whose employment type is not selected.</small>
+          {errors.role_types && <p id="employment-type-error" className="inline-error" role="alert">{errors.role_types}</p>}
+        </fieldset>
+      </ProfileSection>
+      <ProfileSchedules onOpenSchedules={onOpenSchedules} />
+    </div>
+    <div className="save-bar"><div><b>{dirty ? "Unsaved profile changes" : "Profile is current"}</b><span>{profileQuery.data?.updated_at ? `Last saved ${when(profileQuery.data.updated_at)}` : "Not saved yet"}</span></div><button className="save-profile" type="submit" disabled={save.isPending || !dirty}>{save.isPending ? "Saving…" : dirty ? "Save changes" : "Saved"}</button></div>
   </form>;
 }
 
@@ -416,14 +774,21 @@ function RefreshButton({ onClick, active }: { onClick: () => void; active: boole
 
 export function App() {
   const [active, setActive] = useState<Tab>("overview"); const queryClient = useQueryClient();
-  const snapshotView = active === "profile" ? "overview" : active;
-  const snapshot = useQuery({ queryKey: ["snapshot", active], queryFn: () => api.snapshot({ view: snapshotView }), refetchOnMount: "always", staleTime: 0, enabled: active !== "profile" });
+  const [onboardingLock, setOnboardingLock] = useState(false);
+  const profileQuery = useQuery({ queryKey: ["profile"], queryFn: () => api.profile_get({}), refetchOnMount: "always", staleTime: 0 });
+  useEffect(() => { if (profileQuery.isSuccess && profileQuery.data.profile === null) setOnboardingLock(true); }, [profileQuery.isSuccess, profileQuery.data?.profile]);
+  const needsOnboarding = onboardingLock || (profileQuery.isSuccess && profileQuery.data.profile === null);
+  const snapshotView = active === "profile" || active === "schedules" ? "overview" : active;
+  const snapshot = useQuery({ queryKey: ["snapshot", active], queryFn: () => api.snapshot({ view: snapshotView }), refetchOnMount: "always", staleTime: 0, enabled: profileQuery.isSuccess && profileQuery.data.profile !== null && !needsOnboarding && active !== "profile" && active !== "schedules" });
   const data = (snapshot.data?.data ?? {}) as AnyData;
   const refresh = () => { void queryClient.invalidateQueries({ queryKey: ["snapshot", active] }); void snapshot.refetch(); };
+  if (profileQuery.isPending) return <div className="app-shell"><SafeAreaTopScrim backgroundColor="var(--bg)" /><main className="workspace"><div className="loading"><span /><p>Reading profile…</p></div></main></div>;
+  if (profileQuery.isError) return <div className="app-shell"><SafeAreaTopScrim backgroundColor="var(--bg)" /><main className="workspace"><div className="error-screen"><div className="health-orb"><Icon name="profile" size={28} /></div><h1>Profile unavailable</h1><p>The current profile could not be read.</p><button onClick={() => profileQuery.refetch()}>Retry</button></div></main></div>;
+  if (needsOnboarding) return <Onboarding onOpenDashboard={() => { void profileQuery.refetch().then((result) => { if (result.data?.profile) setOnboardingLock(false); }); }} />;
   return <div className="app-shell"><SafeAreaTopScrim backgroundColor="var(--bg)" /><aside className="rail" aria-label="Dashboard navigation"><div className="rail-mark"><span /><span /></div><nav>{tabs.map((tab) => <button key={tab.id} className={active === tab.id ? "active" : ""} onClick={() => setActive(tab.id)} aria-current={active === tab.id ? "page" : undefined}><Icon name={tab.icon} /><span>{tab.label}</span></button>)}</nav><div className="rail-foot"><span className="live-dot">Private</span></div></aside>
     <main className="workspace">
-      {active === "profile" ? <Profile /> : snapshot.isPending ? <div className="loading"><span /><p>Reading {active} ledger…</p></div> : snapshot.isError ? <div className="error-screen"><div className="health-orb"><Icon name="shield" size={28} /></div><h1>Source unavailable</h1><p>The {active} snapshot could not be read.</p><button onClick={() => snapshot.refetch()}>Retry</button></div> : <>{active === "overview" && <Overview data={data} onRefresh={refresh} refreshing={snapshot.isFetching} />}{active === "applications" && <Applications data={data} onRefresh={refresh} refreshing={snapshot.isFetching} />}{active === "resumes" && <Resumes data={data} onRefresh={refresh} refreshing={snapshot.isFetching} />}{active === "runs" && <Runs data={data} onRefresh={refresh} refreshing={snapshot.isFetching} />}{active === "replies" && <Replies data={data} onRefresh={refresh} refreshing={snapshot.isFetching} />}</>}
-      {active !== "profile" && snapshot.data && <p className="freshness">Snapshot {when(snapshot.data.generated_at)}</p>}
+      {active === "profile" ? <Profile onOpenSchedules={() => setActive("schedules")} /> : active === "schedules" ? <Schedules /> : snapshot.isPending ? <div className="loading"><span /><p>Reading {active} ledger…</p></div> : snapshot.isError ? <div className="error-screen"><div className="health-orb"><Icon name="shield" size={28} /></div><h1>Source unavailable</h1><p>The {active} snapshot could not be read.</p><button onClick={() => snapshot.refetch()}>Retry</button></div> : <>{active === "overview" && <Overview data={data} onRefresh={refresh} refreshing={snapshot.isFetching} />}{active === "applications" && <Applications data={data} onRefresh={refresh} refreshing={snapshot.isFetching} />}{active === "resumes" && <Resumes data={data} onRefresh={refresh} refreshing={snapshot.isFetching} />}{active === "runs" && <Runs data={data} onRefresh={refresh} refreshing={snapshot.isFetching} />}{active === "replies" && <Replies data={data} onRefresh={refresh} refreshing={snapshot.isFetching} />}</>}
+      {active !== "profile" && active !== "schedules" && snapshot.data && <p className="freshness">Snapshot {when(snapshot.data.generated_at)}</p>}
     </main>
     <nav className="bottom-nav" aria-label="Dashboard navigation">{tabs.map((tab) => <button key={tab.id} className={active === tab.id ? "active" : ""} onClick={() => setActive(tab.id)} aria-current={active === tab.id ? "page" : undefined}><Icon name={tab.icon} /><span>{tab.label}</span></button>)}</nav>
   </div>;

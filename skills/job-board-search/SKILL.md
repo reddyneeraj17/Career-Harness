@@ -20,7 +20,7 @@ description: Scout skill for the job_board campaign — runs targeting-derived s
 }
 ```
 
-Queries are pre-built by the coordinator from profile targeting; the worker never invents new search terms.
+Queries are pre-built by the coordinator from profile targeting; the worker never invents new search terms. Profile `targeting` includes `titles` (target job titles) alongside `seniority` and `industries`: the coordinator builds each query from `titles` × `seniority` × `industries` (e.g. `"Staff Data Engineer" healthcare`), plus locations. The worker uses the passed `queries[]` verbatim.
 
 ## Actions called
 

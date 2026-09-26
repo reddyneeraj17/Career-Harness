@@ -7,7 +7,8 @@ environment = one `harness-core`. **Re-running the installer is always safe**
 ## Pre-reqs
 - The kit directory (this one), including `skills/`, `templates/`,
   `goal-skeletons/`, `harness-core/` source, and `seeds/`.
-- The operator has the customer's `profile.yaml` answers from intake.
+- The customer completes the dashboard's guided setup wizard on first run
+  (step 5) — no intake interview, no hand-filled YAML.
 
 ---
 
@@ -26,7 +27,8 @@ Skills carry zero personal data — the same catalog installs for every customer
 Build the `harness-core` fullstack artifact from `harness-core/` source
 (client + server + dashboard tabs). Apply Drizzle migrations **in order**
 (`harness-core/drizzle/`); never skip, never hand-edit a migration.
-The dashboard tabs (Overview, Applications, Resumes, Runs, Replies, Profile) call
+The dashboard tabs (Overview, Applications, Resumes, Runs, Schedules, Replies,
+Profile) call
 `snapshot()` as same-artifact actions — no cross-artifact calls.
 
 ### 4. Seed data
@@ -36,12 +38,15 @@ The dashboard tabs (Overview, Applications, Resumes, Runs, Replies, Profile) cal
 - Tag the resume variants in `user/files/` (role family, industry tags, years
   matrix) into `resume_variants`.
 
-### 5. Intake → profile.yaml → validate → profile_put
-Fill every `[FILL IN]` in `~/workspace/profile.yaml` from intake.
-Run the compile-schedules skill's validation step against
-`~/workspace/templates/profile.schema.yaml`. **A missing value fails loudly —
-this is by design.** Then `profile_put` syncs the validated profile into
-harness-core. The DB and the bodies now render from the same facts.
+### 5. Guided setup wizard → profile.yaml → validate → profile_put
+On first launch the dashboard detects the missing profile and opens a guided
+setup wizard (identity → work auth → employment types → targeting/titles →
+screening answers → caps) instead of the tabs. The customer fills it in right
+there — no `[FILL IN]` files, no chat interview. The wizard reuses the Profile
+tab's sections and validation; **a missing or placeholder value fails loudly —
+this is by design.** On completion it saves through `profile_save`
+(`~/workspace/profile.yaml` first, then `profile_put` into harness-core).
+The DB and the bodies now render from the same facts.
 
 ### 6. Compile schedules → manifest → verify
 Run the compile-schedules skill: render every `templates/*.body.md` with the
@@ -49,6 +54,10 @@ profile values, `cron.update` (or `cron.add` on first install), then read each
 saved body back with `cron.view`, sha256 it, and write `schedules_manifest.json`
 (job id, campaign, cadence, body hash, skill versions, profile_hash,
 compiled_at). Push the manifest via `event_log`.
+
+> Later profile edits made on the dashboard's Profile tab are recompiled
+> automatically by the profile-watch schedule within ~15 minutes — step 6 is
+> only manual on first install.
 
 ### 7. Smoke tests
 - **Doctor green:** run the harness-doctor skill once; status must be `green`.

@@ -1,7 +1,9 @@
 // @bun
 // server/src/privileged.ts
-import { readFile, realpath, writeFile } from "fs/promises";
-import { dirname, resolve, sep } from "path";
+import { createHash } from "crypto";
+import { access, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from "fs/promises";
+import { tmpdir } from "os";
+import { dirname, extname, join, resolve, sep } from "path";
 
 // node_modules/zod/v4/core/core.js
 var _a;
@@ -4432,9 +4434,34 @@ var privileged = definePrivilegedContracts({
     timeoutMs: 5000
   },
   readRegisteredResume: {
-    request: object({ filename: string2().regex(/^[A-Za-z0-9][A-Za-z0-9._ -]*$/), location: _enum(["user_files", "user_file_resumes", "workspace_resumes"]) }),
+    request: object({ filename: string2().regex(/^[A-Za-z0-9][A-Za-z0-9._ -]*\.pdf$/i), location: _enum(["user_files", "user_file_resumes", "workspace_resumes"]) }),
     response: object({ filename: string2(), bytesBase64: string2(), contentType: literal("application/pdf") }),
     timeoutMs: 15000
+  },
+  writeResumeUpload: {
+    request: object({ filename: string2().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*\.pdf$/i), bytes_base64: string2().min(1) }),
+    response: object({ path: string2(), filename: string2() }),
+    timeoutMs: 20000
+  },
+  trashResumeFile: {
+    request: object({ variant_id: string2().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/), filename: string2().regex(/^[A-Za-z0-9][A-Za-z0-9._ -]*\.pdf$/i), location: _enum(["user_files", "user_file_resumes", "workspace_resumes"]) }),
+    response: object({ file_moved: boolean2(), trashed_path: string2().nullable() }),
+    timeoutMs: 15000
+  },
+  readTrashedResume: {
+    request: object({ variant_id: string2().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/), filename: string2().regex(/^[A-Za-z0-9][A-Za-z0-9._ -]*\.pdf$/i), sha256: string2().regex(/^[a-f0-9]{64}$/i).nullable().optional() }),
+    response: object({ found: boolean2(), filename: string2().optional(), bytesBase64: string2().optional(), contentType: literal("application/pdf").optional() }),
+    timeoutMs: 15000
+  },
+  renderPdfPreview: {
+    request: object({ bytesBase64: string2().min(1), maxPages: number2().int().min(1).max(8) }),
+    response: object({ pages: array(object({ page: number2().int().positive(), bytesBase64: string2() })), truncated: boolean2() }),
+    timeoutMs: 30000
+  },
+  readSchedulesManifest: {
+    request: object({}),
+    response: object({ manifestText: string2().nullable() }),
+    timeoutMs: 5000
   },
   readProfileYaml: {
     request: object({}),
@@ -4454,6 +4481,8 @@ var privileged = definePrivilegedContracts({
 });
 var WORKSPACE_ROOT = "/home/hatch/workspace";
 var PROFILE_YAML = "/home/hatch/workspace/profile.yaml";
+var SCHEDULES_MANIFEST = "/home/hatch/workspace/schedules_manifest.json";
+var TRASH_RESUMES = "/home/hatch/workspace/.trash/resumes";
 var RESUME_ROOTS = {
   user_files: "/home/hatch/workspace/user/files",
   user_file_resumes: "/home/hatch/workspace/user/files/resumes",
@@ -4461,6 +4490,16 @@ var RESUME_ROOTS = {
 };
 function isWithin(candidate, root) {
   return candidate === root || candidate.startsWith(`${root}${sep}`);
+}
+function isPdf(bytes) {
+  return bytes.length >= 5 && bytes[0] === 37 && bytes[1] === 80 && bytes[2] === 68 && bytes[3] === 70 && bytes[4] === 45;
+}
+async function ensureRealDirectory(path) {
+  await mkdir(path, { recursive: true });
+  const actual = await realpath(path);
+  if (actual !== path)
+    throw new Error("The destination directory is not allowlisted.");
+  return actual;
 }
 async function readCheckedFile(candidate, root) {
   const target = resolve(candidate);
@@ -4501,6 +4540,20 @@ async function checkedProfilePath() {
   }
   return target;
 }
+async function pathExists(path) {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function collisionName(filename, sequence) {
+  if (sequence === 1)
+    return filename;
+  const extension = extname(filename);
+  return `${filename.slice(0, -extension.length)}-${sequence}${extension}`;
+}
 var privilegedHandlers = definePrivilegedHandlers(privileged, {
   async readApplicationEvidence(input) {
     const target = applicationEvidencePath(input);
@@ -4522,6 +4575,118 @@ var privilegedHandlers = definePrivilegedHandlers(privileged, {
     const root = RESUME_ROOTS[location];
     const bytes = await readCheckedFile(resolve(root, filename), root);
     return { filename, bytesBase64: bytes.toString("base64"), contentType: "application/pdf" };
+  },
+  async writeResumeUpload({ filename, bytes_base64 }) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.pdf$/i.test(filename))
+      throw new Error("The resume filename is invalid.");
+    const bytes = Buffer.from(bytes_base64, "base64");
+    if (!isPdf(bytes))
+      throw new Error("The uploaded file is not a PDF.");
+    const root = await ensureRealDirectory(RESUME_ROOTS.user_files);
+    for (let sequence = 1;sequence < 1e4; sequence += 1) {
+      const candidateName = collisionName(filename, sequence);
+      const candidate = resolve(root, candidateName);
+      if (!isWithin(candidate, root))
+        throw new Error("The upload path is outside the resume directory.");
+      try {
+        await writeFile(candidate, bytes, { flag: "wx" });
+        const actual = await realpath(candidate);
+        if (!isWithin(actual, root))
+          throw new Error("The uploaded resume resolved outside the resume directory.");
+        return { path: candidate, filename: candidateName };
+      } catch (error) {
+        const code = error && typeof error === "object" && "code" in error ? String(error.code ?? "") : "";
+        if (code === "EEXIST")
+          continue;
+        throw error;
+      }
+    }
+    throw new Error("Could not allocate a unique filename for the uploaded resume.");
+  },
+  async trashResumeFile({ variant_id, filename, location }) {
+    const sourceRoot = RESUME_ROOTS[location];
+    const source = resolve(sourceRoot, filename);
+    if (!isWithin(source, sourceRoot))
+      throw new Error("The registered resume path is outside the library.");
+    try {
+      const actual = await realpath(source);
+      if (!isWithin(actual, sourceRoot))
+        throw new Error("The registered resume symlinks outside the library.");
+    } catch (error) {
+      const code = error && typeof error === "object" && "code" in error ? String(error.code ?? "") : "";
+      if (code === "ENOENT")
+        return { file_moved: false, trashed_path: null };
+      throw error;
+    }
+    const trashRoot = await ensureRealDirectory(TRASH_RESUMES);
+    const base = `${variant_id}__${filename}`;
+    for (let sequence = 1;sequence < 1e4; sequence += 1) {
+      const target = resolve(trashRoot, collisionName(base, sequence));
+      if (!isWithin(target, trashRoot))
+        throw new Error("The trash path is outside the recoverable trash directory.");
+      if (await pathExists(target))
+        continue;
+      await rename(source, target);
+      return { file_moved: true, trashed_path: target };
+    }
+    throw new Error("Could not allocate a unique recoverable trash filename.");
+  },
+  async readTrashedResume({ variant_id, filename, sha256 }) {
+    const trashRoot = await ensureRealDirectory(TRASH_RESUMES);
+    const base = `${variant_id}__${filename}`;
+    for (let sequence = 1;sequence < 1e4; sequence += 1) {
+      const candidateName = collisionName(base, sequence);
+      const candidate = resolve(trashRoot, candidateName);
+      if (!isWithin(candidate, trashRoot))
+        throw new Error("The trash path is outside the recoverable trash directory.");
+      if (!await pathExists(candidate)) {
+        if (sequence === 1)
+          continue;
+        break;
+      }
+      const bytes = await readCheckedFile(candidate, trashRoot);
+      if (!isPdf(bytes))
+        continue;
+      if (sha256 && createHash("sha256").update(bytes).digest("hex").toLowerCase() !== sha256.toLowerCase())
+        continue;
+      return { found: true, filename, bytesBase64: bytes.toString("base64"), contentType: "application/pdf" };
+    }
+    return { found: false };
+  },
+  async renderPdfPreview({ bytesBase64, maxPages }) {
+    const bytes = Buffer.from(bytesBase64, "base64");
+    if (!isPdf(bytes))
+      throw new Error("Only PDF files can be previewed.");
+    const workingDirectory = await mkdtemp(join(tmpdir(), "harness-pdf-preview-"));
+    try {
+      const pdfPath = join(workingDirectory, "document.pdf");
+      const outputPrefix = join(workingDirectory, "page");
+      await writeFile(pdfPath, bytes, { flag: "wx" });
+      const child = Bun.spawn(["/usr/bin/pdftoppm", "-png", "-r", "108", "-f", "1", "-l", String(maxPages + 1), pdfPath, outputPrefix], { stdout: "pipe", stderr: "pipe" });
+      const stderrPromise = new Response(child.stderr).text();
+      const exitCode = await child.exited;
+      const stderr = await stderrPromise;
+      if (exitCode !== 0)
+        throw new Error(stderr.trim() || "The PDF renderer could not open this file.");
+      const pageFiles = (await readdir(workingDirectory)).filter((name) => /^page-\d+\.png$/.test(name)).sort((left, right) => Number(left.match(/\d+/)?.[0] ?? 0) - Number(right.match(/\d+/)?.[0] ?? 0));
+      const selected = pageFiles.slice(0, maxPages);
+      if (selected.length === 0)
+        throw new Error("The PDF renderer returned no pages.");
+      const pages = await Promise.all(selected.map(async (name, index) => ({ page: index + 1, bytesBase64: (await readFile(join(workingDirectory, name))).toString("base64") })));
+      return { pages, truncated: pageFiles.length > maxPages };
+    } finally {
+      await rm(workingDirectory, { recursive: true, force: true });
+    }
+  },
+  async readSchedulesManifest() {
+    try {
+      const actual = await realpath(SCHEDULES_MANIFEST);
+      if (actual !== SCHEDULES_MANIFEST)
+        return { manifestText: null };
+      return { manifestText: await readFile(actual, "utf8") };
+    } catch {
+      return { manifestText: null };
+    }
   },
   async readProfileYaml() {
     const path = await checkedProfilePath();

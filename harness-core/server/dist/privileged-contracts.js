@@ -4404,9 +4404,34 @@ var privileged = definePrivilegedContracts({
     timeoutMs: 5000
   },
   readRegisteredResume: {
-    request: object({ filename: string2().regex(/^[A-Za-z0-9][A-Za-z0-9._ -]*$/), location: _enum(["user_files", "user_file_resumes", "workspace_resumes"]) }),
+    request: object({ filename: string2().regex(/^[A-Za-z0-9][A-Za-z0-9._ -]*\.pdf$/i), location: _enum(["user_files", "user_file_resumes", "workspace_resumes"]) }),
     response: object({ filename: string2(), bytesBase64: string2(), contentType: literal("application/pdf") }),
     timeoutMs: 15000
+  },
+  writeResumeUpload: {
+    request: object({ filename: string2().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*\.pdf$/i), bytes_base64: string2().min(1) }),
+    response: object({ path: string2(), filename: string2() }),
+    timeoutMs: 20000
+  },
+  trashResumeFile: {
+    request: object({ variant_id: string2().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/), filename: string2().regex(/^[A-Za-z0-9][A-Za-z0-9._ -]*\.pdf$/i), location: _enum(["user_files", "user_file_resumes", "workspace_resumes"]) }),
+    response: object({ file_moved: boolean2(), trashed_path: string2().nullable() }),
+    timeoutMs: 15000
+  },
+  readTrashedResume: {
+    request: object({ variant_id: string2().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/), filename: string2().regex(/^[A-Za-z0-9][A-Za-z0-9._ -]*\.pdf$/i), sha256: string2().regex(/^[a-f0-9]{64}$/i).nullable().optional() }),
+    response: object({ found: boolean2(), filename: string2().optional(), bytesBase64: string2().optional(), contentType: literal("application/pdf").optional() }),
+    timeoutMs: 15000
+  },
+  renderPdfPreview: {
+    request: object({ bytesBase64: string2().min(1), maxPages: number2().int().min(1).max(8) }),
+    response: object({ pages: array(object({ page: number2().int().positive(), bytesBase64: string2() })), truncated: boolean2() }),
+    timeoutMs: 30000
+  },
+  readSchedulesManifest: {
+    request: object({}),
+    response: object({ manifestText: string2().nullable() }),
+    timeoutMs: 5000
   },
   readProfileYaml: {
     request: object({}),

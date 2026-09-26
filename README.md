@@ -50,8 +50,8 @@ INSTALL.md. One customer = one environment = one `harness-core`.
 - 18 versioned skills + READMEs (Inputs / Actions called / Output / Hard limits)
 - Body templates + `profile.schema.yaml`
 - Empty goal skeletons (GOAL.md contracts; cron bodies are compiled at install)
-- `harness-core` source: schema, actions, migrations, six dashboard tabs
-  (Overview, Applications, Resumes, Runs, Replies, Profile) over the single `snapshot()` API;
+- `harness-core` source: schema, actions, migrations, seven dashboard tabs
+  (Overview, Applications, Resumes, Runs, Schedules, Replies, Profile) over the single `snapshot()` API;
   per-run token metering; per-application resume evidence
 - Seed CSVs (H-1B data, company tiers)
 - Installer runbook + this blueprint's architecture (see the blueprint PDF)

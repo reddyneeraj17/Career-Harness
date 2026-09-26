@@ -38,32 +38,57 @@ const workStatus = z.enum(["H-1B", "H1B", "US citizen", "Green card", "OPT", "ST
 const roleType = z.enum(["full_time", "part_time", "w2_contract", "c2c_contract", "internship"]);
 const seniority = z.enum(["junior", "mid", "senior", "staff", "architect", "principal", "lead", "director"]);
 const answerValue = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+const placeholderPattern = /\[FILL IN\]/i;
+const bracketPlaceholderPattern = /^\[.*\]$/;
+const isPlaceholderString = (value: string) => placeholderPattern.test(value.trim()) || bracketPlaceholderPattern.test(value.trim());
 const strictProfile = z.object({
   identity: z.object({ name: z.string().trim().min(1), email: z.string().email(), phone: z.string().trim().min(1), location: z.string().trim().min(1), linkedin: z.string().url(), timezone: z.string().trim().min(1) }).catchall(jsonValue),
   work_auth: z.object({ status: workStatus, sponsor_required: z.boolean(), h1b_gate: z.enum(["hard", "soft"]) }).catchall(jsonValue),
-  role_types: z.array(roleType).min(1),
+  role_types: z.array(roleType).min(1, "Select at least one employment type."),
   locations: z.object({ priority: z.array(z.string().trim().min(1)).min(1), relocation: z.string().trim().min(1) }).catchall(jsonValue),
-  targeting: z.object({ industries: z.array(z.string().trim().min(1)).min(1), seniority: z.array(seniority).min(1), tiers: z.array(z.number().int().min(1).max(3)).min(1) }).catchall(jsonValue),
+  targeting: z.object({ industries: z.array(z.string().trim().min(1)).min(1), seniority: z.array(seniority).min(1), tiers: z.array(z.number().int().min(1).max(3)).min(1), titles: z.array(z.string().trim().min(1)).min(1) }).catchall(jsonValue),
   comp: z.object({ floor: z.union([z.number().nonnegative(), z.string().trim().min(1), z.null()]), note: z.string().trim().min(1) }).catchall(jsonValue),
   start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   answers: z.object({ relocate: z.string().trim().min(1), covenants: z.string().trim().min(1), drivers_license: z.string().trim().min(1), degree_dates: z.string().trim().min(1), home_zip: z.string().trim().min(1), work_authorized_us: z.string().trim().min(1) }).catchall(answerValue),
   caps: z.object({ per_run: z.number().int().min(1), per_day: z.number().int().min(1), appliers: z.number().int().min(1) }).catchall(jsonValue),
   reply_tiers: z.object({ auto_send: z.array(z.string().regex(/^R[1-8]$/)).min(1), draft_for_review: z.array(z.string().trim().min(1)).min(1), never: z.array(z.string().trim().min(1)).min(1) }).catchall(jsonValue),
+}).superRefine((value, ctx) => {
+  const requiredStrings: Array<{ path: (string | number)[]; value: string }> = [
+    ...Object.entries(value.identity).filter(([key]) => ["name", "email", "phone", "location", "linkedin", "timezone"].includes(key)).map(([key, text]) => ({ path: ["identity", key], value: String(text) })),
+    { path: ["work_auth", "status"], value: value.work_auth.status },
+    { path: ["work_auth", "h1b_gate"], value: value.work_auth.h1b_gate },
+    ...value.locations.priority.map((text, index) => ({ path: ["locations", "priority", index], value: text })),
+    { path: ["locations", "relocation"], value: value.locations.relocation },
+    ...value.targeting.industries.map((text, index) => ({ path: ["targeting", "industries", index], value: text })),
+    ...value.targeting.titles.map((text, index) => ({ path: ["targeting", "titles", index], value: text })),
+    ...(typeof value.comp.floor === "string" ? [{ path: ["comp", "floor"] as (string | number)[], value: value.comp.floor }] : []),
+    { path: ["comp", "note"], value: value.comp.note },
+    { path: ["start_date"], value: value.start_date },
+    ...["relocate", "covenants", "drivers_license", "degree_dates", "home_zip", "work_authorized_us"].map((key) => ({ path: ["answers", key], value: String(value.answers[key as keyof typeof value.answers] ?? "") })),
+    ...value.reply_tiers.auto_send.map((text, index) => ({ path: ["reply_tiers", "auto_send", index], value: text })),
+    ...value.reply_tiers.draft_for_review.map((text, index) => ({ path: ["reply_tiers", "draft_for_review", index], value: text })),
+    ...value.reply_tiers.never.map((text, index) => ({ path: ["reply_tiers", "never", index], value: text })),
+  ];
+  for (const field of requiredStrings) {
+    if (isPlaceholderString(field.value)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: field.path, message: "Replace the placeholder with the real value." });
+  }
 });
 
 const yamlProfileSchema = z.object({
   identity: z.object({ name: z.string().min(1), email: z.string().email(), phone: z.string().min(1), city: z.string().min(1), state: z.string().min(1), linkedin_url: z.string().url() }),
   work_auth: z.object({ status: workStatus, sponsor_required: z.boolean(), h1b_gate: z.enum(["hard", "soft"]) }),
-  role_types: z.array(roleType).min(1),
+  role_types: z.array(roleType).min(1, "Select at least one employment type."),
   locations: z.object({ us_only: z.boolean(), remote: z.enum(["ok", "only", "no"]), metros: z.array(z.string()).optional() }),
-  targeting: z.object({ tiers: z.array(z.number().int().min(1).max(3)), industries: z.array(z.string()).min(1), seniority: z.array(seniority).min(1) }),
+  targeting: z.object({ tiers: z.array(z.number().int().min(1).max(3)), industries: z.array(z.string()).min(1), seniority: z.array(seniority).min(1), titles: z.array(z.string()).min(1) }),
   comp: z.object({ floor: z.union([z.number(), z.string(), z.null()]), negotiable_answer: z.string().min(1), zero_ok: z.boolean() }),
   start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   answers: z.object({ relocate: z.string(), restrictive_covenants: z.string(), drivers_license: z.string(), degree_dates: z.string() }).catchall(answerValue),
   caps: z.object({ per_run: z.number().int().min(1), per_day: z.number().int().min(1), appliers: z.number().int().min(1), linkedin_actions_per_hour: z.number().int().min(1) }),
   reply_tiers: z.object({ auto_send: z.array(z.string().regex(/^R[1-8]$/)).min(1), draft_for_review: z.array(z.string()).min(1), never: z.array(z.string()).min(1) }),
   resumes: z.object({ dir: z.string().min(1), filename_rule: z.string().min(1) }),
-  campaigns: z.record(z.string(), z.unknown()),
+  // All 12 campaign keys are accepted; cadence is required when an entry is
+  // present and enabled is an optional boolean (absent = enabled).
+  campaigns: z.record(z.string(), z.object({ cadence: z.string().min(1), enabled: z.boolean().optional() }).catchall(z.unknown())),
 });
 
 type ProfileInput = z.infer<typeof strictProfile>;
@@ -108,7 +133,9 @@ function deriveYamlLocations(locations: ProfileInput["locations"], previous: str
   const remoteValue = onlyRemote ? "only" : remote.length > 0 ? "ok" : "no";
   const outsideUs = /international|outside (?:the )?us|worldwide|global/i.test(locations.relocation);
   const metroNames = metro.map((entry) => entry.replace(/,\s*[A-Z]{2}$/, ""));
-  return { block: `locations:\n  us_only: ${outsideUs ? "false" : "true"}\n  remote: ${remoteValue}\n  metros: ${yamlList(metroNames)}` };
+  // Quote the remote flag: bare `no`/`yes`/`on`/`off` parse as booleans under
+  // YAML 1.1 (PyYAML, used by validate_profile.py), which corrupts the enum.
+  return { block: `locations:\n  us_only: ${outsideUs ? "false" : "true"}\n  remote: ${q(remoteValue)}\n  metros: ${yamlList(metroNames)}` };
 }
 
 function renderProfileYaml(profile: ProfileInput, existing: string, existingParsed: Record<string, unknown>): { text: string; warnings: ProfileWarning[] } {
@@ -135,7 +162,7 @@ function renderProfileYaml(profile: ProfileInput, existing: string, existingPars
     "", "work_auth:", `  status: ${q(profile.work_auth.status)}`, `  sponsor_required: ${profile.work_auth.sponsor_required}`, `  h1b_gate: ${q(profile.work_auth.h1b_gate)}`,
     "", `role_types: ${yamlList(profile.role_types)}`,
     "", locations.block,
-    "", "targeting:", `  tiers: ${yamlList(profile.targeting.tiers)}`, `  industries: ${yamlList(profile.targeting.industries)}`, `  seniority: ${yamlList(profile.targeting.seniority)}`,
+    "", "targeting:", `  tiers: ${yamlList(profile.targeting.tiers)}`, `  industries: ${yamlList(profile.targeting.industries)}`, `  seniority: ${yamlList(profile.targeting.seniority)}`, `  titles: ${yamlList(profile.targeting.titles)}`,
     "", "comp:", `  floor: ${floor}`, `  negotiable_answer: ${q(profile.comp.note)}`, `  zero_ok: ${zeroOk}`,
     "", `start_date: ${q(profile.start_date)}`,
     "", "answers:", ...answerLines,
@@ -158,6 +185,135 @@ const profileSaveResponse = z.union([
   z.object({ ok: z.literal(true), updated_at: z.string(), yaml_bytes: z.number(), warnings: z.array(z.object({ field: z.string(), message: z.string() })) }),
   z.object({ ok: z.literal(false), step: z.enum(["validation", "yaml_write", "database"]), field: z.string().optional(), message: z.string() }),
 ]);
+
+const manifestJobSchema = z.object({
+  job_id: z.string().min(1),
+  title: z.string().min(1),
+  campaign: z.string().min(1),
+  cadence: z.string().min(1),
+  schedule: z.string().min(1),
+  enabled: z.boolean(),
+  body_hash: z.string().min(1),
+});
+const schedulesManifestSchema = z.object({ jobs: z.array(manifestJobSchema) });
+const scheduleStatusRowSchema = manifestJobSchema.extend({
+  manifest_body_hash: z.string(),
+  last_run_at: z.string().nullable(),
+  last_run_status: z.string().nullable(),
+  live_body_hash: z.string().nullable(),
+  drift: z.enum(["in_sync", "drift", "unknown"]),
+});
+const schedulesStatusResponse = z.object({
+  generated_at: z.string(),
+  manifest_missing: z.boolean(),
+  rows: z.array(scheduleStatusRowSchema),
+});
+
+// The 12 compiled campaign jobs. job_id <-> campaign mapping is bijective:
+// strip the `harness-` prefix and replace `-` with `_`.
+const SCHEDULE_CAMPAIGNS = ["morning_run", "linkedin_feed", "career_portal", "job_board", "email_scan", "linkedin_replies", "approval_judge", "daily_report", "token_usage", "weekly_review", "harness_doctor", "profile_watch"] as const;
+type ScheduleCampaign = (typeof SCHEDULE_CAMPAIGNS)[number];
+const scheduleJobId = (campaign: string) => `harness-${campaign.replace(/_/g, "-")}`;
+function jobIdToCampaign(jobId: string): ScheduleCampaign | null {
+  if (!jobId.startsWith("harness-")) return null;
+  const campaign = jobId.slice("harness-".length).replace(/-/g, "_");
+  return (SCHEDULE_CAMPAIGNS as readonly string[]).includes(campaign) ? campaign as ScheduleCampaign : null;
+}
+
+const CADENCE_ACCEPTED = 'Accepted cadence formats: "daily HH:MM" (e.g. "daily 07:00"), "nightly HH:MM" (e.g. "nightly 23:20"), "hourly", "hourly weekdays", "every Nm" (e.g. "every 15m"), "every Nh" (e.g. "every 2h"), "Nh weekdays" (e.g. "2h weekdays"), "H:MMam/pm CT" (e.g. "9:00am CT"), "Weekday H:MMam/pm CT" (e.g. "Friday 5:00pm CT").';
+function cadenceError(value: string): string | null {
+  const text = value.trim();
+  if (!text) return `Cadence must not be empty. ${CADENCE_ACCEPTED}`;
+  const weekday = "(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)";
+  const patterns = [
+    /^(?:daily|nightly) (?:[01][0-9]|2[0-3]):[0-5][0-9]$/,
+    /^hourly$/,
+    /^hourly weekdays$/,
+    /^every [1-9][0-9]*(?:m|h)$/,
+    /^[1-9][0-9]*h weekdays$/,
+    /^(?:[1-9]|1[0-2]):[0-5][0-9](?:am|pm) CT$/,
+    new RegExp(`^${weekday} (?:[1-9]|1[0-2]):[0-5][0-9](?:am|pm) CT$`, "i"),
+  ];
+  if (patterns.some((pattern) => pattern.test(text))) return null;
+  return `Cadence ${q(text)} is not a recognized schedule. ${CADENCE_ACCEPTED}`;
+}
+
+// Render one campaigns entry in the file's existing flow style. `enabled`
+// stays implicit when true (absent = enabled); only `enabled: false` is
+// written, keeping the diff minimal.
+function campaignEntryLine(campaign: string, fields: Record<string, unknown>): string {
+  const keys = ["cadence", "enabled", ...Object.keys(fields).filter((key) => key !== "cadence" && key !== "enabled")];
+  const parts: string[] = [];
+  for (const key of keys) {
+    const value = fields[key];
+    if (value === undefined) continue;
+    if (key === "enabled" && value === true) continue;
+    parts.push(`${key}: ${value === null ? "null" : typeof value === "boolean" || typeof value === "number" ? String(value) : q(String(value))}`);
+  }
+  return `  ${campaign}: {${parts.join(", ")}}`;
+}
+
+// Surgical, comment-preserving edit of exactly one campaigns entry. Every
+// other line of the file — including the rest of the campaigns section — is
+// returned byte-identical. Handles flow-style entries, block-style entries,
+// and absent entries (appended at the end of the section).
+function spliceCampaignEntry(yamlText: string, campaign: string, line: string): string {
+  const lines = yamlText.split("\n");
+  const start = lines.findIndex((text) => text === "campaigns:");
+  if (start < 0) throw new Error("The campaigns section is missing from profile.yaml.");
+  let end = lines.length;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (/^[A-Za-z_][A-Za-z0-9_-]*:/.test(lines[index] ?? "")) { end = index; break; }
+  }
+  const section = lines.slice(start + 1, end);
+  const flowRe = new RegExp(`^\\s*${campaign}:\\s*\\{[^}]*\\}\\s*(?:#.*)?$`);
+  const headRe = new RegExp(`^\\s*${campaign}:\\s*(?:#.*)?$`);
+  const before = lines.slice(0, start + 1);
+  const after = lines.slice(end);
+  for (let index = 0; index < section.length; index += 1) {
+    const text = section[index] ?? "";
+    if (flowRe.test(text)) {
+      const indent = text.match(/^\s*/)?.[0] ?? "  ";
+      return [...before, ...section.slice(0, index), `${indent}${line.trimStart()}`, ...section.slice(index + 1), ...after].join("\n");
+    }
+    const head = text.match(headRe);
+    if (head) {
+      const indent = text.match(/^\s*/)?.[0] ?? "";
+      let stop = index + 1;
+      while (stop < section.length) {
+        const next = section[stop] ?? "";
+        if (next.trim() === "") { stop += 1; continue; }
+        if (next.length > indent.length && next.startsWith(indent) && /^\s/.test(next.slice(indent.length))) { stop += 1; continue; }
+        break;
+      }
+      return [...before, ...section.slice(0, index), `${indent}${line.trimStart()}`, ...section.slice(stop), ...after].join("\n");
+    }
+  }
+  let insertAt = section.length;
+  while (insertAt > 0 && (section[insertAt - 1] ?? "").trim() === "") insertAt -= 1;
+  return [...before, ...section.slice(0, insertAt), line, ...section.slice(insertAt), ...after].join("\n");
+}
+
+const scheduleUpdateResponse = z.union([
+  z.object({ ok: z.literal(true), job_id: z.string(), campaign: z.string(), cadence: z.string(), enabled: z.boolean(), note: z.string() }),
+  z.object({ ok: z.literal(false), error: z.string() }),
+]);
+
+const hashPattern = /^[a-f0-9]{64}$/i;
+function findBodyHash(value: unknown, depth = 0): string | null {
+  if (depth > 4 || !value || typeof value !== "object") return null;
+  if (Array.isArray(value)) {
+    for (const item of value) { const found = findBodyHash(item, depth + 1); if (found) return found; }
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  for (const key of ["body_hash", "bodyHash"]) {
+    const candidate = record[key];
+    if (typeof candidate === "string" && hashPattern.test(candidate)) return candidate.toLowerCase();
+  }
+  for (const nested of Object.values(record)) { const found = findBodyHash(nested, depth + 1); if (found) return found; }
+  return null;
+}
 
 const LEGAL: Record<string, readonly string[]> = {
   discovered: ["screened", "rejected"], screened: ["resume_picked"], resume_picked: ["tailored"],
@@ -233,6 +389,22 @@ async function publishFilePayload(ctx: Ctx, result: PublishedFileInput): Promise
   return { filename: result.filename, file_url: await ctx.blobs.getUrl(key, { expiresInSeconds: 900 }), content_type: result.contentType };
 }
 
+type PublishedPreviewFile = Awaited<ReturnType<typeof publishFilePayload>> & { preview_pages: { page: number; file_url: string }[]; preview_truncated: boolean };
+async function publishFileWithPreview(ctx: Ctx, result: PublishedFileInput): Promise<PublishedPreviewFile> {
+  const published = await publishFilePayload(ctx, result);
+  if (result.contentType !== "application/pdf") return { ...published, preview_pages: [], preview_truncated: false };
+  try {
+    const preview = await ctx.executePrivileged(privileged.renderPdfPreview, { bytesBase64: result.bytesBase64, maxPages: 8 });
+    const previewPages = await Promise.all(preview.pages.map(async (page) => {
+      const image = await publishFilePayload(ctx, { filename: `page-${page.page}.png`, bytesBase64: page.bytesBase64, contentType: "image/png" });
+      return { page: page.page, file_url: image.file_url };
+    }));
+    return { ...published, preview_pages: previewPages, preview_truncated: preview.truncated };
+  } catch {
+    return { ...published, preview_pages: [], preview_truncated: false };
+  }
+}
+
 function pathFilename(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).at(-1) ?? "";
 }
@@ -288,6 +460,47 @@ function csvRows(csv: string): string[][] {
 function recordsFromCsv(csv: string): Record<string, string>[] {
   const rows = csvRows(csv); const headers = (rows[0] ?? []).map((x) => norm(x).replaceAll(" ", "_"));
   return rows.slice(1).map((row) => Object.fromEntries(headers.map((h, i) => [h, row[i] ?? ""])));
+}
+
+const safeResumeFilenamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]*\.pdf$/i;
+const safeResumeVariantPattern = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const resumeUploadResponse = z.union([
+  z.object({ ok: z.literal(true), variant_id: z.string(), path: z.string(), filename: z.string(), sha256: z.string() }),
+  z.object({ ok: z.literal(false), message: z.string() }),
+]);
+const resumeDeleteResponse = z.union([
+  z.object({ ok: z.literal(true), variant_id: z.string(), usage_count: z.number(), trashed_path: z.string().nullable(), file_moved: z.boolean() }),
+  z.object({ ok: z.literal(false), message: z.string() }),
+]);
+
+function decodeBase64(value: string): Buffer | null {
+  const text = value.trim();
+  if (!text || text.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(text)) return null;
+  try {
+    const bytes = Buffer.from(text, "base64");
+    const canonical = bytes.toString("base64");
+    return canonical === text ? bytes : null;
+  } catch {
+    return null;
+  }
+}
+
+function pdfBytes(bytes: Uint8Array): boolean {
+  return bytes.length >= 5 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46 && bytes[4] === 0x2d;
+}
+
+async function bytesSha256(bytes: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest)).map((value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+function profileYearsMatrix(row: typeof schema.profile.$inferSelect | undefined): Record<string, unknown> {
+  if (!row) return {};
+  for (const section of [row.identity, row.workAuth, row.locations, row.targeting, row.comp, row.answers, row.caps, row.replyTiers]) {
+    const candidate = jsonObject(section).years_matrix;
+    if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) return candidate as Record<string, unknown>;
+  }
+  return {};
 }
 
 export const Actions = {
@@ -515,6 +728,78 @@ export const Actions = {
       await db.insert(schema.resumeVariants).values({ variantId: args.variant_id, path: args.path, sha256: args.sha256, roleFamily: args.role_family, industryTags: args.industry_tags, yearsMatrix: args.years_matrix, keywordVector: args.keyword_vector })
         .onConflictDoUpdate({ target: schema.resumeVariants.variantId, set: { path: args.path, sha256: args.sha256, roleFamily: args.role_family, industryTags: args.industry_tags, yearsMatrix: args.years_matrix, keywordVector: args.keyword_vector } });
       ctx.invalidateQueries(); return { ok: true as const };
+    },
+  }),
+
+  resume_upload: defineAction({
+    request: z.object({ filename: z.string(), bytes_base64: z.string(), variant_id: z.string(), role_family: z.string(), industry_tags: z.array(z.string()).optional() }),
+    response: resumeUploadResponse,
+    privileged: [privileged.writeResumeUpload, privileged.trashResumeFile],
+    async handler(ctx, args): Promise<z.infer<typeof resumeUploadResponse>> {
+      const bytes = decodeBase64(args.bytes_base64);
+      if (!bytes) return { ok: false, message: "The uploaded file could not be decoded." };
+      if (bytes.byteLength > 15 * 1024 * 1024) return { ok: false, message: "The uploaded PDF is larger than the 15 MB limit." };
+      if (!pdfBytes(bytes)) return { ok: false, message: "The uploaded file is not a PDF." };
+      const filename = args.filename.split(/[\\/]/).filter(Boolean).at(-1) ?? "";
+      if (!safeResumeFilenamePattern.test(filename)) return { ok: false, message: "Use a PDF filename that starts with a letter or number and contains only letters, numbers, dots, underscores, or hyphens." };
+      const variantId = args.variant_id.trim();
+      if (!variantId || !safeResumeVariantPattern.test(variantId)) return { ok: false, message: "Variant id is required and may contain only letters, numbers, dots, underscores, or hyphens." };
+      const roleFamily = args.role_family.trim();
+      if (!roleFamily) return { ok: false, message: "Role family is required." };
+      const db = ctx.db<typeof schema>();
+      const existing = (await db.select({ variantId: schema.resumeVariants.variantId }).from(schema.resumeVariants).where(eq(schema.resumeVariants.variantId, variantId)).limit(1))[0];
+      if (existing) return { ok: false, message: `Variant id '${variantId}' is already registered. Choose a different id.` };
+      const profileRow = (await db.select().from(schema.profile).where(eq(schema.profile.id, 1)).limit(1))[0];
+      let written: { path: string; filename: string };
+      try {
+        written = await ctx.executePrivileged(privileged.writeResumeUpload, { filename, bytes_base64: args.bytes_base64 });
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : "The PDF could not be saved to the resume library." };
+      }
+      const sha256 = await bytesSha256(bytes);
+      try {
+        await db.insert(schema.resumeVariants).values({
+          variantId,
+          path: written.path,
+          sha256,
+          roleFamily,
+          industryTags: args.industry_tags ?? [],
+          yearsMatrix: profileYearsMatrix(profileRow),
+          keywordVector: {},
+        });
+      } catch {
+        try { await ctx.executePrivileged(privileged.trashResumeFile, { variant_id: variantId, filename: written.filename, location: "user_files" }); } catch { /* preserve the uploaded file if recovery trash is unavailable */ }
+        const duplicate = (await db.select({ variantId: schema.resumeVariants.variantId }).from(schema.resumeVariants).where(eq(schema.resumeVariants.variantId, variantId)).limit(1))[0];
+        return { ok: false, message: duplicate ? `Variant id '${variantId}' is already registered. Choose a different id.` : "The PDF was saved but could not be registered. It was moved to recoverable trash when possible." };
+      }
+      ctx.invalidateQueries();
+      return { ok: true, variant_id: variantId, path: written.path, filename: written.filename, sha256 };
+    },
+  }),
+
+  resume_delete: defineAction({
+    request: z.object({ variant_id: z.string().min(1) }),
+    response: resumeDeleteResponse,
+    privileged: [privileged.trashResumeFile],
+    async handler(ctx, args): Promise<z.infer<typeof resumeDeleteResponse>> {
+      const variantId = args.variant_id.trim();
+      const db = ctx.db<typeof schema>();
+      const row = (await db.select().from(schema.resumeVariants).where(eq(schema.resumeVariants.variantId, variantId)).limit(1))[0];
+      if (!row) return { ok: false, message: `Variant '${variantId}' is not in the library.` };
+      const usage = (await db.select({ count: sql<number>`count(*)` }).from(schema.applications).where(eq(schema.applications.variantId, variantId)))[0];
+      const usageCount = countNumber(usage?.count);
+      const location = registeredResumeLocation(row.path);
+      const filename = pathFilename(row.path);
+      if (!location || !filename) return { ok: false, message: "This resume is outside the registered library locations and was not removed." };
+      let moved: { file_moved: boolean; trashed_path: string | null };
+      try {
+        moved = await ctx.executePrivileged(privileged.trashResumeFile, { variant_id: variantId, filename, location });
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : "The PDF could not be moved to recoverable trash. The library entry was kept." };
+      }
+      await db.delete(schema.resumeVariants).where(eq(schema.resumeVariants.variantId, variantId));
+      ctx.invalidateQueries();
+      return { ok: true, variant_id: variantId, usage_count: usageCount, trashed_path: moved.trashed_path, file_moved: moved.file_moved };
     },
   }),
 
@@ -860,6 +1145,137 @@ export const Actions = {
     },
   }),
 
+  schedules_status: defineAction({
+    request: emptyRequest,
+    response: schedulesStatusResponse,
+    privileged: [privileged.readSchedulesManifest],
+    async handler(ctx): Promise<z.infer<typeof schedulesStatusResponse>> {
+      const generatedAt = now().toISOString();
+      const result = await ctx.executePrivileged(privileged.readSchedulesManifest, {});
+      if (!result.manifestText) return { generated_at: generatedAt, manifest_missing: true, rows: [] };
+
+      let parsed: z.infer<typeof schedulesManifestSchema> | null = null;
+      try {
+        const checked = schedulesManifestSchema.safeParse(JSON.parse(result.manifestText));
+        parsed = checked.success ? checked.data : null;
+      } catch {
+        parsed = null;
+      }
+      if (!parsed) return { generated_at: generatedAt, manifest_missing: true, rows: [] };
+
+      const runRows = await ctx.db<typeof schema>().select().from(schema.runs).orderBy(desc(schema.runs.started));
+      const latestByCampaign = new Map<string, (typeof runRows)[number]>();
+      for (const run of runRows) if (!latestByCampaign.has(run.campaignId)) latestByCampaign.set(run.campaignId, run);
+      const rows = parsed.jobs.map((job) => {
+        const latest = latestByCampaign.get(job.campaign);
+        const liveBodyHash = latest ? findBodyHash(latest.liveConfig) ?? findBodyHash(latest.compiledConfig) : null;
+        const latestRunDrift = latest
+          ? JSON.stringify(latest.compiledConfig) === JSON.stringify(latest.liveConfig) ? "in_sync" as const : "drift" as const
+          : null;
+        const hashDrift = liveBodyHash && job.body_hash
+          ? liveBodyHash === job.body_hash.toLowerCase() ? "in_sync" as const : "drift" as const
+          : null;
+        return {
+          ...job,
+          manifest_body_hash: job.body_hash,
+          last_run_at: latest ? latest.started.toISOString() : null,
+          last_run_status: latest?.status ?? null,
+          live_body_hash: liveBodyHash,
+          drift: latest ? latestRunDrift ?? hashDrift ?? "unknown" as const : "unknown" as const,
+        };
+      });
+      return { generated_at: generatedAt, manifest_missing: false, rows };
+    },
+  }),
+
+  schedule_update: defineAction({
+    request: z.object({ job_id: z.string().min(1), cadence: z.string().optional(), enabled: z.boolean().optional() })
+      .superRefine((value, ctx) => {
+        if (value.cadence === undefined && value.enabled === undefined) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Provide at least one of cadence or enabled." });
+        }
+      }),
+    response: scheduleUpdateResponse,
+    privileged: [privileged.readProfileYaml, privileged.parseProfileYaml, privileged.writeProfileYaml, privileged.readSchedulesManifest],
+    async handler(ctx, args): Promise<z.infer<typeof scheduleUpdateResponse>> {
+      const jobId = args.job_id.trim();
+      const campaign = jobIdToCampaign(jobId);
+      if (!campaign) {
+        return { ok: false, error: `Unknown job_id ${q(jobId)}. Known job ids: ${SCHEDULE_CAMPAIGNS.map(scheduleJobId).join(", ")}.` };
+      }
+      let cadence: string | undefined;
+      if (args.cadence !== undefined) {
+        const problem = cadenceError(args.cadence);
+        if (problem) return { ok: false, error: problem };
+        cadence = args.cadence.trim();
+      }
+      let originalText: string;
+      let parsed: Record<string, unknown>;
+      try {
+        originalText = (await ctx.executePrivileged(privileged.readProfileYaml, {})).yamlText;
+        parsed = jsonObject((await ctx.executePrivileged(privileged.parseProfileYaml, { yamlText: originalText })).parsed);
+      } catch {
+        return { ok: false, error: "profile.yaml could not be read or parsed; nothing was changed." };
+      }
+      const campaigns = jsonObject(parsed.campaigns);
+      const rawExisting = campaigns[campaign];
+      if (rawExisting !== undefined && (typeof rawExisting !== "object" || rawExisting === null || Array.isArray(rawExisting))) {
+        return { ok: false, error: `campaigns.${campaign} is malformed in profile.yaml; fix it by hand before editing from the dashboard.` };
+      }
+      const existing = rawExisting ? rawExisting as Record<string, unknown> : null;
+      let nextCadence = cadence ?? (typeof existing?.cadence === "string" && existing.cadence.trim() ? existing.cadence.trim() : undefined);
+      if (!nextCadence) {
+        // Absent entry: carry over the live cadence from the compiled manifest
+        // so toggling enabled never forces the user to retype the cadence.
+        try {
+          const manifest = await ctx.executePrivileged(privileged.readSchedulesManifest, {});
+          if (manifest.manifestText) {
+            const jobs = jsonArray((JSON.parse(manifest.manifestText) as Record<string, unknown>).jobs);
+            const row = jobs.map(jsonObject).find((job) => job.job_id === jobId);
+            const found = row && typeof row.cadence === "string" ? row.cadence.trim() : "";
+            if (found) nextCadence = found;
+          }
+        } catch {
+          // fall through to the explicit-cadence error below
+        }
+        if (!nextCadence) return { ok: false, error: `campaigns.${campaign} has no cadence yet and the manifest has no row for ${q(jobId)}; pass cadence explicitly.` };
+      }
+      const nextFields: Record<string, unknown> = { ...(existing ?? {}), cadence: nextCadence };
+      if (args.enabled !== undefined) nextFields.enabled = args.enabled;
+      let updatedText: string;
+      try {
+        updatedText = spliceCampaignEntry(originalText, campaign, campaignEntryLine(campaign, nextFields));
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : "The campaigns section could not be edited." };
+      }
+      // Validate the full edited profile against the schema mirror before
+      // writing. On failure the previous file bytes are restored untouched.
+      try {
+        const reparsed = jsonObject((await ctx.executePrivileged(privileged.parseProfileYaml, { yamlText: updatedText })).parsed);
+        const checked = yamlProfileSchema.safeParse(reparsed);
+        if (!checked.success) throw new Error(checked.error.issues[0]?.message ?? "The edited profile did not validate.");
+      } catch (error) {
+        try {
+          await ctx.executePrivileged(privileged.writeProfileYaml, { yaml_text: originalText });
+        } catch {
+          // best effort: the original text was already validated on read
+        }
+        return { ok: false, error: `Edited profile failed validation; the previous profile.yaml was restored. ${error instanceof Error ? error.message : ""}`.trim() };
+      }
+      try {
+        await ctx.executePrivileged(privileged.writeProfileYaml, { yaml_text: updatedText });
+      } catch {
+        return { ok: false, error: "profile.yaml could not be written; nothing was changed." };
+      }
+      ctx.invalidateQueries();
+      const enabled = nextFields.enabled === false ? false : true;
+      return {
+        ok: true, job_id: jobId, campaign, cadence: nextCadence, enabled,
+        note: `Saved to profile.yaml campaigns.${campaign}. Recompiles within ~15 min via profile_watch — the job is never deleted.`,
+      };
+    },
+  }),
+
   snapshot: defineAction({
     request: z.object({ view: z.enum(["overview", "applications", "resumes", "runs", "replies", "health", "ask"]), query: z.string().optional() }), response: z.object({ view: z.string(), generated_at: z.string(), data: z.unknown() }),
     privileged: [privileged.applicationEvidenceExists],
@@ -964,8 +1380,8 @@ export const Actions = {
       z.object({ app_id: z.string().min(1), kind: z.enum(["resume", "screenshot", "confirmation"]) }),
       z.object({ variant_id: z.string().min(1) }),
     ]),
-    response: z.object({ filename: z.string(), file_url: z.string(), content_type: z.enum(["application/pdf", "image/png", "text/plain"]) }),
-    privileged: [privileged.readApplicationEvidence, privileged.readRegisteredResume],
+    response: z.object({ filename: z.string(), file_url: z.string(), content_type: z.enum(["application/pdf", "image/png", "text/plain"]), preview_pages: z.array(z.object({ page: z.number().int().positive(), file_url: z.string() })), preview_truncated: z.boolean() }),
+    privileged: [privileged.readApplicationEvidence, privileged.readRegisteredResume, privileged.readTrashedResume, privileged.renderPdfPreview],
     async handler(ctx, args) {
       const db = ctx.db<typeof schema>();
       if ("variant_id" in args) {
@@ -973,22 +1389,25 @@ export const Actions = {
         const location = row ? registeredResumeLocation(row.path) : null; const filename = row ? pathFilename(row.path) : "";
         if (!row || !location || !filename) throw new Error("The requested resume is not available from a registered location.");
         const result = await ctx.executePrivileged(privileged.readRegisteredResume, { filename, location });
-        return publishFilePayload(ctx, result);
+        return publishFileWithPreview(ctx, result);
       }
-      const row = (await db.select({ appId: schema.applications.appId, campaignId: schema.applications.campaignId, runId: schema.applications.runId, variantId: schema.applications.variantId, resumePath: schema.applications.resumePath, screenshotPath: schema.applications.screenshotPath, confirmationPath: schema.applications.confirmationPath }).from(schema.applications).where(eq(schema.applications.appId, args.app_id)).limit(1))[0];
+      const row = (await db.select({ appId: schema.applications.appId, campaignId: schema.applications.campaignId, runId: schema.applications.runId, variantId: schema.applications.variantId, resumePath: schema.applications.resumePath, resumeHash: schema.applications.resumeHash, screenshotPath: schema.applications.screenshotPath, confirmationPath: schema.applications.confirmationPath }).from(schema.applications).where(eq(schema.applications.appId, args.app_id)).limit(1))[0];
       const path = row ? args.kind === "resume" ? row.resumePath : args.kind === "screenshot" ? row.screenshotPath : row.confirmationPath : null;
       if (!row || !path) throw new Error("The requested file is not attached to this application.");
       if (args.kind === "resume") {
         const location = registeredResumeLocation(path); const filename = pathFilename(path);
         if (location) {
           const registered = row.variantId ? (await db.select({ path: schema.resumeVariants.path }).from(schema.resumeVariants).where(and(eq(schema.resumeVariants.variantId, row.variantId), eq(schema.resumeVariants.path, path))).limit(1))[0] : null;
-          if (!registered) throw new Error("The application resume is not bound to its registered variant.");
-          return publishFilePayload(ctx, await ctx.executePrivileged(privileged.readRegisteredResume, { filename, location }));
+          if (registered) return publishFileWithPreview(ctx, await ctx.executePrivileged(privileged.readRegisteredResume, { filename, location }));
+          if (!row.variantId) throw new Error("The application resume has no recorded variant id.");
+          const trashed = await ctx.executePrivileged(privileged.readTrashedResume, { variant_id: row.variantId, filename, sha256: row.resumeHash });
+          if (!trashed.found || !trashed.filename || !trashed.bytesBase64 || !trashed.contentType) throw new Error(`Removed resume variant '${row.variantId}' is no longer available in recoverable trash.`);
+          return publishFileWithPreview(ctx, { filename: trashed.filename, bytesBase64: trashed.bytesBase64, contentType: trashed.contentType });
         }
       }
       if (!row.runId) throw new Error("The application has no run-bound evidence directory.");
       const result = await ctx.executePrivileged(privileged.readApplicationEvidence, { appId: row.appId, campaignId: row.campaignId, runId: row.runId, kind: args.kind, filename: pathFilename(path) });
-      return publishFilePayload(ctx, result);
+      return publishFileWithPreview(ctx, result);
     },
   }),
 

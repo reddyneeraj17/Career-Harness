@@ -4,6 +4,29 @@ All notable changes to the Job-Apply Harness kit are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **First-run onboarding wizard**: fresh installs open a 6-step guided setup
+  (identity → work auth → employment types → targeting/titles → screening
+  answers → caps) instead of the dashboard tabs; saves via `profile_save`;
+  placeholder values are rejected loudly on client and server.
+- **Resume upload/delete on the Resumes tab**: PDF-only upload with magic-byte
+  validation, SHA-256, and loudly-enforced unique variant IDs; safe delete
+  moves the PDF to recoverable trash and never touches application history.
+- **Per-job schedule editing**: enable/disable switch and editable cadence for
+  every job on the Schedules tab; new `schedule_update` action.
+- **In-page PDF viewer**: "Open PDF" links open a viewer modal with
+  Close/Download controls plus a download fallback.
+
+### Changed
+- **Employment type is now a multi-select** on the Profile tab (full-time,
+  part-time, W2 contract, C2C, internship); the eligibility judge screens
+  against the selection.
+- Dashboard renamed from "harness-core" to "Career Harness" (display name
+  only; slug unchanged).
+- profile-watch timeout raised 900s → 1800s.
+
 ## [1.0.0] — 2026-09-26
 
 First shippable release. A complete, self-contained kit that installs the

@@ -17,12 +17,12 @@ description: Scout skill for the linkedin_feed campaign — discovers US job pos
   "profile": {
     "locations": {"us_only": true, "remote": "ok", "metros": ["Houston", "Dallas", "Austin"]},
     "role_types": ["full_time", "w2_contract"],
-    "targeting": {"tiers": [1, 2], "industries": ["fintech", "healthcare"], "seniority": ["senior", "staff"]}
+    "targeting": {"tiers": [1, 2], "industries": ["fintech", "healthcare"], "seniority": ["senior", "staff"], "titles": ["Senior Data Engineer", "Staff Data Engineer"]}
   }
 }
 ```
 
-`hours_back` defaults to 24. `boolean_blocks` are pre-built from profile targeting; the worker never invents new keywords.
+`hours_back` defaults to 24. `boolean_blocks` are pre-built from profile targeting — `titles` × `seniority` × `industries` (e.g. `("Senior Data Engineer" OR "Staff Data Engineer") AND (fintech OR healthcare)`); the worker never invents new keywords.
 
 ## Actions called
 

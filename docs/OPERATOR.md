@@ -21,9 +21,10 @@ code (see CUSTOMER_RULES.md).
 
 1. **A Muse environment** — this is where the harness lives.
 2. **Your resume** as a PDF. You'll place it in the harness during setup.
-3. **About 20 minutes** for the intake interview: your target roles,
-   locations, work authorization, screening answers (relocation, licenses,
-   covenants), and how many applications per day you want.
+3. **About 20 minutes** for the guided setup: a 6-step wizard in the dashboard
+   covers your target roles, locations, work authorization, screening answers
+   (relocation, licenses, covenants), and how many applications per day
+   you want.
 4. **Your accounts** stay yours: email and LinkedIn connect through
    Muse's normal secure flows when the installer asks. Passwords are never
    typed into chat or stored in files.
@@ -36,8 +37,9 @@ Your Muse does the work; you answer questions. The sequence:
    maintainer) and say "install the job-apply harness."
 2. It verifies the kit is intact (checksums), stages the software, and
    builds your private dashboard.
-3. It interviews you and writes your `profile.yaml` — the one file that
-   describes your job search. Everything the harness does derives from it.
+3. It walks you through a 6-step setup wizard and writes your `profile.yaml` —
+   the one file that describes your job search. Everything the harness does
+   derives from it. You can change any answer later on the Profile tab.
 4. It connects your schedules (job feeds, email scans, reply handling),
    runs a dry-run test with **zero real applications**, and shows you the
    dashboard.
@@ -50,8 +52,8 @@ Muse environment and is never sent back to the maintainer.
 
 ## Day to day
 
-- **Dashboard** (6 tabs): Overview, Applications, Resumes, Runs, Replies,
-  Profile. Applications shows exactly which resume went where, with
+- **Dashboard** (7 tabs): Overview, Applications, Resumes, Runs, Schedules,
+  Replies, Profile. Applications shows exactly which resume went where, with
   confirmation text and screenshots.
 - **Approvals**: when a form asks something your profile doesn't cover,
   the application pauses and waits for your answer. Nothing is guessed.
@@ -73,11 +75,14 @@ one-line changelog of what changed.
   read-only on purpose. If something looks wrong, report it — don't fix it.
 - The database file directly. Use the dashboard.
 - Cron bodies (the schedules). They recompile from your profile; editing
-  them by hand just gets overwritten.
+  them by hand just gets overwritten — the profile-watch job will revert
+  your edit within ~15 minutes anyway.
 
-The one file that is yours: `profile.yaml`. Change jobs targets,
+The one file that is yours: `profile.yaml`. Change job targets,
 locations, or answers there (via the dashboard's Profile tab), and the
-whole system follows.
+whole system follows within about 15 minutes: the profile-watch job
+notices the change and recompiles every affected schedule automatically.
+You never need to ask for a recompile.
 
 ## If something looks wrong
 
