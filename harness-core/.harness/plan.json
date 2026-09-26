@@ -1,9 +1,0 @@
-{
-  "design_brief": {
-    "aesthetic": "Dense operational cockpit with editorial hierarchy: graphite surfaces, mint status signals, cyan interactive focus, crisp ledger rhythm, and restrained industrial detail.",
-    "colors": "graphite #111716, charcoal #1A2220, mist #EAF2EF, muted sage #9FB0AA, mint #52E0A4, cyan #43C9E8, amber #F4C56A, coral #FF7D72",
-    "hero_element": "A large live KPI number at the top of each tab, led on Applications by Today Applied in Chicago time, with supporting totals immediately beneath it.",
-    "moment": "A job-application operator opens the dashboard between automation runs to see today’s throughput, resolve blockers, and inspect the exact ledger behind every number.",
-    "typography": "IBM Plex Sans for interface and data, ui-monospace for identifiers, hashes, and compact ledger metadata."
-  }
-}

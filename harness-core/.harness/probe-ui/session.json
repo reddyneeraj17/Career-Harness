@@ -1,8 +1,0 @@
-{
-  "schema_version": "hatch.probe_ui_session.v1",
-  "socket": "/home/hatch/workspace/ts-spaces/harness-core/.harness/probe-ui/sock",
-  "slug": "harness-core",
-  "url": "https://artifact-capture.invalid/spaces/v2/hatch-audit-3ba2213f-7548-49aa-a017-b0542fd57f40/",
-  "audit_session_id": "7202f461-7d77-4b1a-a094-8734832d723e",
-  "pid": 3965
-}

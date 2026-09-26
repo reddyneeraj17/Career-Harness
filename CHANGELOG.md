@@ -20,6 +20,7 @@ autonomous job-application harness into a customer's Muse environment.
 - **Installer lockdown**: `install.sh` stages skills/templates read-only
   after install and verifies the new docs in `--check`; `upgrade.sh`
   briefly unlocks, refreshes, and re-locks.
+- **Setup prompt** (`docs/SETUP_PROMPT.md`): paste-into-chat prompt that drives a full customer install — rules, unpack, runbook, intake interview, resume, smoke test, shadow week.
 - **18 skills** (`skills/`): the full pipeline playbook catalog —
   scout (career-portal-sweep, job-board-search, linkedin-feed-hunting),
   screen (eligibility-judge, fit-judge, h1b-judge, resume-picker),

@@ -24,3 +24,7 @@ dist-cvm/
 .DS_Store
 *.swp
 *~
+
+# Local build metadata (artifact builder output — never ship)
+.harness/
+.space-build/
