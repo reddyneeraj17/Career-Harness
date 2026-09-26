@@ -21,7 +21,7 @@ harness-kit/
 ├── README.md / INSTALL.md   # what it is / agent runbook
 ├── PACKAGING.md             # this file
 ├── .gitignore               # customer-data guardrails
-├── skills/                  # 18 skills; the ONLY place logic lives
+├── skills/                  # 28 skills; the ONLY place logic lives
 ├── templates/               # *.body.md cron templates + profile.schema.yaml
 ├── harness-core/            # dashboard artifact source (client/, server/, drizzle/)
 ├── seed/                    # h1b_employer_hub.csv, companies_seed.csv
@@ -60,14 +60,14 @@ needs, and the doctor reports drift.
 Path A — git works in the customer's VM:
 
 ```sh
-git clone --branch v1.0.0 <repo> ~/workspace/harness-kit
+git clone --branch v1.2.0 <repo-with-one-time-deploy-key> ~/workspace/harness-kit  # private repo; key revoked after install
 cd ~/workspace/harness-kit && ./install/install.sh
 ```
 
 Path B — no network: upload the release tarball, then
 
 ```sh
-tar xzf harness-kit-1.0.0.tar.gz -C ~/workspace/
+tar xzf harness-kit-1.2.0.tar.gz -C ~/workspace/
 cd ~/workspace/harness-kit && ./install/install.sh
 ```
 
@@ -75,12 +75,12 @@ cd ~/workspace/harness-kit && ./install/install.sh
 verifies checksums, and prints the agent runbook: build the harness-core
 artifact from `harness-core/` source, run drizzle migrations in order,
 import seeds, copy `profile.example.yaml` → `~/workspace/profile.yaml`,
-complete the dashboard setup wizard, run compile-schedules, smoke-test, doctor.
+complete Excel-first onboarding (or the dashboard setup wizard), connect accounts, run compile-schedules, smoke-test, doctor.
 
 ## Upgrade / rollback
 
 ```sh
-cd ~/workspace/harness-kit && ./install/upgrade.sh v1.1.0
+cd ~/workspace/harness-kit && ./install/upgrade.sh v1.2.0
 ```
 
 `upgrade.sh` checks the current `VERSION` against the target, runs pending

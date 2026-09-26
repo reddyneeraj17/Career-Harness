@@ -40,8 +40,10 @@ Your Muse does the work; you answer questions. The sequence:
    maintainer) and say "install the job-apply harness."
 2. It verifies the kit is intact (checksums), stages the software, and
    builds your private dashboard.
-3. It walks you through a 6-step setup wizard and writes your `profile.yaml` —
-   the one file that describes your job search. Everything the harness does
+3. It onboards you with the Excel form (primary path): you fill in the
+   client onboarding workbook and upload it in chat; your Muse converts it
+   into your `profile.yaml` — the one file that describes your job search.
+   (A guided setup wizard is the fallback.) Everything the harness does
    derives from it. You can change any answer later on the Profile tab.
 4. It connects your schedules (job feeds, email scans, reply handling),
    runs a dry-run test with **zero real applications**, and shows you the

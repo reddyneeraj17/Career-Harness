@@ -3,7 +3,7 @@
 > **PROPRIETARY — Career Harness © 2026 Neeraj Reddy.** Licensed customers only: no redistribution, no sharing, no export. Core files are read-only (see CUSTOMER_RULES.md). Full terms in LICENSE.
 
 
-The shippable software for the Job-Apply Harness (blueprint v2.8, Database
+The shippable software for the Job-Apply Harness (blueprint v2.27, Database
 Edition, Skills-First). Installs into one customer's Muse environment per
 INSTALL.md. One customer = one environment = one `harness-core`.
 
@@ -27,7 +27,7 @@ INSTALL.md. One customer = one environment = one `harness-core`.
 └── harness-kit/
     ├── README.md                 # this file
     ├── INSTALL.md                # installer runbook (8 steps + upgrade playbook)
-    ├── skills/                   # 18 versioned skills — THE logic layer
+    ├── skills/                   # 28 versioned skills — THE logic layer
     │   ├── linkedin-feed-hunting, job-board-search, career-portal-sweep
     │   ├── eligibility-judge, h1b-judge, fit-judge
     │   ├── resume-picker, resume-tailor, resume-reviewer
@@ -50,7 +50,7 @@ INSTALL.md. One customer = one environment = one `harness-core`.
 ```
 
 ## What ships in the kit
-- 18 versioned skills + READMEs (Inputs / Actions called / Output / Hard limits)
+- 28 versioned skills + READMEs (Inputs / Actions called / Output / Hard limits)
 - Body templates + `profile.schema.yaml`
 - Empty goal skeletons (GOAL.md contracts; cron bodies are compiled at install)
 - `harness-core` source: schema, actions, migrations, seven dashboard tabs

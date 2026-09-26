@@ -18,7 +18,7 @@ folder except the kit's own source files, which the agent reads in place.
 
 | Kit path | Customer destination | Moved by | Purpose |
 |---|---|---|---|
-| `skills/` (18 skills) | `~/workspace/skills/` | **script** | The logic layer. Read-only after staging. This exact path is where Muse discovers skills. |
+| `skills/` (28 skills) | `~/workspace/skills/` | **script** | The logic layer. Read-only after staging. This exact path is where Muse discovers skills. |
 | `templates/*.body.md` + `profile.schema.yaml` | `~/workspace/templates/` | **script** | Cron body templates + the profile validation schema. Read-only after staging. |
 | `harness-core/` (client/, server/, drizzle/, space.json) | *stays in the kit* (`~/workspace/harness-kit/harness-core/`) | — | Source the **agent** reads to build the `harness-core` dashboard artifact. Never copied elsewhere; never edited. |
 | `harness-core/drizzle/*.sql` | applied into the artifact's database, in filename order | **agent** | Ordered migrations. Never skipped, never hand-edited. |
@@ -53,7 +53,7 @@ agent (or the human driving it) can't miss a step.
 ./install/install.sh --check   # verifies kit integrity, checksums, no-PII; changes nothing
 ```
 
-Then confirm by hand: `~/workspace/skills/` holds 18 skills,
+Then confirm by hand: `~/workspace/skills/` holds 28 skills,
 `~/workspace/templates/` holds the body templates + `profile.schema.yaml`,
 `~/workspace/goals/` holds 5 campaign dirs, `~/workspace/profile.yaml`
 exists, and `~/workspace/user/files/` is ready for the resume.
