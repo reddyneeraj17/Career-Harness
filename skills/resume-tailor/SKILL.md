@@ -1,6 +1,6 @@
 ---
 name: resume-tailor
-version: "1.2.0"
+version: "1.3.0"
 description: Tailors one resume variant to a job description with bounded edits, speaking the company's own vocabulary from company-read terms. Accepts reviewer_notes to close the review loop.
 ---
 
@@ -21,12 +21,17 @@ description: Tailors one resume variant to a job description with bounded edits,
   "reviewer_notes": ["Lead with platform work, not ETL", "Drop the 2016 internship bullet"],
   "company_terms": [
     {"term": "medallion architecture", "generic_equivalent": "bronze/silver/gold layered pipeline", "source_url": "https://www.databricks.com/blog/..."}
-  ]
+  ],
+  "required_stack": ["spark", "delta lake", "python"]
 }
 ```
 
 `company_terms` comes from the `company-read` skill (empty array when the read
 held or found no vocabulary — tailor normally, with no company terms).
+`required_stack` comes from `fit-judge` v1.2.0 (empty array when the judge
+held). Both are alignment signals only: they tell the tailor which true
+capabilities to surface and which JD requirements to mirror. Neither ever
+authorizes naming a tool the candidate lacks.
 `reviewer_notes` is empty on the first pass. When `resume-reviewer` returns
 `approved-with-notes`, the coordinator re-invokes the tailor with those notes
 and the tailor applies them — the review loop closes here instead of dropping
@@ -64,7 +69,7 @@ When `company_terms` is non-empty, the tailor may speak the company's language:
 The verdict envelope:
 
 ```json
-{"skill":"resume-tailor","version":"1.2.0","verdict":"pass|reject|hold",
+{"skill":"resume-tailor","version":"1.3.0","verdict":"pass|reject|hold",
  "score":0-100,"reasons":["..."],
  "evidence":{"pdf_path":"goals/<campaign_id>/hidden_files/<run_id>/resumes/<company_norm>-<role_norm>.pdf",
              "resume_hash":"<sha256(PDF bytes)[:12]>",
@@ -83,6 +88,11 @@ The verdict envelope:
 - **Bounded edits only:** reorder bullets, tighten phrasing, align keywords and skill labels to the JD. Cosmetic and structural changes only.
 - **Never add** employers, roles, dates, degrees, certifications, or metrics that are not in the variant source. Never invent experience. If the JD asks for something the variant lacks, omit it — do not fabricate it.
 - **Page count:** one page, unless the variant source is two pages — then at most two. Never exceed the variant's page count.
+- **Bullet shape.** Rewritten bullets follow `[action verb] + [task/context] +
+  [measurable metric]` — the metric is carried over verbatim from the variant
+  source when one exists, and omitted when the source has none. Never invent a
+  metric to satisfy the shape. Weak verbs ("helped", "worked on", "involved in")
+  are upgraded only where the variant source supports a stronger verb.
 - **Output path:** `goals/<campaign_id>/hidden_files/<run_id>/resumes/<company_norm>-<role_norm>.pdf`. Sanitize the filename to lowercase alphanumerics and dashes (max 80 chars). Create parent directories as needed.
 - **Hash:** compute `resume_hash = sha256(PDF bytes)[:12]` over the final file and return it in `evidence`. The portal-navigator re-verifies this hash before upload.
 - Never read or write any database; all facts come from the inputs.

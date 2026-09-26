@@ -125,3 +125,11 @@ campaigns:
     weekly_review:    {required: false, type: map, fields: {cadence: {required: true, type: string}, enabled: {required: false, type: boolean}}}
     harness_doctor:   {required: false, type: map, fields: {cadence: {required: true, type: string}, enabled: {required: false, type: boolean}}}
     profile_watch:    {required: false, type: map, fields: {cadence: {required: true, type: string}, enabled: {required: false, type: boolean}}}
+
+tailoring:
+  required: false
+  type: map
+  fields:
+    # Customer-banned buzzwords. The reviewer rejects any tailored PDF or cover
+    # letter containing one. Empty/missing = no banned terms.
+    forbid_terms: {required: false, type: list, items: {type: string}}

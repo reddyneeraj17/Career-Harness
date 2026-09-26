@@ -1,6 +1,6 @@
 ---
 name: run-coordinator
-version: "1.8.0"
+version: "1.9.0"
 description: Orchestrates one campaign run through the 7-stage pipeline, owns all state transitions, enforces caps, and closes the run.
 ---
 
@@ -95,9 +95,15 @@ Stages: SCOUT -> JD-FETCH -> SCREEN -> PICK -> COMPANY-READ -> TAILOR -> REVIEW 
   run never stalls on this step.
 - **The reviewer gets the data its checks need.** Every `resume-reviewer`
   invocation receives `variant_path` (the picked variant's file),
-  `years_matrix` (verbatim from `profile_get`, same source as fit-judge), and
-  the `company_terms` passed to the tailor. Without these the mechanical
+  `years_matrix` (verbatim from `profile_get`, same source as fit-judge), the
+  `company_terms` passed to the tailor, and `forbid_terms`
+  (`profile.tailoring.forbid_terms`, default `[]`). Without these the mechanical
   anti-fabrication checks cannot run — never invoke the reviewer without them.
+- **Judge output flows forward.** `fit-judge` v1.2.0 returns `required_stack` in
+  its evidence; the coordinator passes it into `resume-tailor` v1.3.0 as an
+  alignment signal (which true capabilities to surface, which JD requirements to
+  mirror). It never authorizes naming a tool the candidate lacks — the
+  reviewer's tool-claim check still governs.
 - **Cover letters where they're mandatory.** At TAILOR, for postings on ATS
   types where cover letters are commonly required (greenhouse, lever,
   ashby), the coordinator invokes `cover-letter-writer` (facts only from the

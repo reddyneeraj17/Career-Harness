@@ -1,7 +1,7 @@
 ---
 name: resume-reviewer
-version: "1.2.0"
-description: Gates tailored resumes and cover letters — cached verdicts, mechanical anti-fabrication checks against the variant and years matrix, company-term provenance — before anything ships.
+version: "1.3.0"
+description: Gates tailored resumes and cover letters — cached verdicts, mechanical anti-fabrication checks against the variant and years matrix, company-term provenance and drift checks, forbidden-term enforcement — before anything ships.
 ---
 
 # Resume Reviewer
@@ -21,6 +21,7 @@ The review gate: judges a tailored resume PDF (or a cover letter) against the jo
   "company_terms": [
     {"term": "medallion architecture", "generic_equivalent": "bronze/silver/gold layered pipeline", "source_url": "https://www.databricks.com/blog/..."}
   ],
+  "forbid_terms": ["ninja", "rockstar", "synergy"],
   "cover_text": "<optional: full cover letter text>",
   "cover_hash": "<optional: sha256 of the letter bytes, first 12 hex chars>"
 }
@@ -46,7 +47,7 @@ unchanged. Resume mode (no cover inputs) behaves exactly as before.
 Return ONLY the verdict envelope JSON, with `verdict` mapped to the review outcome:
 
 ```json
-{"skill":"resume-reviewer","version":"1.2.0","verdict":"pass|reject|hold",
+{"skill":"resume-reviewer","version":"1.3.0","verdict":"pass|reject|hold",
  "score":0-100,"reasons":["..."],
  "evidence":{"review":"approved|approved-with-notes|rejected","notes":["..."],"cache_hit":true,"jd_hash":"...","artifact":"resume|cover_letter","artifact_hash":"..."},"tokens":1234}
 ```
@@ -74,6 +75,15 @@ Return ONLY the verdict envelope JSON, with `verdict` mapped to the review outco
 - **Company-term provenance.** Every company-specific term in the tailored PDF
   (check the tailor's `lexicon_applied` list) must trace to a `company_terms`
   row with a `source_url`. Unsourced jargon → `rejected`, naming the term.
+- **Lexicon drift.** The mapped phrasing must denote the same capability as the
+  variant source bullet it rewrites. A rename that materially changes what the
+  candidate did — "used Spark" becoming "designed their platform", "ran
+  pipelines" becoming "authored a governance model" — → `rejected`, quoting both
+  phrasings. Same fact in their words is the rule; a bigger fact in their words
+  is fabrication.
+- **Forbidden terms.** Any term in `forbid_terms` (customer-banned buzzwords from
+  `profile.tailoring.forbid_terms`; empty array when unset) appearing anywhere in
+  the tailored PDF or cover letter → `rejected`, quoting the term.
 - **Affiliation check.** No phrasing may imply employment at, or contract with,
   the target company unless the variant supports it → `rejected`.
 - **Page count.** The tailored PDF must not exceed the variant's page count →
