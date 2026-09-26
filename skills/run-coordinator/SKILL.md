@@ -1,6 +1,6 @@
 ---
 name: run-coordinator
-version: "1.7.0"
+version: "1.8.0"
 description: Orchestrates one campaign run through the 7-stage pipeline, owns all state transitions, enforces caps, and closes the run.
 ---
 
@@ -69,7 +69,7 @@ but only the boards whose logins are actually in the credentials vault:
    the skipped boards in the run's `event_log` row. The run never stalls on a
    board nobody connected.
 
-Stages: SCOUT -> JD-FETCH -> SCREEN -> PICK -> TAILOR -> REVIEW GATE -> APPLY -> VERIFY.
+Stages: SCOUT -> JD-FETCH -> SCREEN -> PICK -> COMPANY-READ -> TAILOR -> REVIEW GATE -> APPLY -> VERIFY.
 
 - **JD-FETCH bridges scouts and judges.** After SCOUT, the coordinator
   collects the genuinely-new posting ids and invokes `jd-fetch` once: one
@@ -84,6 +84,20 @@ Stages: SCOUT -> JD-FETCH -> SCREEN -> PICK -> TAILOR -> REVIEW GATE -> APPLY ->
   same inputs plus `reviewer_notes` from the verdict, then re-runs the
   reviewer on the new PDF. Notes are applied, not dropped; one re-tailor per
   posting per run, then the row proceeds or parks.
+- **COMPANY-READ gives the tailor the company's vocabulary.** After PICK, for
+  each distinct `company_norm` entering TAILOR, invoke `company-read` once per
+  run (bounded: ≤3 public pages, ≤5 minutes, public pages only). Reuse the
+  written `company/<company_norm>.json` for every posting from that company in
+  the run — never re-read the same company twice in one run. Pass the returned
+  `company_terms` into `resume-tailor` and into `resume-reviewer` (provenance
+  check). A `hold` from company-read is not a failure: fall back to plain
+  tailoring with empty `company_terms` and note it in the run's event log. The
+  run never stalls on this step.
+- **The reviewer gets the data its checks need.** Every `resume-reviewer`
+  invocation receives `variant_path` (the picked variant's file),
+  `years_matrix` (verbatim from `profile_get`, same source as fit-judge), and
+  the `company_terms` passed to the tailor. Without these the mechanical
+  anti-fabrication checks cannot run — never invoke the reviewer without them.
 - **Cover letters where they're mandatory.** At TAILOR, for postings on ATS
   types where cover letters are commonly required (greenhouse, lever,
   ashby), the coordinator invokes `cover-letter-writer` (facts only from the

@@ -1,7 +1,7 @@
 ---
 name: resume-reviewer
-version: "1.1.0"
-description: Gates tailored resumes and cover letters — cached verdicts, banned-phrase and truthfulness checks — before anything ships.
+version: "1.2.0"
+description: Gates tailored resumes and cover letters — cached verdicts, mechanical anti-fabrication checks against the variant and years matrix, company-term provenance — before anything ships.
 ---
 
 # Resume Reviewer
@@ -14,8 +14,13 @@ The review gate: judges a tailored resume PDF (or a cover letter) against the jo
 {
   "pdf_path": "goals/<campaign>/hidden_files/<run>/resumes/<slug>/<Name>_Data_AI_Resume.pdf",
   "resume_hash": "sha256 of the PDF bytes, first 12 hex chars",
+  "variant_path": "user/files/<Name>_Data_AI_Resume.pdf",
+  "years_matrix": {"python": 6, "spark": 4, "aws": 5},
   "jd_text": "full normalized job description text",
   "jd_hash": "sha256 of normalized JD text, first 12 hex chars",
+  "company_terms": [
+    {"term": "medallion architecture", "generic_equivalent": "bronze/silver/gold layered pipeline", "source_url": "https://www.databricks.com/blog/..."}
+  ],
   "cover_text": "<optional: full cover letter text>",
   "cover_hash": "<optional: sha256 of the letter bytes, first 12 hex chars>"
 }
@@ -41,7 +46,7 @@ unchanged. Resume mode (no cover inputs) behaves exactly as before.
 Return ONLY the verdict envelope JSON, with `verdict` mapped to the review outcome:
 
 ```json
-{"skill":"resume-reviewer","version":"1.1.0","verdict":"pass|reject|hold",
+{"skill":"resume-reviewer","version":"1.2.0","verdict":"pass|reject|hold",
  "score":0-100,"reasons":["..."],
  "evidence":{"review":"approved|approved-with-notes|rejected","notes":["..."],"cache_hit":true,"jd_hash":"...","artifact":"resume|cover_letter","artifact_hash":"..."},"tokens":1234}
 ```
@@ -54,7 +59,28 @@ Return ONLY the verdict envelope JSON, with `verdict` mapped to the review outco
 
 - Check `review_get` before doing any review work. On a cache hit, return the cached verdict unchanged — do not re-judge.
 - Banned-phrase check: any unverified claim or banned phrase in the tailored PDF → `rejected` with the phrase quoted in `notes`.
-- Truthfulness check: the years matrix and every factual claim in the PDF must match the profile; any invented experience → `rejected`.
+- **Tool-claim check (mechanical).** Extract every technical tool, product, and
+  platform named in the tailored PDF. Each must resolve to one of: a
+  `years_matrix` key, a term in `jd_text`, or a `company_terms` row whose
+  `generic_equivalent` names a `years_matrix` capability. A named tool in none
+  of these → `rejected`, naming the tool. "Familiar with" / "exposure to" count
+  as claims.
+- **Variant-containment check (mechanical).** Extract employers, titles, date
+  ranges, degrees, certifications, and metrics from the tailored PDF and from
+  `variant_path`. Every one in the tailored PDF must already exist in the
+  variant. Anything new versus the variant (a new employer, date, metric) →
+  `rejected`, quoting the invented fact. The variant is the only source of
+  candidate facts.
+- **Company-term provenance.** Every company-specific term in the tailored PDF
+  (check the tailor's `lexicon_applied` list) must trace to a `company_terms`
+  row with a `source_url`. Unsourced jargon → `rejected`, naming the term.
+- **Affiliation check.** No phrasing may imply employment at, or contract with,
+  the target company unless the variant supports it → `rejected`.
+- **Page count.** The tailored PDF must not exceed the variant's page count →
+  `rejected` if it does.
+- Bullet quality (`[Action verb] + [task] + [metric]` shape, weak verbs,
+  metric-less bullets) → `notes`, never rejections. The tailor applies notes on
+  the re-tailor pass.
 - The reviewer **never edits the PDF**. It judges only. Fixes go back to the tailor as notes; a re-tailored PDF has a new `resume_hash` and gets a fresh review.
 - The reviewed file is the uploaded file: the coordinator must verify `resume_hash` matches at submit time (hash-verified upload).
 - No personal data lives in this file; facts arrive via Inputs.

@@ -1,7 +1,7 @@
 ---
 name: resume-tailor
-version: "1.1.0"
-description: Tailors one resume variant to a job description with bounded edits, returning the PDF path and its hash. Accepts reviewer_notes to close the review loop.
+version: "1.2.0"
+description: Tailors one resume variant to a job description with bounded edits, speaking the company's own vocabulary from company-read terms. Accepts reviewer_notes to close the review loop.
 ---
 
 # resume-tailor
@@ -18,16 +18,42 @@ description: Tailors one resume variant to a job description with bounded edits,
   "role_norm": "senior-data-engineer",
   "campaign_id": "career_portal",
   "run_id": "run-2026-09-26-1420",
-  "reviewer_notes": ["Lead with platform work, not ETL", "Drop the 2016 internship bullet"]
+  "reviewer_notes": ["Lead with platform work, not ETL", "Drop the 2016 internship bullet"],
+  "company_terms": [
+    {"term": "medallion architecture", "generic_equivalent": "bronze/silver/gold layered pipeline", "source_url": "https://www.databricks.com/blog/..."}
+  ]
 }
 ```
 
+`company_terms` comes from the `company-read` skill (empty array when the read
+held or found no vocabulary — tailor normally, with no company terms).
 `reviewer_notes` is empty on the first pass. When `resume-reviewer` returns
 `approved-with-notes`, the coordinator re-invokes the tailor with those notes
 and the tailor applies them — the review loop closes here instead of dropping
 the notes.
 
 Work from the variant source file — it is the only source of candidate facts. Read `jd_text` for keyword and requirement alignment only.
+
+## Company vocabulary
+
+When `company_terms` is non-empty, the tailor may speak the company's language:
+
+- **May** rename a true capability into the company's term where a
+  `company_terms` row gives a sourced equivalence: *"built layered
+  bronze/silver/gold pipelines"* → *"built medallion-architecture pipelines"*.
+  Same fact, their words. Record every applied term in
+  `evidence.lexicon_applied` so the reviewer can check provenance.
+- **May** reorder and select which true bullets surface, favouring those nearest
+  the company's terms.
+- **May** write at most **one** tailored summary line naming the problem domain
+  the company's pages describe.
+- **May NOT** name a company tool or product the candidate lacks. A tool in
+  their vocabulary but not in the candidate's experience is omitted entirely —
+  not "familiar with", not "exposure to".
+- **May NOT** imply employment at, contract with, or use of the company's
+  product unless the variant source supports it.
+- **May NOT** convert a capability into a materially different one (having used
+  Spark is not having authored a Unity Catalog governance model).
 
 ## Actions called
 
@@ -38,10 +64,11 @@ Work from the variant source file — it is the only source of candidate facts. 
 The verdict envelope:
 
 ```json
-{"skill":"resume-tailor","version":"1.0.0","verdict":"pass|reject|hold",
+{"skill":"resume-tailor","version":"1.2.0","verdict":"pass|reject|hold",
  "score":0-100,"reasons":["..."],
  "evidence":{"pdf_path":"goals/<campaign_id>/hidden_files/<run_id>/resumes/<company_norm>-<role_norm>.pdf",
-             "resume_hash":"<sha256(PDF bytes)[:12]>"},
+             "resume_hash":"<sha256(PDF bytes)[:12]>",
+             "lexicon_applied":["medallion architecture"]},
  "tokens":1234}
 ```
 
