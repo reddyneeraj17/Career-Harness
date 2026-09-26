@@ -1,11 +1,13 @@
 ---
 name: run-coordinator
-version: "1.3.0"
+version: "1.5.0"
 description: Orchestrates one campaign run through the 7-stage pipeline, owns all state transitions, enforces caps, and closes the run.
 ---
 
 # run-coordinator
 
+> Changelog 1.5.0: Job-board availability is per-board, not all-or-nothing — before SCOUT, the coordinator matches `credentials.list` against dice/indeed/glassdoor/ziprecruiter, passes only the available boards to `job-board-search`, and skips the rest (a run holds only when zero boards are available).
+> Changelog 1.4.0: Run-start login gate — before SCOUT, the coordinator checks `credentials.list` (metadata only) for the logins this campaign needs (see "Run-start login gate"); a missing login holds the run with a `needs_me` message up front instead of stalling mid-run on a login wall.
 > Changelog 1.3.0: Token usage capture — before `run_close`, the coordinator measures real token spend for the run's whole agent subtree via `muse.db` (`agent.agent_message_token_usage`, never estimated) and records it with `token_record`; when nothing is measurable the run is explicitly marked unreported, never zero-filled.
 > Changelog 1.2.0: APPLY phase evidence rule — the coordinator verifies the confirmation screenshot file exists on disk and the confirmation text is captured before allowing the `applying → submitted` transition; canonical evidence paths `goals/<campaign>/hidden_files/<run_id>/screenshots/<app_id>_<step>.png` (+ `<app_id>_confirmation.txt`).
 > Changelog 1.1.0: `years_matrix` for fit-judge comes only from `profile_get` (null when the profile has none — never fabricated); applier briefs cite the ledger `app_id` and a `snapshot`-verbatim URL with executor re-check; new "APPLY phase — browser ownership" subsection (browser driving is coordinator-level only).
@@ -32,6 +34,38 @@ The thin cron body invokes this skill with the `campaign_id`. The coordinator re
 - `event_log` — one exit row per skill exit is required of workers; the coordinator appends one final row with the run verdict and token totals.
 
 ## Pipeline orchestration
+
+### Run-start login gate (before SCOUT, every run)
+
+Campaigns stall mid-run when a login wall appears. Check up front instead:
+
+1. Call `credentials.list` (metadata only — never values) and each mailbox
+   connector's status check.
+2. Required logins by campaign:
+   - `linkedin_feed` → LinkedIn
+   - `job_board` → per-board (see below): dice, indeed, glassdoor,
+     ziprecruiter — each checked individually against the vault
+   - `career_portal` → none (public careers pages; ATS logins only if a portal demands it)
+   - `email_scan` → Outlook (or Gmail, if the customer connected it)
+   - `linkedin_replies` → LinkedIn
+3. If anything required is missing: do NOT open the run. Hold with
+   `needs_me=true` and one message naming the missing account(s) and pointing
+   the customer at the `account-connector` skill. A skipped account is a
+   customer decision — honor it, don't re-prompt inside the run.
+
+### Job-board availability (per-board, before SCOUT)
+
+The `job_board` campaign searches dice, indeed, glassdoor, and ziprecruiter —
+but only the boards whose logins are actually in the credentials vault:
+
+1. Match each saved login's site/host from `credentials.list` against the
+   four board domains. `boards_available` = the boards with a stored login.
+2. **Zero available → hold.** Do not open the run; `needs_me=true` naming the
+   four boards and pointing at `account-connector`.
+3. **Some available → run on those.** Build scout queries only for
+   `boards_available`, pass `boards: [...]` to `job-board-search`, and note
+   the skipped boards in the run's `event_log` row. The run never stalls on a
+   board nobody connected.
 
 Stages: SCOUT -> SCREEN -> PICK -> TAILOR -> REVIEW GATE -> APPLY -> VERIFY.
 
