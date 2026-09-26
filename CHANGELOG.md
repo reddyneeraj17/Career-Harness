@@ -4,11 +4,32 @@ All notable changes to the Job-Apply Harness kit are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.2.1] — 2026-09-26
+
+### Fixed
+- **v1.2.0 feature completion**: the 1.2.0 skills called dashboard actions
+  that were never implemented in the kit (`posting_verdict`,
+  `talking_points_attach`, `file_open` kind `"prep"`, `reason` on
+  `app_transition`). This release adds the missing implementation:
+  migration `0007_verdicts_reasons_prep.sql` (`posting_verdicts` table,
+  `applications.status_reason`, `applications.talking_points_path`), the
+  three actions plus the transition reason, snapshot ledger fields
+  (`reason`, `talking_points_path`, `prep_exists`) and per-run verdicts,
+  and the client UI (Reason line + Talking points cell on application rows,
+  posting-verdict details on run rows).
+- **Upgrade gap**: `upgrade.sh` never rebuilt the dashboard, so new UI and
+  actions stayed dead after an upgrade. The script now prints the dashboard
+  rebuild as a required agent step, and the new `docs/UPGRADE_PLAYBOOK.md`
+  documents the full-sync procedure: fetch kit → refresh code → migrations
+  in order → rebuild/redeploy dashboard → recompile schedules → doctor
+  green, with a verification checklist and rollback notes.
+
 ## [1.2.0] — 2026-09-26
 
-_Note: v1.1.0 was tagged locally and the tag reached GitHub, but `main` was
-never pushed, so v1.1.0 never shipped. That stale tag is left untouched; this
-release is cut as v1.2.0 and supersedes it._
+_Note: v1.1.0 was tagged and the tag reached GitHub, but the release
+workflow never completed on `main` (remote `main` was still at the older
+`50f1e46` while local work had diverged). That stale tag is left untouched;
+this release is cut as v1.2.0 and supersedes it._
 
 ### Added
 - **Proprietary licensing**: Apache 2.0 replaced by the Career Harness

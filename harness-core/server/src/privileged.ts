@@ -6,12 +6,12 @@ import { definePrivilegedContracts, definePrivilegedHandlers, z } from "@hatch/s
 
 export const privileged = definePrivilegedContracts({
   readApplicationEvidence: {
-    request: z.object({ appId: z.string().regex(/^[A-Za-z0-9_-]+$/), campaignId: z.string().regex(/^[A-Za-z0-9_-]+$/), runId: z.string().regex(/^[A-Za-z0-9_-]+$/), kind: z.enum(["resume", "screenshot", "confirmation"]), filename: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._ -]*$/) }),
+    request: z.object({ appId: z.string().regex(/^[A-Za-z0-9_-]+$/), campaignId: z.string().regex(/^[A-Za-z0-9_-]+$/), runId: z.string().regex(/^[A-Za-z0-9_-]+$/), kind: z.enum(["resume", "screenshot", "confirmation", "prep"]), filename: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._ -]*$/) }),
     response: z.object({ filename: z.string(), bytesBase64: z.string(), contentType: z.enum(["application/pdf", "image/png", "text/plain"]) }),
     timeoutMs: 15_000,
   },
   applicationEvidenceExists: {
-    request: z.object({ appId: z.string().regex(/^[A-Za-z0-9_-]+$/), campaignId: z.string().regex(/^[A-Za-z0-9_-]+$/), runId: z.string().regex(/^[A-Za-z0-9_-]+$/), kind: z.enum(["resume", "screenshot", "confirmation"]), filename: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._ -]*$/) }),
+    request: z.object({ appId: z.string().regex(/^[A-Za-z0-9_-]+$/), campaignId: z.string().regex(/^[A-Za-z0-9_-]+$/), runId: z.string().regex(/^[A-Za-z0-9_-]+$/), kind: z.enum(["resume", "screenshot", "confirmation", "prep"]), filename: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._ -]*$/) }),
     response: z.object({ exists: z.boolean() }),
     timeoutMs: 5_000,
   },
@@ -95,11 +95,12 @@ async function readCheckedFile(candidate: string, root: string): Promise<Buffer>
   return readFile(actual);
 }
 
-function applicationEvidencePath(input: { appId: string; campaignId: string; runId: string; kind: "resume" | "screenshot" | "confirmation"; filename: string }): { root: string; path: string; contentType: "application/pdf" | "image/png" | "text/plain" } {
+function applicationEvidencePath(input: { appId: string; campaignId: string; runId: string; kind: "resume" | "screenshot" | "confirmation" | "prep"; filename: string }): { root: string; path: string; contentType: "application/pdf" | "image/png" | "text/plain" } {
   const extension = input.filename.slice(input.filename.lastIndexOf(".")).toLowerCase();
   if (input.kind === "resume" && extension !== ".pdf") throw new Error("Application resume evidence must be a PDF.");
   if (input.kind === "screenshot" && (extension !== ".png" || !input.filename.startsWith(`${input.appId}_`))) throw new Error("Screenshot evidence must use the canonical application filename.");
   if (input.kind === "confirmation" && input.filename !== `${input.appId}_confirmation.txt`) throw new Error("Confirmation evidence must use the canonical application filename.");
+  if (input.kind === "prep" && (extension !== ".md" || input.filename !== `${input.appId}_talking_points.md`)) throw new Error("Talking-points evidence must use the canonical application filename.");
   const folder = input.kind === "resume" ? "resumes" : "screenshots";
   const root = resolve(WORKSPACE_ROOT, "goals", input.campaignId, "hidden_files", input.runId, folder);
   return { root, path: resolve(root, input.filename), contentType: input.kind === "resume" ? "application/pdf" : input.kind === "screenshot" ? "image/png" : "text/plain" };

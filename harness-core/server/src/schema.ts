@@ -40,6 +40,7 @@ export const applications = sqliteTable("applications", {
   state: text("state").notNull().default("discovered"), campaignId: text("campaign_id").notNull(), runId: text("run_id"), variantId: text("variant_id"),
   resumePath: text("resume_path"), resumeHash: text("resume_hash"), screenshotPath: text("screenshot_path"), confirmation: text("confirmation"), confirmationPath: text("confirmation_path"),
   intentId: text("intent_id"), evidencePath: text("evidence_path"), blocker: text("blocker"), outcome: text("outcome"),
+  statusReason: text("status_reason"), talkingPointsPath: text("talking_points_path"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()), updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()), submittedAt: integer("submitted_at", { mode: "timestamp_ms" }), kitVersion: text("kit_version"),
 }, (t) => [uniqueIndex("applications_posting_unique").on(t.postingId)]);
 
@@ -59,6 +60,12 @@ export const runs = sqliteTable("runs", {
 export const events = sqliteTable("events", {
   id: integer("id").primaryKey({ autoIncrement: true }), runId: text("run_id"), appId: text("app_id"), type: text("type").notNull(),
   payload: text("payload", { mode: "json" }).notNull().default({}), at: integer("at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+});
+
+export const postingVerdicts = sqliteTable("posting_verdicts", {
+  id: integer("id").primaryKey({ autoIncrement: true }), postingId: text("posting_id").notNull(), runId: text("run_id"),
+  stage: text("stage").notNull(), verdict: text("verdict").notNull(), reason: text("reason").notNull(),
+  at: integer("at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 });
 
 export const approvals = sqliteTable("approvals", {

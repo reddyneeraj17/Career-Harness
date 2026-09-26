@@ -675,7 +675,7 @@ export const Actions = {
   }),
 
   app_transition: defineAction({
-    request: z.object({ app_id: z.string(), from: z.string(), to: z.string(), evidence: z.string().nullable(), intent_id: z.string().nullable().optional() }), response: okResponse,
+    request: z.object({ app_id: z.string(), from: z.string(), to: z.string(), evidence: z.string().nullable(), intent_id: z.string().nullable().optional(), reason: z.string().trim().min(1).max(280).nullable().optional() }), response: okResponse,
     async handler(ctx, args) {
       const allowed = LEGAL[args.from] ?? [];
       if (!allowed.includes(args.to)) return { ok: false, message: `Illegal transition: ${args.from} → ${args.to}.` };
@@ -705,11 +705,41 @@ export const Actions = {
           screenshotPath: evidence ? evidence.screenshot_path ?? null : row.screenshotPath,
           confirmation: evidence?.confirmation ?? row.confirmation,
           confirmationPath,
+          statusReason: args.reason ?? row.statusReason,
           updatedAt: changed,
           submittedAt: args.to === "submitted" ? changed : row.submittedAt,
         }).where(and(eq(schema.applications.appId, args.app_id), eq(schema.applications.state, args.from))),
-        db.insert(schema.events).values({ runId: row.runId, appId: row.appId, type: "state_transition", payload: { from: args.from, to: args.to, evidence: args.evidence, intent_id: args.intent_id ?? null }, at: changed }),
+        db.insert(schema.events).values({ runId: row.runId, appId: row.appId, type: "state_transition", payload: { from: args.from, to: args.to, reason: args.reason ?? null, evidence: args.evidence, intent_id: args.intent_id ?? null }, at: changed }),
       ]);
+      ctx.invalidateQueries(); return { ok: true };
+    },
+  }),
+
+  posting_verdict: defineAction({
+    request: z.object({
+      posting_id: z.string().min(1), run_id: z.string().min(1).nullable().optional(),
+      stage: z.enum(["scout", "screen"]), verdict: z.enum(["passed", "held", "rejected"]),
+      reason: z.string().trim().min(1).max(280),
+    }), response: okResponse,
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>(); const at = now();
+      await db.insert(schema.postingVerdicts).values({
+        postingId: args.posting_id, runId: args.run_id ?? null,
+        stage: args.stage, verdict: args.verdict, reason: args.reason, at,
+      });
+      await db.insert(schema.events).values({ runId: args.run_id ?? null, appId: null, type: "posting_verdict", payload: { posting_id: args.posting_id, stage: args.stage, verdict: args.verdict, reason: args.reason }, at });
+      ctx.invalidateQueries(); return { ok: true };
+    },
+  }),
+
+  talking_points_attach: defineAction({
+    request: z.object({ app_id: z.string().min(1), talking_points_path: z.string().trim().min(1) }), response: okResponse,
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const row = (await db.select({ appId: schema.applications.appId }).from(schema.applications).where(eq(schema.applications.appId, args.app_id)).limit(1))[0];
+      if (!row) return { ok: false, message: "Application not found." };
+      await db.update(schema.applications).set({ talkingPointsPath: args.talking_points_path, updatedAt: now() }).where(eq(schema.applications.appId, args.app_id));
+      await db.insert(schema.events).values({ appId: args.app_id, type: "talking_points_attached", payload: { talking_points_path: args.talking_points_path }, at: now() });
       ctx.invalidateQueries(); return { ok: true };
     },
   }),
@@ -1311,6 +1341,11 @@ export const Actions = {
           return [app.appId, result.exists] as const;
         }));
         const screenshotExists = new Map(screenshotChecks);
+        const prepChecks = await Promise.all(apps.filter((app) => app.talkingPointsPath && app.runId).map(async (app) => {
+          const result = await ctx.executePrivileged(privileged.applicationEvidenceExists, { appId: app.appId, campaignId: app.campaignId, runId: app.runId ?? "", kind: "prep", filename: pathFilename(app.talkingPointsPath ?? "") });
+          return [app.appId, result.exists] as const;
+        }));
+        const prepExists = new Map(prepChecks);
         const ledger = apps.map((a) => { const p = postMap.get(a.postingId); return {
           app_id: a.appId, company: p?.company ?? a.companyNorm, role: p?.role ?? a.roleNorm, source: p?.source ?? "unavailable", url: p?.url ?? null,
           state: a.state, campaign_id: a.campaignId, run_id: a.runId, variant_id: a.variantId,
@@ -1318,6 +1353,8 @@ export const Actions = {
           screenshot_exists: a.screenshotPath ? screenshotExists.get(a.appId) === true : false,
           confirmation: a.confirmation, confirmation_path: a.confirmationPath,
           blocker: a.blocker, outcome: a.outcome, created_at: a.createdAt.toISOString(), updated_at: a.updatedAt.toISOString(), submitted_at: iso(a.submittedAt),
+          reason: a.statusReason, talking_points_path: a.talkingPointsPath,
+          prep_exists: a.talkingPointsPath ? prepExists.get(a.appId) === true : false,
         }; });
         return { view: args.view, generated_at: generatedAt.toISOString(), data: { counts, ledger, resumes } };
       }
@@ -1343,7 +1380,14 @@ export const Actions = {
           live_config: r.liveConfig,
         }));
         const totalTokens = runRows.reduce((sum, r) => r.tokensReported ? sum + r.tokensTotal : sum, 0);
-        return { view: args.view, generated_at: generatedAt.toISOString(), data: { hero: runRows.length, running: runRows.filter((r) => r.status === "running").length, blocked: runRows.filter((r) => Boolean(r.blocker)).length, needs_me: runRows.filter((r) => r.needsMe).length, total_tokens: totalTokens, rows } };
+        const runIds = runRows.map((r) => r.runId);
+        const verdictRows = runIds.length ? await db.select().from(schema.postingVerdicts).where(inArray(schema.postingVerdicts.runId, runIds)).orderBy(desc(schema.postingVerdicts.at)).limit(2000) : [];
+        const verdictsByRun = new Map<string, { posting_id: string; stage: string; verdict: string; reason: string; at: string }[]>();
+        for (const v of verdictRows) {
+          const list = verdictsByRun.get(v.runId ?? "") ?? []; list.push({ posting_id: v.postingId, stage: v.stage, verdict: v.verdict, reason: v.reason, at: v.at.toISOString() }); verdictsByRun.set(v.runId ?? "", list);
+        }
+        const rowsWithVerdicts = rows.map((r) => ({ ...r, verdicts: verdictsByRun.get(r.run_id) ?? [] }));
+        return { view: args.view, generated_at: generatedAt.toISOString(), data: { hero: runRows.length, running: runRows.filter((r) => r.status === "running").length, blocked: runRows.filter((r) => Boolean(r.blocker)).length, needs_me: runRows.filter((r) => r.needsMe).length, total_tokens: totalTokens, rows: rowsWithVerdicts } };
       }
       if (args.view === "replies") {
         const threads = await db.select().from(schema.conversations).orderBy(desc(schema.conversations.updatedAt)).limit(300); const replyRows = await db.select().from(schema.replies).orderBy(desc(schema.replies.at)).limit(500); const apps = await db.select().from(schema.applications);
@@ -1392,7 +1436,7 @@ export const Actions = {
 
   file_open: defineAction({
     request: z.union([
-      z.object({ app_id: z.string().min(1), kind: z.enum(["resume", "screenshot", "confirmation"]) }),
+      z.object({ app_id: z.string().min(1), kind: z.enum(["resume", "screenshot", "confirmation", "prep"]) }),
       z.object({ variant_id: z.string().min(1) }),
     ]),
     response: z.object({ filename: z.string(), file_url: z.string(), content_type: z.enum(["application/pdf", "image/png", "text/plain"]), preview_pages: z.array(z.object({ page: z.number().int().positive(), file_url: z.string() })), preview_truncated: z.boolean() }),
@@ -1406,8 +1450,8 @@ export const Actions = {
         const result = await ctx.executePrivileged(privileged.readRegisteredResume, { filename, location });
         return publishFileWithPreview(ctx, result);
       }
-      const row = (await db.select({ appId: schema.applications.appId, campaignId: schema.applications.campaignId, runId: schema.applications.runId, variantId: schema.applications.variantId, resumePath: schema.applications.resumePath, resumeHash: schema.applications.resumeHash, screenshotPath: schema.applications.screenshotPath, confirmationPath: schema.applications.confirmationPath }).from(schema.applications).where(eq(schema.applications.appId, args.app_id)).limit(1))[0];
-      const path = row ? args.kind === "resume" ? row.resumePath : args.kind === "screenshot" ? row.screenshotPath : row.confirmationPath : null;
+      const row = (await db.select({ appId: schema.applications.appId, campaignId: schema.applications.campaignId, runId: schema.applications.runId, variantId: schema.applications.variantId, resumePath: schema.applications.resumePath, resumeHash: schema.applications.resumeHash, screenshotPath: schema.applications.screenshotPath, confirmationPath: schema.applications.confirmationPath, talkingPointsPath: schema.applications.talkingPointsPath }).from(schema.applications).where(eq(schema.applications.appId, args.app_id)).limit(1))[0];
+      const path = row ? args.kind === "resume" ? row.resumePath : args.kind === "screenshot" ? row.screenshotPath : args.kind === "prep" ? row.talkingPointsPath : row.confirmationPath : null;
       if (!row || !path) throw new Error("The requested file is not attached to this application.");
       if (args.kind === "resume") {
         const location = registeredResumeLocation(path); const filename = pathFilename(path);

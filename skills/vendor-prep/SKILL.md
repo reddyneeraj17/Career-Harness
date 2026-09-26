@@ -106,13 +106,9 @@ resolution fails it holds — never guesses a path.
 
 8. **Record it.** Call
    `talking_points_attach({"app_id": <app_id>, "talking_points_path": <path>})`.
-   > **Deployment note:** this action is being added to the harness-core
-   > artifact by a parallel builder job. If the action does not exist yet
-   > (unknown-action error), the skill still returns `pass` with
-   > `evidence.attach: "pending"` and a reason naming the missing action —
-   > the document on disk is complete and correct; only the ledger linkage
-   > is deferred. This is a deployment gap, not a skill bug. Retrying the
-   > attach later is the coordinator's job, not this skill's.
+   The action records the document path on the application and writes a
+   `talking_points_attached` event. If it errors, return `hold` with the
+   error named — the document on disk is still complete and correct.
 9. **Log.** Append exactly one `event_log` row on exit (`run_id`, `app_id`,
    verdict, token count), even on failure.
 

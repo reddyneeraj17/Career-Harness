@@ -106,7 +106,7 @@ function Empty({ title, body }: { title: string; body: string }) {
 }
 
 const fileName = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
-type WorkspaceFileRef = { app_id: string; kind: "resume" | "screenshot" | "confirmation" } | { variant_id: string };
+type WorkspaceFileRef = { app_id: string; kind: "resume" | "screenshot" | "confirmation" | "prep" } | { variant_id: string };
 
 function WorkspaceFileButton({ fileRef, label, displayName }: { fileRef: WorkspaceFileRef; label: string; displayName: string }) {
   const [preview, setPreview] = useState<{ filename: string; url: string; pages: { page: number; url: string }[]; truncated: boolean } | null>(null);
@@ -129,7 +129,7 @@ function WorkspaceFileButton({ fileRef, label, displayName }: { fileRef: Workspa
     <span className="workspace-file-control"><button type="button" className="file-button" onClick={() => open.mutate()} disabled={open.isPending} aria-label={`${label}: ${displayName}`}>{open.isPending ? "Opening…" : label} <Icon name="eye" size={14} /></button>{open.isError && <small>File unavailable</small>}</span>
     {preview && <div className="dialog-backdrop pdf-preview-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setPreview(null); }}>
       <div className="pdf-preview" role="dialog" aria-modal="true" aria-labelledby="pdf-preview-title">
-        <div className="pdf-preview-head"><div><span>PDF preview</span><h2 id="pdf-preview-title">{preview.filename}</h2></div><button type="button" className="pdf-close" onClick={() => setPreview(null)} aria-label={`Close ${preview.filename}`}>Close</button></div>
+        <div className="pdf-preview-head"><div><span>File preview</span><h2 id="pdf-preview-title">{preview.filename}</h2></div><button type="button" className="pdf-close" onClick={() => setPreview(null)} aria-label={`Close ${preview.filename}`}>Close</button></div>
         <div className="pdf-preview-pages" aria-label={`${preview.filename} preview pages`}>
           {preview.pages.length > 0 ? preview.pages.map((page) => <figure key={page.page}><img src={page.url} alt={`Page ${page.page} of ${preview.filename}`} /><figcaption>Page {page.page}</figcaption></figure>) : <div className="pdf-preview-empty"><b>Preview unavailable</b><span>Download the original PDF below.</span></div>}
           {preview.truncated && <p className="pdf-preview-note">Preview shows the first {preview.pages.length} pages. Download the PDF to see the rest.</p>}
@@ -193,7 +193,9 @@ function Applications({ data, onRefresh, refreshing }: { data: AnyData; onRefres
         <div className="evidence-grid">
           <div className="evidence-cell"><span>Resume used</span>{a.resume_path ? <><WorkspaceFileButton fileRef={{ app_id: String(a.app_id), kind: "resume" }} label={fileName(String(a.resume_path))} displayName={fileName(String(a.resume_path))} />{a.variant_id && <small>{a.variant_id}</small>}{a.resume_hash && <code title={String(a.resume_hash)}>{String(a.resume_hash).slice(0, 12)}…</code>}</> : <b>Not recorded</b>}</div>
           <div className="evidence-cell"><span>Screenshot</span>{a.screenshot_path && a.screenshot_exists ? <ScreenshotEvidence appId={String(a.app_id)} path={String(a.screenshot_path)} /> : <b className="evidence-missing">not captured</b>}</div>
+          <div className="evidence-cell"><span>Talking points</span>{a.talking_points_path && a.prep_exists ? <WorkspaceFileButton fileRef={{ app_id: String(a.app_id), kind: "prep" }} label={fileName(String(a.talking_points_path))} displayName="Recruiter talking points" /> : <b className="evidence-missing">not prepared</b>}</div>
         </div>
+        {a.reason && <p className="reason-line"><span>Reason</span> {String(a.reason)}</p>}
         {a.confirmation && <blockquote className="confirmation">“{a.confirmation}”{a.confirmation_path && <small>{fileName(String(a.confirmation_path))}</small>}</blockquote>}
         {a.blocker && <p className="blocker">{a.blocker}</p>}
         {a.url && <a className="text-link" href={a.url} target="_blank" rel="noreferrer">Open posting <Icon name="external" size={14} /></a>}
@@ -325,6 +327,7 @@ function Runs({ data, onRefresh, refreshing }: { data: AnyData; onRefresh: () =>
               <div className="run-campaign" role="cell" data-label="Campaign"><b>{r.campaign_id}</b>{r.blocker && <span className="run-blocker">{r.blocker}</span>}</div>
               <div className="status-pair" role="cell" data-label="Status"><Status value={r.status} /><Status value={r.drift} /></div>
               <div className={`token-usage-cell ${r.tokens_reported === true ? "" : "unreported"}`} role="cell" data-label="Token usage" title={usageTitle}>{r.tokens_reported === true ? <><strong>{compactTokens(r.tokens_total)}</strong><span>in {compactTokens(r.tokens_input)} · out {compactTokens(r.tokens_output)}</span>{stages.length > 0 && <details><summary>Stage breakdown</summary><div>{stages.map(([stage, value]) => <span key={stage}>{titleCase(stage)} <b>{compactTokens(value)}</b></span>)}</div></details>}</> : <strong aria-label="Usage not reported">—</strong>}</div>
+              {Array.isArray(r.verdicts) && r.verdicts.length > 0 && <details className="run-verdicts" role="cell" data-label="Posting verdicts"><summary>{r.verdicts.length} posting verdict{r.verdicts.length === 1 ? "" : "s"}</summary><ul>{r.verdicts.map((v: AnyData, i: number) => <li key={`${v.posting_id}-${v.stage}-${i}`}><Status value={String(v.verdict)} /><span className="verdict-stage">{titleCase(String(v.stage))}</span><code>{String(v.posting_id)}</code><span className="verdict-reason">{String(v.reason)}</span></li>)}</ul></details>}
             </article>;
           })}</div>
           <div className="runs-total-row" role="row" title={totalsTitle}><strong role="cell">Total {hasUnreported && <small>(reported runs only)</small>}</strong><span role="cell">Input <b>{compactTokens(totals.input)}</b></span><span role="cell">Output <b>{compactTokens(totals.output)}</b></span><span role="cell">Total <b>{compactTokens(totals.total)}</b></span></div>
