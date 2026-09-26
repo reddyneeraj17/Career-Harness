@@ -65,9 +65,9 @@ cd ~/workspace/harness-kit && ./install/install.sh
 ```
 
 Tags are the version pin: `--branch` accepts a tag, so this checks out
-exactly v1.2.0. There are no GitHub Releases — the tag is the release
-mechanism. Bump the `--branch` tag (e.g. `v1.3.0`) when you cut a new
-version.
+exactly v1.2.0. A GitHub Release is also published on each tag for
+visibility (see RELEASING.md). Bump the `--branch` tag (e.g. `v1.3.0`)
+when you cut a new version.
 
 Path B — no network: upload the release tarball, then
 

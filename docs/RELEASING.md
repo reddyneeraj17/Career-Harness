@@ -24,8 +24,9 @@ Then it bumps `VERSION`, updates the `--branch vX.Y.Z` pins in
 `install/MANIFEST.sha256`, runs `install.sh --check` (must be 0 failures),
 commits, and creates the annotated tag. **It never pushes.**
 
-Tags are the release mechanism — there are no GitHub Releases. Customers
-pull with `git clone --branch vX.Y.Z`.
+Tags are the pull mechanism — customers install with
+`git clone --branch vX.Y.Z`. A GitHub Release is also published on each
+tag for visibility (release notes live in `docs/RELEASE_NOTES_vX.Y.Z.md`).
 
 ## 3. Publish (human step — needs a fresh PAT)
 
@@ -42,7 +43,19 @@ pull with `git clone --branch vX.Y.Z`.
    `git push <url> main` then `git push <url> vX.Y.Z`
 5. Verify with `git ls-remote`: remote `main` and the tag match local.
    Confirm the repo is still **private**.
-6. **Revoke the PAT immediately** in GitHub settings. Never store it, log
+6. Publish the GitHub Release (same PAT, still valid). Write the notes to
+   `docs/RELEASE_NOTES_vX.Y.Z.md` first, then:
+   ```sh
+   curl -s -X POST -H "Authorization: Bearer $TOKEN" \
+     -H "Accept: application/vnd.github+json" \
+     https://api.github.com/repos/reddyneeraj17/Career-Harness/releases \
+     -d "$(python3 -c "import json; print(json.dumps({
+       'tag_name': 'vX.Y.Z', 'name': 'vX.Y.Z',
+       'body': open('docs/RELEASE_NOTES_vX.Y.Z.md').read(),
+       'draft': False, 'prerelease': False, 'make_latest': 'true'}))")"
+   ```
+   Check the release page shows published (not draft).
+7. **Revoke the PAT immediately** in GitHub settings. Never store it, log
    it, or reuse it.
 
 Build the push URL in a shell variable; never echo the token or write it
