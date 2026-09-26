@@ -125,6 +125,10 @@ campaigns:
     weekly_review:    {required: false, type: map, fields: {cadence: {required: true, type: string}, enabled: {required: false, type: boolean}}}
     harness_doctor:   {required: false, type: map, fields: {cadence: {required: true, type: string}, enabled: {required: false, type: boolean}}}
     profile_watch:    {required: false, type: map, fields: {cadence: {required: true, type: string}, enabled: {required: false, type: boolean}}}
+    browser_watch:    {required: false, type: map, fields: {cadence: {required: true, type: string}, enabled: {required: false, type: boolean}}}
+    # browser_watch default cadence (template): every 2m. Forwards fresh browser
+    # screenshots of watched runs (run_watch_set watch_chat=true) to the chat
+    # the schedule was compiled from. Silent when nothing is watched.
 
 tailoring:
   required: false
