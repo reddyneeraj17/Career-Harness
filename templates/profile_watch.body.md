@@ -42,9 +42,12 @@ VERBATIM, with these watcher-specific rules:
 5. cron.view to verify every saved/updated body; recompute body hashes per
    the manifest's hash scheme (sha256 of the rendered body with the
    '# body_hash: ' field blanked).
-6. Rewrite schedules_manifest.json: all jobs, new profile_hash, new
-   compiled_at, and a note naming old_profile_hash -> new_profile_hash and
-   which jobs changed.
+6. Rewrite schedules_manifest.json: all jobs — every job entry MUST include the
+   full dashboard-validated schema (`job_id`, `title`, `campaign`, `cadence`,
+   `schedule`, `enabled`, `body_hash`); the dashboard rejects the manifest
+   when `title`, `schedule`, or `enabled` is missing and the Schedules tab
+   goes blank — new profile_hash, new compiled_at, and a note naming
+   old_profile_hash -> new_profile_hash and which jobs changed.
 7. CRITICAL LOOP GUARD: if the profile changed but every rendered body is
    byte-identical to the live bodies, STILL write new_profile_hash into the
    manifest. Otherwise this job recompiles forever every 15 minutes.

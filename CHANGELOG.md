@@ -4,6 +4,18 @@ All notable changes to the Job-Apply Harness kit are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- **Manifest schema now mandatory in the compile spec**: the dashboard's
+  `schedules_status` action validates every manifest job entry against a
+  schema requiring `job_id`, `title`, `campaign`, `cadence`, `schedule`,
+  `enabled`, and `body_hash`, but the compile-schedules skill spec (and the
+  profile-watch template) only required job id / campaign / cadence / body
+  hash. A recompile following the spec alone would fail dashboard validation
+  and blank the Schedules tab ("manifest missing"). Both specs now mandate
+  the full seven-field per-job schema; the skill version is bumped to 1.0.1.
+
 ## [1.2.1] — 2026-09-26
 
 ### Fixed

@@ -2,7 +2,7 @@
 
 ---
 name: compile-schedules
-version: "1.0.0"
+version: "1.0.1"
 description: Validates profile.yaml and compiles every campaign cron body from it, writing schedules_manifest.json.
 ---
 
@@ -40,7 +40,7 @@ The profile is the single human-editable rule source. Templates live at `~/works
    default cadence and treat the job as enabled. (The dashboard's `schedule_update`
    action is the supported writer of these entries; the profile_watch job picks
    them up within ~15 min.)
-5. **Verify and manifest.** `cron.view` each job back; sha256 each saved body; write `~/workspace/schedules_manifest.json` with: job id, campaign, cadence, body hash, skill versions, profile_hash, compiled_at.
+5. **Verify and manifest.** `cron.view` each job back; sha256 each saved body; write `~/workspace/schedules_manifest.json`. Every entry in `jobs` MUST carry the full per-job schema the dashboard validates: `job_id`, `title`, `campaign`, `cadence`, `schedule` (the concrete schedule string, e.g. `daily@07:00 America/Chicago`), `enabled` (boolean), `body_hash` — plus top-level skill versions, `profile_hash`, `compiled_at`. The dashboard's manifest schema requires all seven per-job fields; omitting `title`, `schedule`, or `enabled` fails validation and the Schedules tab renders as "manifest missing". Never write a reduced schema.
 6. **Log.** `event_log` the manifest summary.
 
 **A rule stated in chat is not live until this skill runs.** Say so every time.
