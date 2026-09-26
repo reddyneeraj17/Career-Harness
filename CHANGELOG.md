@@ -17,6 +17,13 @@ versions follow [Semantic Versioning](https://semver.org/).
   recruiter-call talking points after each submission; `talking_points_attach`
   action + `file_open(app_id, "prep")` viewer on the Applications tab.
   `run-coordinator` v1.10.0 wires all three.
+- **Applications date slicer**: Today / Last 7 days / Last 30 days / All +
+  custom range (Chicago days), composing with search and state filters; the
+  KPI band recomputes over the filtered set.
+- **Dashboard UI/UX overhaul**: final visual pass over all seven tabs, the
+  run-detail drawer, and the approvals queue — stronger KPI hierarchy,
+  consistent filter bars, sharper status pills, phone + desktop polish.
+  Presentation only; no schema, action, or skill changes.
 - **First-run onboarding wizard**: fresh installs open a 6-step guided setup
   (identity → work auth → employment types → targeting/titles → screening
   answers → caps) instead of the dashboard tabs; saves via `profile_save`;
