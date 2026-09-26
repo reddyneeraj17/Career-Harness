@@ -7,6 +7,16 @@ versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Status reasons**: `applications.status_reason` + optional `reason` on
+  every `app_transition`; the Applications tab shows a Reason column and the
+  run-detail drawer surfaces reasons inline.
+- **Posting verdicts**: new `posting_verdicts` table + `posting_verdict`
+  action; the coordinator records `scout`/`screen` verdicts
+  (passed/held/rejected) with a human reason for every posting it touches.
+- **Vendor talking points**: new `vendor-prep` skill (v1.0.0) generates
+  recruiter-call talking points after each submission; `talking_points_attach`
+  action + `file_open(app_id, "prep")` viewer on the Applications tab.
+  `run-coordinator` v1.10.0 wires all three.
 - **First-run onboarding wizard**: fresh installs open a 6-step guided setup
   (identity → work auth → employment types → targeting/titles → screening
   answers → caps) instead of the dashboard tabs; saves via `profile_save`;

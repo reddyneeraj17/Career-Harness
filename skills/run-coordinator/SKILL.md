@@ -1,11 +1,12 @@
 ---
 name: run-coordinator
-version: "1.9.0"
+version: "1.10.0"
 description: Orchestrates one campaign run through the 7-stage pipeline, owns all state transitions, enforces caps, and closes the run.
 ---
 
 # run-coordinator
 
+> Changelog 1.10.0: Status reasons + posting verdicts + vendor-prep — every `app_transition` carries a short human-readable `reason`; the coordinator records `posting_verdict` for each posting at SCOUT (claimed) and SCREEN (judge decision); after an application reaches `submitted`, the coordinator invokes `vendor-prep` once to generate and attach recruiter talking points.
 > Changelog 1.7.0: SCOUT now feeds `company-discovery` (observed companies with ≥2 sightings enter the companies table at tier 3, insert-only) so the portal sweep list grows.
 > Changelog 1.6.0: JD-FETCH stage between SCOUT and SCREEN — the coordinator invokes `jd-fetch` once per run over genuinely-new postings; SCREEN judges receive `jd_text` from the snapshot files, and fetch failures hold with `insufficient jd text`.
 > Changelog 1.5.0: Job-board availability is per-board, not all-or-nothing — before SCOUT, the coordinator matches `credentials.list` against dice/indeed/glassdoor/ziprecruiter, passes only the available boards to `job-board-search`, and skips the rest (a run holds only when zero boards are available).
@@ -31,7 +32,8 @@ The thin cron body invokes this skill with the `campaign_id`. The coordinator re
 - `run_close` — close the run with counts. **Refuses** if any application row is still `applying` without an outcome.
 - `token_record` — record the run's measured token usage (see "Token usage capture" below). Call AFTER measuring, BEFORE `run_close`.
 - `app_claim` — claim postings into the pipeline; caps (per run, per day) enforced in SQL. Never count caps in a prompt.
-- `app_transition` — the ONLY writer of application state edges. Judges return verdicts; the coordinator transitions.
+- `app_transition` — the ONLY writer of application state edges. Judges return verdicts; the coordinator transitions. Every call carries `reason`: a short human-readable string (the judge's reasons condensed, or the coordinator's own decision), e.g. `rejected: non-Houston location`, `held: years_matrix missing`, `submitted: confirmation captured`. The reason is stored on the application row and shown in the dashboard.
+- `posting_verdict` — record one verdict row per posting per stage (`scout` / `screen`): `{posting_id, run_id, stage, verdict, reason}`. Called for every posting the run touches (see "Status reasons, posting verdicts, vendor-prep").
 - `snapshot` — read-only reconciliation of run state, about every 5 minutes and at phase boundaries.
 - `event_log` — one exit row per skill exit is required of workers; the coordinator appends one final row with the run verdict and token totals.
 
@@ -127,6 +129,38 @@ Stages: SCOUT -> JD-FETCH -> SCREEN -> PICK -> COMPANY-READ -> TAILOR -> REVIEW 
 - **Harness-core outage.** If `harness-core` is unreachable, workers append to the run's `spillover.jsonl` (`goals/<g>/hidden_files/<run>/spillover.jsonl`); the doctor replays it later via `spillover_replay`. Never invent state the store didn't confirm.
 - **Report only what's new.** Silence by default; the daily-report skill decides what reaches the customer. The coordinator's report to main is: submitted, parked/blocked with reasons, needs-me decisions — counts from `run_close`, never invented.
 
+### Status reasons, posting verdicts, vendor-prep
+
+Every decision the run makes is recorded with its reason — the dashboard's
+Reason column and run-detail verdicts read from these, never from event
+payloads.
+
+- **`reason` on every `app_transition`.** Every state edge carries a short
+  human-readable reason string: the judge's `reasons` condensed to one line,
+  or the coordinator's own decision. Examples: `rejected: non-Houston
+  location`, `held: years_matrix missing`, `held: ambiguous location`,
+  `submitted: confirmation captured`, `submitted: screenshot missing —
+  confirmation text captured`, `parked: CAPTCHA checkpoint`. Never an empty
+  string; when the cause is genuinely unknown, `held: under review`.
+- **`posting_verdict` per posting per stage.** Call for every posting the run
+  touches:
+  - At claim time (`app_claim`): `stage="scout"`, `verdict="passed"`,
+    `reason="claimed into pipeline"`.
+  - At SCREEN, for each judged posting: `stage="screen"`, `verdict` = the
+    judge outcome mapped to `passed` / `held` / `rejected`, `reason` = the
+    judge's reasons condensed (e.g. `rejected: contract role vs profile
+    role_types`, `held: H-1B sponsorship unknown — soft gate`).
+  - For postings explicitly dropped before claim (duplicate of an in-flight
+    application, already applied): `stage="scout"`, `verdict="held"` or
+    `"rejected"` with the honest reason.
+- **vendor-prep after submit.** Once an application reaches `submitted` (after
+  the evidence rule passes), spawn one worker subagent: "You are the
+  vendor-prep skill. Read ~/workspace/skills/vendor-prep/SKILL.md and follow
+  it exactly. Inputs: {"app_id": "<app_id>"}. Return ONLY the JSON verdict."
+  The skill writes the talking-points file and calls `talking_points_attach`
+  itself. A `hold` from vendor-prep (e.g. JD unresolvable) is noted in the
+  run's event log and never blocks the run or the application.
+
 ## Token usage capture (measured, never invented)
 
 Token numbers are MEASURED from the platform's own metering — never estimated, scaled, or backfilled.
@@ -189,7 +223,9 @@ No application is marked `submitted` without complete evidence:
 - The coordinator verifies the screenshot file exists on disk and the confirmation text is
   non-empty BEFORE calling `app_transition(app_id, applying → submitted, ...)`. If the
   screenshot capture failed, the transition carries `screenshot_path: null` with the reason
-  recorded honestly — never a path to a file that does not exist.
+  recorded honestly — never a path to a file that does not exist. The transition's `reason`
+  reflects the evidence state: `submitted: confirmation captured` when both exist,
+  `submitted: screenshot missing — confirmation text captured` otherwise.
 - The `event_log` exit row for the applier records all evidence paths before the transition,
   so evidence survives even if the transition write fails.
 
