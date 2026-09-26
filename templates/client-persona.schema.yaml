@@ -1,0 +1,217 @@
+# =============================================================================
+# client-persona.schema.yaml — validation schema for profiles/<client_id>.yaml
+# =============================================================================
+# The client persona is the single source of truth about a customer.
+# It is produced by the client-onboarding skill from the filled Client
+# Onboarding Form (Excel v2) and read by the run-coordinator and every
+# downstream skill (screening_answerer, resume_picker, fit_judge,
+# resume_tailor, email_replier, linkedin_replier, eligibility_judge,
+# h1b_judge). Agents NEVER ask the client for anything already in here.
+#
+# SECURITY: this file must NEVER contain passwords, one-time codes, or
+# payment details. Validation fails if any forbidden key is present.
+#
+# Conventions (same as profile.schema.yaml):
+#   required: true|false   — key must be present
+#   type:                  — string | integer | boolean | list | map | null-ok
+#   enum:                  — allowed values (exact match)
+#   min:                   — minimum for integers
+#   items:                 — item constraint for lists
+# =============================================================================
+
+client_id:   {required: true, type: string}
+version:     {required: true, type: integer, min: 1}
+source_form: {required: false, type: string}
+
+identity:
+  required: true
+  type: map
+  fields:
+    full_name:              {required: true, type: string}
+    preferred_name:         {required: false, type: string}
+    phone:                  {required: true, type: string}
+    email:                  {required: true, type: string}
+    city:                   {required: true, type: string}
+    state:                  {required: true, type: string}
+    timezone:               {required: true, type: string}
+    street_address:         {required: false, type: string}
+    linkedin_url:           {required: false, type: string}
+    github_url:             {required: false, type: string}
+    website:                {required: false, type: string}
+    current_title:          {required: false, type: string}
+    current_employer:       {required: false, type: string}
+    employment_status:      {required: false, type: string}
+    total_years_experience:  {required: false, type: integer, min: 0}
+    earliest_start_date:    {required: false, type: string}
+    notice_period:          {required: false, type: string}
+    headline:               {required: false, type: string}
+
+work_auth:
+  required: true
+  type: map
+  fields:
+    status:                        {required: true, type: string}
+    visa_expiry:                    {required: false, type: string}
+    sponsorship_required:           {required: true, type: string}
+    sponsorship_sentence:           {required: false, type: string}
+    h1b_gate:                       {required: false, type: string, enum: [strict, prefer, ignore]}
+    apply_without_sponsorship_mention: {required: false, type: string}
+    skip_no_sponsorship_postings:    {required: false, type: string}
+    notes:                          {required: false, type: string}
+
+resumes:
+  required: true
+  type: list
+  min_items: 1
+  items:
+    type: map
+    fields:
+      label:         {required: true, type: string}
+      file_name:     {required: true, type: string}
+      role_family:   {required: false, type: string}
+      industry_tags: {required: false, type: list, items: {type: string}}
+      last_updated:  {required: false, type: string}
+      primary:       {required: false, type: boolean}
+      notes:         {required: false, type: string}
+
+years_matrix:
+  required: false
+  type: list
+  items:
+    type: map
+    fields:
+      skill:      {required: true, type: string}
+      category:   {required: false, type: string}
+      years:      {required: true, type: integer, min: 0}
+      where_used: {required: false, type: string}
+
+target_roles:
+  required: true
+  type: list
+  min_items: 1
+  items:
+    type: map
+    fields:
+      priority:    {required: true, type: integer, min: 1}
+      title:       {required: true, type: string}
+      role_family: {required: false, type: string}
+      seniority:   {required: false, type: string}
+      industries: {required: false, type: list, items: {type: string}}
+      keywords:    {required: false, type: string}
+      avoid_titles: {required: false, type: string}
+
+preferences:
+  required: false
+  type: map
+  fields:
+    work_mode:             {required: false, type: string}
+    open_to_relocation:    {required: false, type: string}
+    preferred_metros:      {required: false, type: list, items: {type: string}}
+    us_only:               {required: false, type: boolean}
+    employment_types:      {required: false, type: list, items: {type: string}}
+    agencies_ok:           {required: false, type: string}
+    max_travel:            {required: false, type: string}
+    min_base_salary_usd:   {required: false, type: integer, min: 0, null-ok: true}
+    desired_salary_answer: {required: false, type: string}
+    salary_number_fallback: {required: false, type: string}
+    interview_windows:     {required: false, type: string}
+
+screening:
+  required: false
+  type: map
+  fields:
+    answers:
+      required: false
+      type: list
+      items:
+        type: map
+        fields:
+          question: {required: true, type: string}
+          answer:   {required: true, type: string}
+          notes:    {required: false, type: string}
+    essay_policy: {required: false, type: string}
+
+accounts:
+  required: false
+  type: map
+  fields:
+    portals:
+      required: false
+      type: list
+      items:
+        type: map
+        fields:
+          platform:         {required: true, type: string}
+          status:           {required: false, type: string}
+          email_or_username: {required: false, type: string}
+          profile_url:      {required: false, type: string}
+          two_fa:           {required: false, type: string}
+          notes:            {required: false, type: string}
+    mailbox_scan:       {required: false, type: string}
+    mailbox_address:    {required: false, type: string}
+    mailbox_created:    {required: false, type: string}
+    mailbox_never_scan: {required: false, type: string}
+    muse:
+      required: false
+      type: map
+      fields:
+        has_account: {required: false, type: string}
+        email:       {required: false, type: string}
+        phone:       {required: false, type: string}
+    portal_creation:
+      required: false
+      type: map
+      fields:
+        may_create:         {required: false, type: boolean}
+        standard_password:  {required: false, type: string}
+        # standard_password is ALWAYS empty here. The client sets it inside
+        # Muse; we never see or store it. Key exists only to record consent.
+
+automation:
+  required: false
+  type: map
+  fields:
+    max_per_day:              {required: false, type: integer, min: 1}
+    max_per_run:               {required: false, type: integer, min: 1}
+    hours:                    {required: false, type: string}
+    linkedin_actions_per_hour: {required: false, type: integer, min: 1}
+    auto_send:
+      required: false
+      type: map
+      fields:
+        routine_email_replies:   {required: false, type: string}
+        interview_scheduling:    {required: false, type: string}
+        resume_requests:         {required: false, type: string}
+        followup_nudges:         {required: false, type: string}
+        linkedin_replies:        {required: false, type: string}
+        linkedin_outreach:        {required: false, type: string}
+        decline_contract_pitches: {required: false, type: string}
+    notifications:
+      required: false
+      type: map
+      fields:
+        frequency:              {required: false, type: string}
+        channel:                {required: false, type: string}
+        best_times:              {required: false, type: string}
+        immediate_on_interview:  {required: false, type: string}
+    do_not_contact: {required: false, type: list, items: {type: string}}
+    tone_notes:     {required: false, type: string}
+
+signoff:
+  required: true
+  type: map
+  fields:
+    confirmations:
+      required: false
+      type: list
+      items:
+        type: map
+        fields:
+          item:   {required: true, type: string}
+          answer: {required: true, type: string}
+    name: {required: true, type: string}
+    date: {required: true, type: string}
+
+# FORBIDDEN KEYS (validation must fail if any appear anywhere in the file):
+#   password, passwd, pwd, secret, otp, one_time_code, totp, pin,
+#   card_number, cvv, bank_account, ssn, social_security

@@ -1,0 +1,135 @@
+# =============================================================================
+# Client Persona — fill-in form (YAML alternative to the Excel onboarding form)
+# =============================================================================
+# Fill this in and return it to us, OR fill the Excel form and we convert it.
+# Every section maps 1:1 to a tab in the Excel form.
+#
+# Rules:
+# - Leave a field blank ("") if it does not apply — never invent an answer.
+# - Lists: one item per line starting with "- ".
+# - NEVER put passwords, one-time codes, or payment details in this file.
+# =============================================================================
+
+client_id: ""        # we assign this (usually a slug of your name); leave blank
+version: 1
+source_form: ""      # file name of the Excel form, if you filled that instead
+
+identity:
+  full_name: ""              # exactly as on your resume (required)
+  preferred_name: ""
+  phone: ""                  # with country code, e.g. +1 713 555 0142 (required)
+  email: ""                  # your personal email for our updates (required)
+  city: ""                   # (required)
+  state: ""                  # (required)
+  timezone: ""               # e.g. US Central
+  street_address: ""         # ONLY used when a portal form requires it; else blank
+  linkedin_url: ""
+  github_url: ""
+  website: ""
+  current_title: ""          # current or most recent job title
+  current_employer: ""
+  employment_status: ""      # e.g. Employed full-time
+  total_years_experience: 0  # whole number; we never claim more than this
+  earliest_start_date: ""    # YYYY-MM-DD
+  notice_period: ""
+  headline: ""               # one line: how you'd describe yourself to a recruiter
+
+work_auth:
+  status: ""                 # e.g. H-1B (transfer needed), Green card (required)
+  visa_expiry: ""            # YYYY-MM-DD, if applicable
+  sponsorship_required: ""   # e.g. Yes - now / No (required)
+  sponsorship_sentence: ""   # in your words; we paste it unchanged to recruiters
+  h1b_gate: ""               # strict | prefer | ignore
+  apply_without_sponsorship_mention: ""
+  skip_no_sponsorship_postings: ""
+  notes: ""
+
+resumes:                     # at least one required; attach the actual files too
+  - label: ""                # e.g. Data Engineer - general
+    file_name: ""            # exact file name as attached, e.g. Jane_Doe_DE.pdf
+    role_family: ""          # e.g. Data Engineer
+    industry_tags: []        # e.g. ["Fintech", "Healthcare"]
+    last_updated: ""         # YYYY-MM
+    primary: false           # true for your default resume
+    notes: ""
+
+years_matrix:                # the truth table: every "years of X" answer comes from here
+  - skill: ""                # e.g. Python
+    category: ""             # e.g. Language
+    years: 0                 # whole number
+    where_used: ""           # employer or project
+
+target_roles:                # most wanted first (priority 1 = top)
+  - priority: 1
+    title: ""                # e.g. Senior Data Engineer
+    role_family: ""          # e.g. Data Engineer
+    seniority: ""            # e.g. Senior
+    industries: []           # e.g. ["Fintech", "Healthcare"]
+    keywords: ""             # words recruiters use for this role
+    avoid_titles: ""         # titles that look similar but you do NOT want
+
+preferences:
+  work_mode: ""              # e.g. Remote preferred, hybrid OK
+  open_to_relocation: ""
+  preferred_metros: []       # e.g. ["Houston", "Dallas", "Austin"]
+  us_only: true
+  employment_types: []       # e.g. ["Full-time", "W2 contract"]
+  agencies_ok: ""            # staffing agencies / consultancies?
+  max_travel: ""
+  min_base_salary_usd: null  # number, or null for no floor
+  desired_salary_answer: ""  # what we say when a form asks (e.g. Negotiable)
+  salary_number_fallback: "" # what we enter if a form requires a number
+  interview_windows: ""      # e.g. Weekdays 12:00-14:00 and after 17:00
+
+screening:
+  answers:                   # we reuse these on every application, verbatim
+    - question: "Are you legally authorized to work in the United States?"
+      answer: ""
+      notes: ""
+  essay_policy: ""           # e.g. Draft for my approval
+
+accounts:                    # identifiers ONLY — never passwords
+  portals:
+    - platform: "LinkedIn"
+      status: ""             # Active | Need to create | Do not use
+      email_or_username: ""
+      profile_url: ""
+      two_fa: ""             # Yes | No
+      notes: ""
+  mailbox_scan: ""           # which mailbox we scan and reply from
+  mailbox_address: ""
+  mailbox_created: ""
+  mailbox_never_scan: ""     # personal mailbox we must NEVER touch
+  muse:
+    has_account: ""          # e.g. No - please create one for me
+    email: ""                # email to register / existing Muse email
+    phone: ""                # for Muse verification codes
+  portal_creation:
+    may_create: false        # may we create accounts on company portals for you?
+    standard_password: ""    # ALWAYS leave blank — you set it inside Muse
+
+automation:
+  max_per_day: 20
+  max_per_run: 10
+  hours: ""                  # e.g. Any time
+  linkedin_actions_per_hour: 20
+  auto_send:                 # Send automatically | Draft for my approval | Never
+    routine_email_replies: ""
+    interview_scheduling: ""
+    resume_requests: ""
+    followup_nudges: ""
+    linkedin_replies: ""
+    linkedin_outreach: ""
+    decline_contract_pitches: ""
+  notifications:
+    frequency: ""            # e.g. Daily summary + urgent items
+    channel: ""              # e.g. Text / SMS
+    best_times: ""
+    immediate_on_interview: ""
+  do_not_contact: []         # recruiters/people we must never reply to
+  tone_notes: ""             # e.g. Short and direct, no exclamation marks
+
+signoff:                     # required — confirms the form is true and complete
+  confirmations: []
+  name: ""
+  date: ""                   # YYYY-MM-DD
