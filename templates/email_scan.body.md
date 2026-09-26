@@ -23,8 +23,16 @@ Invoke the email-replier skill (~/workspace/skills/email-replier/SKILL.md):
   `applications.outcome`.
 - Advance the watermark ONLY after the reply row is written.
 
+## 2b. Sweep quiet threads (R6 nudge)
+Invoke the nudge-sweeper skill (~/workspace/skills/nudge-sweeper/SKILL.md) with
+channel `email`, quiet_days 7, and the reply tiers from step 1. It finds threads
+with no activity in 7+ days where we sent last, sends or holds one polite
+check-in per thread (never more than one nudge per thread per 7 days), and
+records each via conversation_upsert + reply_log citing R6. Rejected/closed
+threads and do-not-email contacts are never nudged.
+
 ## 3. Close the run
-Call run_close with counts (messages triaged, sent, held, skipped).
+Call run_close with counts (messages triaged, sent, held, skipped, nudges sent/held).
 
 ## 4. Report rule
 Surface: interview invites, held drafts needing the customer, scam signals.

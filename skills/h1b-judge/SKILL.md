@@ -1,7 +1,7 @@
 ---
 name: h1b-judge
-version: "1.0.0"
-description: Scores a company's H-1B sponsorship record via lookup and applies the profile's hard/soft gate.
+version: "1.1.0"
+description: Scores a company's H-1B sponsorship record via lookup (formula fixed in the h1b_lookup action) and applies the profile's hard/soft gate.
 ---
 
 # H-1B Judge
@@ -46,7 +46,11 @@ Return ONLY the verdict envelope JSON:
 
 - Never invent a score. If `h1b_lookup` returns no record, the verdict is `hold` — a fabricated number is forbidden.
 - If `work_auth.sponsor_required` is false, return `pass` with score 100 and reason `sponsorship not required`; do not spend a lookup.
-- The score formula is fixed: weight recent-year approvals and LCA volume; document the formula version in `reasons` if it ever changes.
+- The score formula is fixed and lives in the `h1b_lookup` action — the
+  skill never computes its own:
+  `score = clamp(0..100, round(25 * log10(lca_count + 1) + min(40, evidence_years * 8)))`.
+  Quote it, don't paraphrase it; if the action's formula ever changes, note
+  the change in `reasons`.
 - Gate policy comes from Inputs only — the skill never overrides `hard`/`soft`.
 - No personal data lives in this file; all customer facts arrive via Inputs.
 - Append exactly one `event_log` row on exit. No state transitions — the coordinator owns them.

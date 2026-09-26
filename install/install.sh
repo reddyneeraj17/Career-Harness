@@ -49,7 +49,7 @@ for f in VERSION CHANGELOG.md PACKAGING.md CUSTOMER_RULES.md INSTALL.md profile.
 done
 [[ -f "$KIT_DIR/docs/OPERATOR.md" ]] && pass "file docs/OPERATOR.md" || fail "docs/OPERATOR.md missing"
 n_skills=$(find "$KIT_DIR/skills" -maxdepth 2 -name SKILL.md | wc -l)
-[[ "$n_skills" -ge 20 ]] && pass "$n_skills skills with SKILL.md" || fail "only $n_skills skills with SKILL.md (want >= 20)"
+[[ "$n_skills" -ge 26 ]] && pass "$n_skills skills with SKILL.md" || fail "only $n_skills skills with SKILL.md (want >= 26)"
 [[ -f "$KIT_DIR/templates/profile.schema.yaml" ]] && pass "templates/profile.schema.yaml" || fail "profile.schema.yaml missing"
 [[ -f "$KIT_DIR/harness-core/space.json" ]] && pass "harness-core/space.json" || fail "harness-core/space.json missing"
 [[ -f "$KIT_DIR/harness-core/package.json" ]] && pass "harness-core/package.json" || fail "harness-core/package.json missing"

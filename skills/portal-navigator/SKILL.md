@@ -1,11 +1,12 @@
 ---
 name: portal-navigator
-version: "1.2.0"
+version: "1.3.0"
 description: Drives one job application through an ATS portal with intent-before-submit, upload hash verification, and screenshot evidence.
 ---
 
 # portal-navigator
 
+> Changelog 1.3.0: optional reviewer-approved cover letter inputs; a mandatory cover-letter field attaches the approved letter (hash-verified) instead of parking — only an absent letter still routes to `approval_enqueue`.
 > Changelog 1.2.0: canonical evidence paths (`goals/<campaign>/hidden_files/<run_id>/screenshots/<app_id>_<step>.png` + `<app_id>_confirmation.txt`); submitted transition now requires `{confirmation, screenshot_path, resume_path, resume_hash}`; honest null screenshot when capture fails.
 > Changelog 1.1.0: execution-context header note (browser driving is coordinator-level; worker subagents do store-only steps and return a browser brief); `url` must be copied verbatim from the ledger row via `snapshot` with a re-read before step 1.
 
@@ -20,6 +21,8 @@ description: Drives one job application through an ATS portal with intent-before
   "ats_type": "workday|greenhouse|lever|ashby|icims|easy-apply|generic",
   "pdf_path": "goals/<campaign>/hidden_files/<run>/resumes/<company>-<role>.pdf",
   "resume_hash": "<sha256(PDF bytes)[:12]>",
+  "cover_letter_path": "<optional: goals/<campaign>/hidden_files/<run>/letters/<app_id>_cover_letter.txt>",
+  "cover_letter_hash": "<optional: sha256(letter bytes)[:12] — reviewer-approved>",
   "run_id": "run-2026-09-26-1420"
 }
 ```
@@ -68,6 +71,7 @@ disk and the confirmation text file is written. Before the transition, append th
 ### Mid-form branches
 
 - Unknown mandatory question → `approval_enqueue` (kind `screening_question`, with `app_id`), then `app_transition(app_id, applying → needs_me, evidence={approval_id, field})`. Never guess.
+- **Mandatory cover-letter field** → if `cover_letter_path` + `cover_letter_hash` were supplied (reviewer-approved), hash-verify the file bytes and attach/upload per the ATS playbook; record `cover_letter_path` in the submitted evidence. If no approved letter was supplied, treat it like any unknown mandatory field: `approval_enqueue` → `needs_me`. Never write a letter at the portal.
 - CAPTCHA / SMS / bot-wall → `app_transition(app_id, applying → parked, evidence={reason, checkpoint_path})`. **Never bypass.** Park the URL + filled-field snapshot so a human can resume.
 - "Already applied" banner → `app_transition(app_id, applying → blocked, evidence={reason: "duplicate_portal", screenshot_path})`.
 - Newly discovered ATS quirks (wrong `ats_type` detected, new banner text, new park cause) → `companies_update` with the correction or `park_count` increment.

@@ -1,7 +1,7 @@
 ---
 name: resume-tailor
-version: "1.0.0"
-description: Tailors one resume variant to a job description with bounded edits, returning the PDF path and its hash.
+version: "1.1.0"
+description: Tailors one resume variant to a job description with bounded edits, returning the PDF path and its hash. Accepts reviewer_notes to close the review loop.
 ---
 
 # resume-tailor
@@ -17,9 +17,15 @@ description: Tailors one resume variant to a job description with bounded edits,
   "company_norm": "stripe",
   "role_norm": "senior-data-engineer",
   "campaign_id": "career_portal",
-  "run_id": "run-2026-09-26-1420"
+  "run_id": "run-2026-09-26-1420",
+  "reviewer_notes": ["Lead with platform work, not ETL", "Drop the 2016 internship bullet"]
 }
 ```
+
+`reviewer_notes` is empty on the first pass. When `resume-reviewer` returns
+`approved-with-notes`, the coordinator re-invokes the tailor with those notes
+and the tailor applies them — the review loop closes here instead of dropping
+the notes.
 
 Work from the variant source file — it is the only source of candidate facts. Read `jd_text` for keyword and requirement alignment only.
 

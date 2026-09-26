@@ -25,8 +25,16 @@ Invoke the linkedin-replier skill (~/workspace/skills/linkedin-replier/SKILL.md)
 - Respect the hourly action cap; pause the campaign on any restriction warning.
 - Advance the watermark ONLY after the reply row is written.
 
+## 2b. Sweep quiet threads (R6 nudge)
+Invoke the nudge-sweeper skill (~/workspace/skills/nudge-sweeper/SKILL.md) with
+channel `linkedin`, quiet_days 4, and the reply tiers from step 1. It finds
+threads with no activity in 4+ days where we sent last, sends or holds one
+polite check-in per thread (never more than one nudge per thread per 7 days),
+and records each via conversation_upsert + reply_log citing R6. Rejected/closed
+threads are never nudged. Respect the hourly action cap; nudges count as actions.
+
 ## 3. Close the run
-Call run_close with counts (threads triaged, sent, held, skipped).
+Call run_close with counts (threads triaged, sent, held, skipped, nudges sent/held).
 
 ## 4. Report rule
 Surface: interview invites, held drafts needing the customer, restriction warnings.

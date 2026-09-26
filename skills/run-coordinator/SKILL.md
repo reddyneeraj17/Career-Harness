@@ -1,11 +1,13 @@
 ---
 name: run-coordinator
-version: "1.5.0"
+version: "1.7.0"
 description: Orchestrates one campaign run through the 7-stage pipeline, owns all state transitions, enforces caps, and closes the run.
 ---
 
 # run-coordinator
 
+> Changelog 1.7.0: SCOUT now feeds `company-discovery` (observed companies with ≥2 sightings enter the companies table at tier 3, insert-only) so the portal sweep list grows.
+> Changelog 1.6.0: JD-FETCH stage between SCOUT and SCREEN — the coordinator invokes `jd-fetch` once per run over genuinely-new postings; SCREEN judges receive `jd_text` from the snapshot files, and fetch failures hold with `insufficient jd text`.
 > Changelog 1.5.0: Job-board availability is per-board, not all-or-nothing — before SCOUT, the coordinator matches `credentials.list` against dice/indeed/glassdoor/ziprecruiter, passes only the available boards to `job-board-search`, and skips the rest (a run holds only when zero boards are available).
 > Changelog 1.4.0: Run-start login gate — before SCOUT, the coordinator checks `credentials.list` (metadata only) for the logins this campaign needs (see "Run-start login gate"); a missing login holds the run with a `needs_me` message up front instead of stalling mid-run on a login wall.
 > Changelog 1.3.0: Token usage capture — before `run_close`, the coordinator measures real token spend for the run's whole agent subtree via `muse.db` (`agent.agent_message_token_usage`, never estimated) and records it with `token_record`; when nothing is measurable the run is explicitly marked unreported, never zero-filled.
@@ -67,7 +69,33 @@ but only the boards whose logins are actually in the credentials vault:
    the skipped boards in the run's `event_log` row. The run never stalls on a
    board nobody connected.
 
-Stages: SCOUT -> SCREEN -> PICK -> TAILOR -> REVIEW GATE -> APPLY -> VERIFY.
+Stages: SCOUT -> JD-FETCH -> SCREEN -> PICK -> TAILOR -> REVIEW GATE -> APPLY -> VERIFY.
+
+- **JD-FETCH bridges scouts and judges.** After SCOUT, the coordinator
+  collects the genuinely-new posting ids and invokes `jd-fetch` once: one
+  browser fetch per posting, normalized text written to
+  `goals/<campaign>/hidden_files/<run_id>/jd/<posting_id>.txt`, `jd_hash`
+  (first 12 hex of sha256 over the normalized text) and `jd_path` recorded
+  via `posting_upsert`. SCREEN judges receive `jd_text` read from the
+  snapshot file — never a snippet, never invented. Postings whose fetch
+  failed hold at SCREEN with reason `insufficient jd text`.
+- **The review loop closes.** When `resume-reviewer` returns
+  `approved-with-notes`, the coordinator re-invokes `resume-tailor` with the
+  same inputs plus `reviewer_notes` from the verdict, then re-runs the
+  reviewer on the new PDF. Notes are applied, not dropped; one re-tailor per
+  posting per run, then the row proceeds or parks.
+- **Cover letters where they're mandatory.** At TAILOR, for postings on ATS
+  types where cover letters are commonly required (greenhouse, lever,
+  ashby), the coordinator invokes `cover-letter-writer` (facts only from the
+  tailored resume + profile), gates the letter through `resume-reviewer` in
+  cover-letter mode, and passes the approved `cover_letter_path` +
+  `cover_letter_hash` to `portal-navigator` — which attaches it only if the
+  form actually demands one. No approved letter, no attachment, no guessing.
+- **The sweep list grows.** After SCOUT, the coordinator invokes
+  `company-discovery` with the companies observed in new postings (sightings
+  ≥ 2): genuinely-new names enter the companies table at tier 3 for
+  `career-portal-sweep` to visit. Insert-only — no tier changes, no
+  un-skipping, agencies never promoted.
 
 - **Pipelined, not batched.** Stage n+1 starts on the first ready row, not the last. Scouts still search while the first resume is tailored; appliers submit each resume the moment its approval lands.
 - **One subagent per skill invocation**, spawned with a small brief: "You are the <skill name>. Read ~/workspace/skills/<path>/SKILL.md and follow it exactly. Inputs: <json>. Return ONLY the JSON verdict." Max tree depth 2: workers never spawn further workers; a stuck worker reports back to the coordinator via the store.

@@ -6,22 +6,20 @@
 You are the worker for the "token-usage" control job.
 Cadence: 9:20am CT · Timezone: America/Chicago
 
-## 1. Gather spend
-For every run since the last watermark: read `runs` rows and their per-skill
-`event_log` token counts. Key every row by run_id.
+## 1. Run the reporter skill
+Invoke the token-reporter skill (~/workspace/skills/token-reporter/SKILL.md).
+It verifies every closed run has its measured token row, cross-checks against
+per-skill event counts, and flags missing rows and soft-stop budget breaches.
+Read-only: it writes nothing and backfills nothing — a missing number is
+reported, never invented.
 
-## 2. Record
-Write one token row per run_id to the token_usage table via the harness-core
-token-usage action: run_id, date, campaign_id, status, input/output/total tokens,
-per-stage breakdown. Append to the token_usage.jsonl bridge for export.
-Backfill any run_id missing from the bridge; never duplicate one.
+## 2. Close the run
+Call run_close with counts (runs checked, missing rows, breaches).
 
-## 3. Close the run
-Call run_close with totals.
-
-## 4. Report rule
-Stay silent — this job is silent bookkeeping. Surface only if the 90% soft-stop
-budget is breached for any campaign.
+## 3. Report rule
+Stay silent — this job is silent bookkeeping. Surface only missing token rows
+or a 90% soft-stop budget breach for any campaign.
 
 ## Honesty footer (every run, no exceptions)
-- Never invent a token count. Missing rows are backfilled from events, not guessed.
+- Never invent a token count. Missing rows are reported, never backfilled or guessed.
+- The single writer of token numbers is run-coordinator via token_record at run close.

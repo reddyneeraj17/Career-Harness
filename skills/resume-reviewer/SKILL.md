@@ -1,12 +1,12 @@
 ---
 name: resume-reviewer
-version: "1.0.0"
-description: Gates tailored resumes — cached verdicts, banned-phrase and truthfulness checks — before anything ships.
+version: "1.1.0"
+description: Gates tailored resumes and cover letters — cached verdicts, banned-phrase and truthfulness checks — before anything ships.
 ---
 
 # Resume Reviewer
 
-The review gate: judges a tailored resume PDF against the job description before it may be submitted. Verdicts are cached on `(jd_hash, resume_hash)` so identical work is never reviewed twice. This is a verdict-only skill: it judges, the coordinator transitions.
+The review gate: judges a tailored resume PDF (or a cover letter) against the job description before it may be submitted. Verdicts are cached on `(jd_hash, artifact_hash)` so identical work is never reviewed twice. This is a verdict-only skill: it judges, the coordinator transitions.
 
 ## Inputs
 
@@ -15,14 +15,25 @@ The review gate: judges a tailored resume PDF against the job description before
   "pdf_path": "goals/<campaign>/hidden_files/<run>/resumes/<slug>/<Name>_Data_AI_Resume.pdf",
   "resume_hash": "sha256 of the PDF bytes, first 12 hex chars",
   "jd_text": "full normalized job description text",
-  "jd_hash": "sha256 of normalized JD text, first 12 hex chars"
+  "jd_hash": "sha256 of normalized JD text, first 12 hex chars",
+  "cover_text": "<optional: full cover letter text>",
+  "cover_hash": "<optional: sha256 of the letter bytes, first 12 hex chars>"
 }
 ```
 
+**Cover-letter mode:** when `cover_text` + `cover_hash` are present, the skill
+judges the letter instead of the PDF. The cache key becomes
+`(jd_hash, cover_hash)` and `evidence.artifact` reads `"cover_letter"`.
+Everything else — banned phrases, truthfulness, no-editing — applies
+unchanged. Resume mode (no cover inputs) behaves exactly as before.
+
 ## Actions called
 
-- `review_get` — with `{jd_hash, resume_hash}`; returns a cached verdict when this exact pair was reviewed before. **Check the cache first, always.**
-- `review_put` — with `{jd_hash, resume_hash, verdict, notes}`; caches a fresh verdict. Called only on a cache miss.
+- `review_get` — with `{jd_hash, resume_hash}` in resume mode or
+  `{jd_hash, cover_hash}` in cover-letter mode; returns a cached verdict when
+  this exact pair was reviewed before. **Check the cache first, always.**
+- `review_put` — same key shape; caches a fresh verdict. Called only on a
+  cache miss.
 - `event_log` — one row on exit with the verdict, notes summary, and token count. Nothing else.
 
 ## Output
@@ -30,9 +41,9 @@ The review gate: judges a tailored resume PDF against the job description before
 Return ONLY the verdict envelope JSON, with `verdict` mapped to the review outcome:
 
 ```json
-{"skill":"resume-reviewer","version":"1.0.0","verdict":"pass|reject|hold",
+{"skill":"resume-reviewer","version":"1.1.0","verdict":"pass|reject|hold",
  "score":0-100,"reasons":["..."],
- "evidence":{"review":"approved|approved-with-notes|rejected","notes":["..."],"cache_hit":true,"jd_hash":"...","resume_hash":"..."},"tokens":1234}
+ "evidence":{"review":"approved|approved-with-notes|rejected","notes":["..."],"cache_hit":true,"jd_hash":"...","artifact":"resume|cover_letter","artifact_hash":"..."},"tokens":1234}
 ```
 
 - `approved` → `verdict: pass`.

@@ -6,21 +6,16 @@
 You are the worker for the "weekly-review" control job.
 Cadence: Friday 5:00pm CT · Timezone: America/Chicago
 
-## 1. Gather (read only)
-Use snapshot() views: runs, applications, replies, resumes.
-- Reply rate by source (campaign), by resume variant, by company tier.
-- Caps actually hit, parks by portal/ATS, judge override counts.
-- Token spend vs target (≤ 60% of v1 tokens per submitted application).
+## 1. Run the tuner skill
+Invoke the weekly-tuner skill (~/workspace/skills/weekly-tuner/SKILL.md).
+It gathers the week's reply rates, caps hit, parks by ATS, and token
+efficiency from snapshot() views, and drafts tuning suggestions for the
+operator. Read-only: it suggests, never applies.
 
-## 2. Tune (suggest, do not apply)
-Draft tuning suggestions only: threshold nudges, cap changes, skill flags.
-3 overrides on one judge rule → flag for the operator.
-Never change profile.yaml, a cron body, or a skill yourself.
-
-## 3. Close the run
+## 2. Close the run
 Call run_close.
 
-## 4. Report rule
+## 3. Report rule
 One weekly tuning summary for the operator. Corrections become profile.yaml
 edits, companies.skip flags, or skill improvements via the learning loop —
 never notes in a log.
