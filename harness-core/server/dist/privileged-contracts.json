@@ -1,0 +1,279 @@
+{
+  "format": "hatch-space-privileged-contracts-v1",
+  "contracts": [
+    {
+      "name": "applicationEvidenceExists",
+      "request_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "appId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]+$"
+          },
+          "campaignId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]+$"
+          },
+          "runId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]+$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "resume",
+              "screenshot",
+              "confirmation"
+            ]
+          },
+          "filename": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._ -]*$"
+          }
+        },
+        "required": [
+          "appId",
+          "campaignId",
+          "runId",
+          "kind",
+          "filename"
+        ],
+        "additionalProperties": false
+      },
+      "response_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "exists": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "exists"
+        ],
+        "additionalProperties": false
+      },
+      "capabilities": [],
+      "timeout_ms": 5000,
+      "contract_hash": "f8168f23ae7e6fd58af3f0d575190c854534e993fd409a4cd7f1628dd783daf9"
+    },
+    {
+      "name": "parseProfileYaml",
+      "request_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "yamlText": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "yamlText"
+        ],
+        "additionalProperties": false
+      },
+      "response_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "parsed": {}
+        },
+        "required": [
+          "parsed"
+        ],
+        "additionalProperties": false
+      },
+      "capabilities": [],
+      "timeout_ms": 5000,
+      "contract_hash": "e23ae4ae698f0b5fd425562abb69e69bd594269c802b9d28b64e077e225faa82"
+    },
+    {
+      "name": "readApplicationEvidence",
+      "request_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "appId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]+$"
+          },
+          "campaignId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]+$"
+          },
+          "runId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]+$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "resume",
+              "screenshot",
+              "confirmation"
+            ]
+          },
+          "filename": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._ -]*$"
+          }
+        },
+        "required": [
+          "appId",
+          "campaignId",
+          "runId",
+          "kind",
+          "filename"
+        ],
+        "additionalProperties": false
+      },
+      "response_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "filename": {
+            "type": "string"
+          },
+          "bytesBase64": {
+            "type": "string"
+          },
+          "contentType": {
+            "type": "string",
+            "enum": [
+              "application/pdf",
+              "image/png",
+              "text/plain"
+            ]
+          }
+        },
+        "required": [
+          "filename",
+          "bytesBase64",
+          "contentType"
+        ],
+        "additionalProperties": false
+      },
+      "capabilities": [],
+      "timeout_ms": 15000,
+      "contract_hash": "dca454ef144d0b50576b80ac87e2437f1a65413a32c86290736bb94d65cf91a3"
+    },
+    {
+      "name": "readProfileYaml",
+      "request_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "response_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "yamlText": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "yamlText"
+        ],
+        "additionalProperties": false
+      },
+      "capabilities": [],
+      "timeout_ms": 5000,
+      "contract_hash": "ddfcc883ef1934aa9a3abeea0b2573f6a40e97a31a4b01812eaeb16730a3d7c7"
+    },
+    {
+      "name": "readRegisteredResume",
+      "request_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "filename": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._ -]*$"
+          },
+          "location": {
+            "type": "string",
+            "enum": [
+              "user_files",
+              "user_file_resumes",
+              "workspace_resumes"
+            ]
+          }
+        },
+        "required": [
+          "filename",
+          "location"
+        ],
+        "additionalProperties": false
+      },
+      "response_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "filename": {
+            "type": "string"
+          },
+          "bytesBase64": {
+            "type": "string"
+          },
+          "contentType": {
+            "type": "string",
+            "const": "application/pdf"
+          }
+        },
+        "required": [
+          "filename",
+          "bytesBase64",
+          "contentType"
+        ],
+        "additionalProperties": false
+      },
+      "capabilities": [],
+      "timeout_ms": 15000,
+      "contract_hash": "193a9cadb8b4fcda221e670fca0f0abc348ea4921c2f44f0bd2fc30a78753d30"
+    },
+    {
+      "name": "writeProfileYaml",
+      "request_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "yaml_text": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "yaml_text"
+        ],
+        "additionalProperties": false
+      },
+      "response_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "bytes_written": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "ok",
+          "bytes_written"
+        ],
+        "additionalProperties": false
+      },
+      "capabilities": [],
+      "timeout_ms": 5000,
+      "contract_hash": "8329a03a73ceab1607ab71020ce1afe6326a9b747ce6265aac62f2b2342bb783"
+    }
+  ]
+}
