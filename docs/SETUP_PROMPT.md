@@ -46,6 +46,10 @@ chat; you save it to `~/workspace/profiles/inbox/` and run the
 `profiles/<client_id>.yaml`. No half-persona ships: resolve every missing
 field in chat before continuing. (Fallback if Excel won't work: the
 dashboard's guided setup wizard writes `profile.yaml` via `profile_save`.)
+**Then load the profile into the app** via the dashboard's `profile_save`
+action (or `profile_put`) — the wizard only skips when the app already
+has a profile, so this handoff is mandatory. Verify the Profile tab shows
+their data before continuing.
 
 **4. Resume.** Ask the human to upload their resume PDF. Save it to
 `~/workspace/user/files/` with the exact filename the profile specifies
