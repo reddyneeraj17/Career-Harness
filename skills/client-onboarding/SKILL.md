@@ -14,13 +14,16 @@ it exists, no agent ever asks the client for anything already in it.
 
 ## Procedure
 
-1. **Convert.** The filled Excel lands in `~/workspace/profiles/inbox/`
-   (the upload drop folder). Run the converter — never hand-write the YAML:
+1. **Receive and place the upload.** The client sends the filled Excel as a
+   file upload in chat — they never touch the filesystem. Save it to
+   `~/workspace/profiles/inbox/` (the upload drop folder), keeping the
+   original filename. Then run the converter — never hand-write the YAML:
    `python3 ~/workspace/client-onboarding-form/excel_to_persona_yaml.py ~/workspace/profiles/inbox/<form.xlsx>`
-   It writes `~/workspace/profiles/<client_id>.yaml` and prints warnings for
-   missing required fields (identity name/email, work_auth status, ≥1 resume,
-   ≥1 target role, sign-off name/date). After a successful conversion, move
-   the processed form to `~/workspace/profiles/inbox/done/`.
+   It reads every sheet, writes `~/workspace/profiles/<client_id>.yaml`, and
+   prints warnings for missing required fields (identity name/email,
+   work_auth status, ≥1 resume, ≥1 target role, sign-off name/date).
+   After a successful conversion, move the processed form to
+   `~/workspace/profiles/inbox/done/`.
 2. **Refuse secrets.** The converter aborts if any prompt-style label asks
    for a password, code, or payment detail. If it aborts, stop and tell the
    operator which label tripped it — do not work around it.

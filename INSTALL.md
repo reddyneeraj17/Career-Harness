@@ -51,13 +51,14 @@ Onboarding Form**, not through chat interviews or hand-filled YAML:
    Yellow cells are required; the Start Here tracker shows completion live.
    **Never a password, code, or payment detail in the form — the converter
    refuses prompt-style secret fields.**
-2. The filled form is dropped into `~/workspace/profiles/inbox/`
-   (the upload drop folder).
-3. The operator runs the `client-onboarding` skill: it converts the form to
-   `~/workspace/profiles/<client_id>.yaml`, validates it against
-   `client-persona.schema.yaml`, registers each resume row as a hash-verified
-   variant via `resume_register`, and moves the processed form to
-   `~/workspace/profiles/inbox/done/`.
+2. The customer sends the filled form as a **file upload in chat** — they
+   never touch the terminal or the filesystem. The agent saves the upload
+   to `~/workspace/profiles/inbox/`, keeping the original filename.
+3. The operator runs the `client-onboarding` skill: it reads every sheet,
+   converts the form to `~/workspace/profiles/<client_id>.yaml`, validates
+   it against `client-persona.schema.yaml`, registers each resume row as a
+   hash-verified variant via `resume_register`, and moves the processed form
+   to `~/workspace/profiles/inbox/done/`.
 4. Every warning is a real gap — resolve it with the customer and re-run the
    converter. A half-persona never ships.
 
