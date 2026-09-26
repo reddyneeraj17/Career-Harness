@@ -1,0 +1,114 @@
+# =============================================================================
+# profile.schema.yaml — validation schema for profile.yaml
+# =============================================================================
+# Used by the compile-schedules skill BEFORE rendering any cron body or calling
+# profile_put. Any missing required key, wrong type, or out-of-enum value FAILS
+# the compile loudly. A half-profile never ships.
+#
+# Conventions used below:
+#   required: true|false   — key must be present
+#   type:                  — string | integer | boolean | list | map | null-ok
+#   enum:                  — allowed values (exact match)
+#   min:                   — minimum for integers
+#   items:                 — item constraint for lists
+# =============================================================================
+
+identity:
+  required: true
+  type: map
+  fields:
+    name:         {required: true, type: string}
+    email:         {required: true, type: string}
+    phone:         {required: true, type: string}
+    city:         {required: true, type: string}
+    state:        {required: true, type: string}
+    linkedin_url: {required: true, type: string}
+
+work_auth:
+  required: true
+  type: map
+  fields:
+    status:           {required: true, type: string, enum: [H-1B, H1B, US citizen, Green card, OPT, STEM OPT, TN, EAD]}
+    sponsor_required:  {required: true, type: boolean}
+    h1b_gate:         {required: true, type: string, enum: [hard, soft]}
+
+role_types:
+  required: true
+  type: list
+  items: {type: string, enum: [full_time, part_time, w2_contract, c2c_contract, internship]}
+  min_items: 1
+
+locations:
+  required: true
+  type: map
+  fields:
+    us_only: {required: true, type: boolean}
+    remote:  {required: true, type: string, enum: [ok, only, no]}
+    metros:  {required: false, type: list, items: {type: string}}
+
+targeting:
+  required: true
+  type: map
+  fields:
+    tiers:      {required: true, type: list, items: {type: integer, enum: [1, 2, 3]}}
+    industries: {required: true, type: list, items: {type: string}, min_items: 1}
+    seniority:  {required: true, type: list, items: {type: string, enum: [junior, mid, senior, staff, architect, principal, lead, director]}, min_items: 1}
+
+comp:
+  required: true
+  type: map
+  fields:
+    floor:             {required: true, type: null-ok}
+    negotiable_answer: {required: true, type: string}
+    zero_ok:          {required: true, type: boolean}
+
+start_date:
+  required: true
+  type: string
+  format: YYYY-MM-DD
+
+answers:
+  required: true
+  type: map
+  fields:
+    relocate:             {required: true, type: string}
+    restrictive_covenants: {required: true, type: string}
+    drivers_license:      {required: true, type: string}
+    degree_dates:         {required: true, type: string}
+  allow_extra_keys: true   # standing answers grow at intake; extras are fine
+
+caps:
+  required: true
+  type: map
+  fields:
+    per_run:                 {required: true, type: integer, min: 1}
+    per_day:                 {required: true, type: integer, min: 1}
+    appliers:                {required: true, type: integer, min: 1}
+    linkedin_actions_per_hour: {required: true, type: integer, min: 1}
+
+reply_tiers:
+  required: true
+  type: map
+  fields:
+    auto_send:        {required: true, type: list, items: {type: string, pattern: "^R[1-8]$"}, min_items: 1}
+    draft_for_review: {required: true, type: list, items: {type: string}, min_items: 1}
+    never:            {required: true, type: list, items: {type: string}, min_items: 1}
+
+resumes:
+  required: true
+  type: map
+  fields:
+    dir:           {required: true, type: string}
+    filename_rule: {required: true, type: string}
+
+campaigns:
+  required: true
+  type: map
+  fields:
+    morning_run:      {required: false, type: map, fields: {cadence: {required: true, type: string}}}
+    linkedin_feed:    {required: false, type: map, fields: {cadence: {required: true, type: string}}}
+    career_portal:    {required: false, type: map, fields: {cadence: {required: true, type: string}}}
+    job_board:        {required: false, type: map, fields: {cadence: {required: true, type: string}}}
+    # ops control jobs — optional in profile; driven by template/skill-convention cadences
+    email_scan:       {required: false, type: map, fields: {cadence: {required: true, type: string}}}
+    linkedin_replies: {required: false, type: map, fields: {cadence: {required: true, type: string}}}

@@ -1,0 +1,86 @@
+company,company_norm,tier,industry,hq_state,careers_url,ats_type
+Visa,visa,1,fintech,CA,https://usa.visa.com/careers.html,workday
+Mastercard,mastercard,1,fintech,NY,https://careers.mastercard.com,unknown
+American Express,american express,1,fintech,NY,https://www.americanexpress.com/en-us/careers,unknown
+PayPal,paypal,1,fintech,CA,https://paypal.eightfold.ai/careers,unknown
+Block,block,1,fintech,CA,https://job-boards.greenhouse.io/embed/job_board?for=block,greenhouse
+Intuit,intuit,1,fintech,CA,https://jobs.intuit.com,unknown
+Fiserv,fiserv,1,fintech,WI,https://careers.fiserv.com,unknown
+FIS,fis,1,fintech,FL,https://careers.fisglobal.com,unknown
+JPMorgan Chase,jpmorgan chase,1,fintech,NY,https://careers.jpmorgan.com,unknown
+Capital One,capital one,1,fintech,VA,https://www.capitalonecareers.com,unknown
+Goldman Sachs,goldman sachs,1,fintech,NY,https://www.goldmansachs.com/careers,unknown
+Bank of America,bank of america,1,fintech,NC,https://careers.bankofamerica.com,unknown
+Wells Fargo,wells fargo,1,fintech,CA,https://www.wellsfargojobs.com/,unknown
+Citigroup,citigroup,1,fintech,NY,https://jobs.citi.com,unknown
+U.S. Bancorp,u s bancorp,1,fintech,MN,https://careers.usbank.com,unknown
+PNC,pnc,1,fintech,PA,https://careers.pnc.com,unknown
+Stripe,stripe,1,fintech,CA,https://stripe.com/jobs,unknown
+Coinbase,coinbase,1,fintech,CA,https://www.coinbase.com/careers,unknown
+Robinhood,robinhood,1,fintech,CA,https://job-boards.greenhouse.io/embed/job_board?for=robinhood,greenhouse
+SoFi,sofi,1,fintech,CA,https://www.sofi.com/careers/,unknown
+Adyen,adyen,1,fintech,CA,https://careers.adyen.com,unknown
+Toast,toast,1,fintech,MA,https://careers.toasttab.com/current-openings,unknown
+Chime,chime,2,fintech,CA,https://boards.greenhouse.io/chime,greenhouse
+Plaid,plaid,2,fintech,CA,https://plaid.com/careers,unknown
+Brex,brex,2,fintech,CA,https://boards.greenhouse.io/brex,greenhouse
+Ramp,ramp,2,fintech,NY,https://jobs.ashbyhq.com/ramp,ashby
+Marqeta,marqeta,2,fintech,CA,https://www.Marqeta.com/company/careers,unknown
+Affirm,affirm,2,fintech,CA,https://boards.greenhouse.io/affirm,greenhouse
+Klarna,klarna,2,fintech,OH,https://www.klarna.com/careers/,unknown
+Revolut,revolut,2,fintech,NY,https://www.revolut.com/careers/,unknown
+Betterment,betterment,2,fintech,NY,https://boards.greenhouse.io/betterment,greenhouse
+Upstart,upstart,2,fintech,CA,https://careers.upstart.com,unknown
+Enova,enova,2,fintech,IL,https://boards.greenhouse.io/enova,greenhouse
+Q2,q2,2,fintech,TX,https://www.q2.com/careers,workday
+Alkami,alkami,2,fintech,TX,https://www.alkami.com/careers/,unknown
+Circle,circle,2,fintech,NY,https://circle.com/careers,unknown
+Chainalysis,chainalysis,2,fintech,NY,https://www.chainalysis.com/careers/,unknown
+Carta,carta,2,fintech,CA,https://boards.greenhouse.io/carta,greenhouse
+Gusto,gusto,2,fintech,CA,https://gusto.com/about/careers/join-the-team,unknown
+nCino,ncino,2,fintech,NC,,unknown
+Cadence Bank,cadence bank,2,fintech,MS,,unknown
+Texas Capital,texas capital,2,fintech,TX,https://www.texascapitalbank.com/who-we-are/careers,unknown
+Comerica,comerica,2,fintech,TX,https://careers.comerica.com/,unknown
+Frost Bank,frost bank,2,fintech,TX,https://careers.frostbank.com,unknown
+Mercury,mercury,2,fintech,CA,https://mercury.com/jobs,unknown
+UnitedHealth Group,unitedhealth group,1,healthcare,MN,https://careers.unitedhealthgroup.com,unknown
+CVS Health,cvs health,1,healthcare,RI,https://jobs.cvshealth.com,unknown
+Cigna,cigna,1,healthcare,CT,https://jobs.thecignagroup.com,unknown
+Elevance Health,elevance health,1,healthcare,IN,https://careers.elevancehealth.com,unknown
+Humana,humana,1,healthcare,KY,https://careers.humana.com,unknown
+Centene,centene,1,healthcare,MO,https://jobs.centene.com,unknown
+Kaiser Permanente,kaiser permanente,1,healthcare,CA,https://www.kaiserpermanentejobs.org,unknown
+HCA Healthcare,hca healthcare,1,healthcare,TN,https://careers.hcahealthcare.com,unknown
+McKesson,mckesson,1,healthcare,TX,https://careers.mckesson.com,workday
+Cencora,cencora,1,healthcare,PA,https://careers.cencora.com,unknown
+Cardinal Health,cardinal health,1,healthcare,OH,https://jobs.cardinalhealth.com,unknown
+Johnson & Johnson,johnson johnson,1,healthcare,NJ,https://www.careers.jnj.com/en/jobs/?lang=en-US&location=United+States,unknown
+Pfizer,pfizer,1,healthcare,NY,https://www.pfizer.com/about/careers/search-results,unknown
+Merck,merck,1,healthcare,NJ,https://jobs.merck.com/us/en,unknown
+Eli Lilly,eli lilly,1,healthcare,IN,https://careers.lilly.com/,unknown
+Bristol Myers Squibb,bristol myers squibb,1,healthcare,NJ,https://jobs.bms.com/careers,unknown
+AbbVie,abbvie,1,healthcare,IL,https://careers.abbvie.com,unknown
+Amgen,amgen,1,healthcare,CA,https://careers.amgen.com/en/search-jobs,unknown
+Gilead,gilead,1,healthcare,CA,https://gilead.wd1.myworkdayjobs.com/en-US/gileadcareers,workday
+Thermo Fisher,thermo fisher,1,healthcare,MA,https://jobs.thermofisher.com,unknown
+Medtronic,medtronic,1,healthcare,MN,https://medtronic.wd1.myworkdayjobs.com/en-US/MedtronicCareers,workday
+Stryker,stryker,1,healthcare,MI,https://careers.stryker.com,unknown
+Epic,epic,2,healthcare,WI,https://careers.epic.com,unknown
+Oracle Health,oracle health,2,healthcare,MO,https://careers.oracle.com/en/sites/jobsearch/jobs,unknown
+Devoted Health,devoted health,2,healthcare,MA,https://devoted.com/careers/,unknown
+Oscar Health,oscar health,2,healthcare,NY,https://www.hioscar.com/careers,greenhouse
+Agilon Health,agilon health,2,healthcare,CA,https://www.agilonhealth.com/careers/,unknown
+Privia Health,privia health,2,healthcare,VA,https://provider-careers.priviahealth.com/,unknown
+Transcarent,transcarent,2,healthcare,CO,https://job-boards.greenhouse.io/transcarent,greenhouse
+Teladoc Health,teladoc health,2,healthcare,NY,https://www.teladochealth.com/careers,unknown
+GoodRx,goodrx,2,healthcare,CA,https://www.goodrx.com/jobs/openings/,unknown
+Datavant,datavant,2,healthcare,CA,https://www.datavant.com/about/careers/open-roles,greenhouse
+Innovaccer,innovaccer,2,healthcare,CA,https://innovaccer.com/careers/jobs,unknown
+Tempus,tempus,2,healthcare,IL,https://tempus.wd5.myworkdayjobs.com/Tempus_Careers,workday
+Memorial Hermann,memorial hermann,2,healthcare,TX,https://jobs.memorialhermann.org/us/en/search-results,unknown
+Houston Methodist,houston methodist,2,healthcare,TX,https://www.houstonmethodistcareers.org/jobs/,unknown
+MD Anderson,md anderson,2,healthcare,TX,https://jobs.mdanderson.org/Search/SearchJobs,unknown
+Texas Children's,texas children s,2,healthcare,TX,https://www.texaschildrens.org/careers,unknown
+Kelsey-Seybold,kelsey seybold,2,healthcare,TX,https://careers.unitedhealthgroup.com/search-jobs/kelsey-seybold/34088/1,unknown
+Pieces Technologies,pieces technologies,2,healthcare,TX,https://www.smartertech.com/careers,unknown

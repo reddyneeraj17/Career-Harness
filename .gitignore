@@ -1,0 +1,26 @@
+# Customer data — never commit. These live in the customer's environment only.
+profile.yaml
+user/
+**/user/files/
+**/hidden_files/
+*.db
+*.db-shm
+*.db-wal
+credentials*
+*secret*
+*.pem
+*.key
+manifests/
+schedules_manifest.json
+
+# Build output
+node_modules/
+dist/
+dist-cvm/
+.tsbuildinfo*
+.generated/
+
+# OS / editor noise
+.DS_Store
+*.swp
+*~

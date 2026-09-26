@@ -1,0 +1,89 @@
+# PACKAGING.md — how the harness kit ships
+
+## What this repo is
+
+`harness-kit` is the single shippable artifact of the Job-Apply Harness.
+One repo, versioned with semver (`VERSION` file, git tags `vX.Y.Z`).
+The maintainer edits here; customers install from a tag or a release tarball.
+
+## Layout
+
+```
+harness-kit/
+├── VERSION                  # semver, e.g. 1.0.0
+├── CHANGELOG.md             # keep-a-changelog entries per release
+├── README.md / INSTALL.md   # what it is / agent runbook
+├── PACKAGING.md             # this file
+├── .gitignore               # customer-data guardrails
+├── skills/                  # 18 skills; the ONLY place logic lives
+├── templates/               # *.body.md cron templates + profile.schema.yaml
+├── harness-core/            # dashboard artifact source (client/, server/, drizzle/)
+├── seed/                    # h1b_employer_hub.csv, companies_seed.csv
+├── goal-skeletons/          # empty per-campaign goal dirs
+├── profile.example.yaml     # redacted template; never real data
+├── docs/                    # architecture blueprint PDF (the spec)
+└── install/
+    ├── install.sh           # fresh install (+ --check dry-run)
+    └── upgrade.sh           # version-to-version upgrade
+```
+
+## What never ships
+
+Enforced by `.gitignore`; the installer also refuses to pack them:
+
+- `profile.yaml` (real one), `user/` (resumes, files), `hidden_files/`
+- `*.db` (SQLite stores), credentials, manifests, `node_modules/`, `dist/`
+
+`profile.example.yaml` ships with every PII field replaced by
+`REPLACE_ME` placeholders. The compatibility contract between releases is
+`templates/profile.schema.yaml` — a release declares the schema version it
+needs, and the doctor reports drift.
+
+## Release process (maintainer)
+
+1. Make changes on a branch; update `CHANGELOG.md`.
+2. Bump `VERSION`, rebuild the blueprint PDF into `docs/`.
+3. Run the kit self-check: `./install/install.sh --check` on a clean copy.
+4. Tag `vX.Y.Z` (signed tag), push.
+5. CI builds `harness-kit-X.Y.Z.tar.gz` + `.sha256`, attaches both to the
+   release. Data-only releases (H-1B hub refresh) are tagged
+   `data-YYYYMMDD` and ship just `seed/`.
+
+## Install (customer's Muse)
+
+Path A — git works in the customer's VM:
+
+```sh
+git clone --branch v1.0.0 <repo> ~/workspace/harness-kit
+cd ~/workspace/harness-kit && ./install/install.sh
+```
+
+Path B — no network: upload the release tarball, then
+
+```sh
+tar xzf harness-kit-1.0.0.tar.gz -C ~/workspace/
+cd ~/workspace/harness-kit && ./install/install.sh
+```
+
+`install.sh` stages `skills/`, `templates/`, `seed/`, `goal-skeletons/`,
+verifies checksums, and prints the agent runbook: build the harness-core
+artifact from `harness-core/` source, run drizzle migrations in order,
+import seeds, copy `profile.example.yaml` → `~/workspace/profile.yaml`,
+fill it in (intake interview), run compile-schedules, smoke-test, doctor.
+
+## Upgrade / rollback
+
+```sh
+cd ~/workspace/harness-kit && ./install/upgrade.sh v1.1.0
+```
+
+`upgrade.sh` checks the current `VERSION` against the target, runs pending
+drizzle migrations in filename order, recompiles schedules from the
+customer's `profile.yaml`, and runs the doctor. Rollback is the same
+command with the older version — migrations are ordered and customer data
+never re-enters the repo, so downgrading is safe.
+
+## Support boundary
+
+The customer owns exactly one file: `profile.yaml`. Everything else derives
+from it. Support = "send me your doctor output + (redacted) profile.yaml".

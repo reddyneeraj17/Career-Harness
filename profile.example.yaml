@@ -1,0 +1,73 @@
+# =============================================================================
+# profile.example.yaml — TEMPLATE. Copy to ~/workspace/profile.yaml and fill in
+# your own details. This file ships REDACTED; it must never contain real PII.
+# =============================================================================
+# - Validated against: templates/profile.schema.yaml
+# - Synced into harness-core by the compile-schedules skill via profile_put
+#   (the DB and every compiled cron body are rendered from these same facts)
+# - A rule stated in chat is NOT live until compile-schedules runs successfully
+# - A {{profile.*}} placeholder with no value here FAILS the compile loudly.
+# - Set the timezone for all cadences below to your own.
+# =============================================================================
+
+identity:
+  name: "REPLACE_ME"                        # e.g. "Jane Doe"
+  email: "REPLACE_ME"                       # e.g. "jane.doe@example.com"
+  phone: "REPLACE_ME"                       # e.g. "(555) 123-4567"
+  city: "REPLACE_ME"                        # e.g. "Houston"
+  state: "REPLACE_ME"                       # e.g. "TX"
+  linkedin_url: "REPLACE_ME"                 # e.g. "https://www.linkedin.com/in/janedoe"
+
+work_auth:
+  status: "REPLACE_ME"                      # e.g. "H-1B", "US citizen", "Green Card"
+  sponsor_required: true                    # true if you need employer sponsorship
+  h1b_gate: "soft"                          # "hard" = skip unknowns, "soft" = hold unknowns
+
+role_types: ["full_time"]                   # full_time only is the supported rule
+
+locations:
+  us_only: true
+  remote: ok                                # ok | no | only
+  metros: ["REPLACE_ME"]                    # priority metros, e.g. ["Houston"]
+
+targeting:
+  tiers: [1, 2]                             # company tiers to target
+  industries: ["fintech", "healthcare"]     # industries to target
+  seniority: ["senior"]                     # senior | staff | architect | principal | lead
+
+comp:
+  floor: null                               # minimum acceptable, null = negotiable
+  negotiable_answer: "negotiable"
+  zero_ok: true
+
+start_date: "REPLACE_ME"                    # e.g. "2026-10-09", earliest start date
+
+answers:
+  relocate: "Yes"                           # willing to relocate? Yes | No
+  restrictive_covenants: "Yes"              # bound by non-compete/non-solicitation? Yes | No
+  drivers_license: "Yes"                    # hold a valid driver's license? Yes | No
+  degree_dates: "decline"                   # degree dates if asked: answer | decline
+  home_zip: "REPLACE_ME"                    # e.g. "10001"
+  work_authorized_us: "Yes"                 # authorized to work in the US? Yes | No
+  Experience: "REPLACE_ME"                  # e.g. "Data engineering 8, Python/SQL 8, Spark 5"
+
+caps:
+  per_run: 10
+  per_day: 50
+  appliers: 2                               # max concurrent appliers
+  linkedin_actions_per_hour: 20
+
+reply_tiers:
+  auto_send: ["R1", "R3", "R5"]
+  draft_for_review: ["comp_questions", "new_contacts"]
+  never: ["contract_pitches"]
+
+resumes:
+  dir: workspace/user/files
+  filename_rule: "REPLACE_ME"               # exact portal upload filename, always
+
+campaigns:
+  morning_run: {cadence: "daily 07:00"}
+  linkedin_feed: {cadence: "2h weekdays"}
+  career_portal: {cadence: "daily 14:20"}
+  job_board: {cadence: "nightly 23:20"}

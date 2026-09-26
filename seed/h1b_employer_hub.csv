@@ -1,0 +1,86 @@
+company,company_norm,h1b_sponsor,evidence,lca_count,stats_by_year,last_refreshed
+Visa,visa,unknown,,0,{},2026-09-26
+Mastercard,mastercard,yes,MyVisaJobs FY2025: 197 LCAs,197,"{""2025"": {""lcas"": 197}}",2026-09-26
+American Express,american express,yes,MyVisaJobs FY2025: American Express Travel Related Services filed 782 LCAs,782,"{""2025"": {""lcas"": 782}}",2026-09-26
+PayPal,paypal,yes,"MyVisaJobs FY2025: 1,197 LCAs",1197,"{""2025"": {""lcas"": 1197}}",2026-09-26
+Block,block,yes,h1bdata.info: Block Inc LCA records observed through 2026,0,"{""2025"": {""lcas"": null, ""note"": ""LCA records observed through 2026 per h1bdata.info; count unavailable""}}",2026-09-26
+Intuit,intuit,yes,MyVisaJobs FY2025: 697 LCAs,697,"{""2025"": {""lcas"": 697}}",2026-09-26
+Fiserv,fiserv,yes,MyVisaJobs FY2025: Fiserv Solutions filed 418 LCAs,418,"{""2025"": {""lcas"": 418}}",2026-09-26
+FIS,fis,unknown,,0,{},2026-09-26
+JPMorgan Chase,jpmorgan chase,yes,"MyVisaJobs FY2025: JPMorgan Chase filed 3,534 LCAs",3534,"{""2025"": {""lcas"": 3534}}",2026-09-26
+Capital One,capital one,yes,MyVisaJobs FY2025: Capital One Services filed 728 LCAs,728,"{""2025"": {""lcas"": 728}}",2026-09-26
+Goldman Sachs,goldman sachs,yes,"MyVisaJobs FY2025: Goldman Sachs & Co. filed 1,346 LCAs",1346,"{""2025"": {""lcas"": 1346}}",2026-09-26
+Bank of America,bank of america,yes,MyVisaJobs FY2025: Bank of America filed 790 LCAs,790,"{""2025"": {""lcas"": 790}}",2026-09-26
+Wells Fargo,wells fargo,yes,MyVisaJobs FY2025: Wells Fargo Bank filed 638 LCAs,638,"{""2025"": {""lcas"": 638}}",2026-09-26
+Citigroup,citigroup,yes,"MyVisaJobs FY2025: Citibank filed 1,400 LCAs",1400,"{""2025"": {""lcas"": 1400}}",2026-09-26
+U.S. Bancorp,u s bancorp,yes,MyVisaJobs: U.S. Bank National Association had 20 certified LCAs in 2023,20,"{""2023"": {""lcas"": 20}}",2026-09-26
+PNC,pnc,yes,MyVisaJobs FY2025: The PNC Financial Services Group filed 104 LCAs,104,"{""2025"": {""lcas"": 104}}",2026-09-26
+Stripe,stripe,yes,MyVisaJobs FY2025: Stripe filed 292 LCAs,292,"{""2025"": {""lcas"": 292}}",2026-09-26
+Coinbase,coinbase,yes,MyVisaJobs FY2025: Coinbase filed 188 LCAs,188,"{""2025"": {""lcas"": 188}}",2026-09-26
+Robinhood,robinhood,yes,h1bdata.info: Robinhood Markets Inc LCA records observed for 2021,0,"{""2021"": {""lcas"": null, ""note"": ""LCA records observed for 2021 per h1bdata.info; count unavailable""}}",2026-09-26
+SoFi,sofi,yes,MyVisaJobs FY2025: SoFi Bank filed 8 LCAs,8,"{""2025"": {""lcas"": 8}}",2026-09-26
+Adyen,adyen,yes,MyVisaJobs FY2025: Adyen N.V. filed 35 LCAs,35,"{""2025"": {""lcas"": 35}}",2026-09-26
+Toast,toast,yes,MyVisaJobs: Toast filed 21 LCAs in the first three quarters of FY2025,21,"{""2025"": {""lcas"": 21}}",2026-09-26
+Chime,chime,yes,MyVisaJobs FY2025: Chime Financial filed 133 LCAs,133,"{""2025"": {""lcas"": 133}}",2026-09-26
+Plaid,plaid,yes,MyVisaJobs FY2025: Plaid filed 42 LCAs,42,"{""2025"": {""lcas"": 42}}",2026-09-26
+Brex,brex,yes,MyVisaJobs FY2025: Brex filed 35 LCAs,35,"{""2025"": {""lcas"": 35}}",2026-09-26
+Ramp,ramp,yes,MyVisaJobs FY2025: Ramp Business filed 30 LCAs,30,"{""2025"": {""lcas"": 30}}",2026-09-26
+Marqeta,marqeta,yes,MyVisaJobs FY2025: Marqeta filed 58 LCAs,58,"{""2025"": {""lcas"": 58}}",2026-09-26
+Affirm,affirm,yes,MyVisaJobs: Affirm filed 90 LCAs in the first three quarters of FY2025,90,"{""2025"": {""lcas"": 90}}",2026-09-26
+Klarna,klarna,yes,MyVisaJobs Klarna FY2025 LCA report,11,"{""2025"": {""lcas"": 11}}",2026-09-26
+Revolut,revolut,yes,MyVisaJobs Revolut FY2025 LCA report,3,"{""2025"": {""lcas"": 3}}",2026-09-26
+Betterment,betterment,yes,h1bdata.info: 8 FY2025 records for Betterment Holdings Inc,8,"{""2025"": {""lcas"": 8}}",2026-09-26
+Upstart,upstart,yes,MyVisaJobs Upstart FY2025 LCA report,70,"{""2025"": {""lcas"": 70}}",2026-09-26
+Enova,enova,yes,MyVisaJobs Enova Financial Holdings FY2025 LCA report,21,"{""2025"": {""lcas"": 21}}",2026-09-26
+Q2,q2,yes,MyVisaJobs Q2 FY2025 LCA report,22,"{""2025"": {""lcas"": 22}}",2026-09-26
+Alkami,alkami,yes,"immihelp: certified FY2023 H-1B LCA, Data Engineer II, Plano TX",1,"{""2023"": {""lcas"": 1}}",2026-09-26
+Circle,circle,yes,MyVisaJobs Circle FY2025 LCA report,33,"{""2025"": {""lcas"": 33}}",2026-09-26
+Chainalysis,chainalysis,unknown,,0,{},2026-09-26
+Carta,carta,yes,MyVisaJobs Eshares Inc dba Carta Inc FY2025 LCA report,43,"{""2025"": {""lcas"": 43}}",2026-09-26
+Gusto,gusto,yes,MyVisaJobs Gusto FY2025 LCA report,51,"{""2025"": {""lcas"": 51}}",2026-09-26
+nCino,ncino,yes,h1bdata.info: 2 FY2025 nCino Inc records,2,"{""2025"": {""lcas"": 2}}",2026-09-26
+Cadence Bank,cadence bank,no,MyVisaJobs Cadence Bank National Association: no LCA filed since FY2020; 0 filings FY2021-2023,0,{},2026-09-26
+Texas Capital,texas capital,yes,MyVisaJobs Texas Capital FY2025 LCA report,8,"{""2025"": {""lcas"": 8}}",2026-09-26
+Comerica,comerica,yes,MyVisaJobs Comerica Management Company FY2025 LCA report,46,"{""2025"": {""lcas"": 46}}",2026-09-26
+Frost Bank,frost bank,yes,MyVisaJobs Frost Bank FY2025 LCA report,12,"{""2025"": {""lcas"": 12}}",2026-09-26
+Mercury,mercury,yes,MyVisaJobs Mercury Technologies FY2025 LCA report,19,"{""2025"": {""lcas"": 19}}",2026-09-26
+UnitedHealth Group,unitedhealth group,yes,"MyVisaJobs: Optum Services Inc (UHG subsidiary) filed 658 FY2025 LCAs; UHG files via multiple legal entities so 658 is the largest single entity, not a group total",658,"{""2025"": {""lcas"": 658}}",2026-09-26
+CVS Health,cvs health,yes,MyVisaJobs CVS Rx Services Inc FY2025 LCA report,525,"{""2025"": {""lcas"": 525}}",2026-09-26
+Cigna,cigna,yes,h1bdata.info indexes 1315 LCA records for CIGNA-EVERNORTH SERVICES INC including FY2025 filings; no single-year company-wide total verified,0,"{""2025"": {""lcas"": null, ""note"": ""h1bdata.info indexes 1315 LCA records for CIGNA-EVERNORTH SERVICES INC incl. FY2025; no single-year company-wide total verified""}}",2026-09-26
+Elevance Health,elevance health,yes,"USCIS H-1B Employer Data Hub: Elevance Health Inc, 417 approved FY2025 beneficiaries (approved petitions, not LCA count)",0,"{""2025"": {""lcas"": null, ""note"": ""USCIS H-1B Employer Data Hub: 417 approved FY2025 beneficiaries (approved petitions, not LCA count)""}}",2026-09-26
+Humana,humana,yes,h1bdata.info confirms FY2025 HUMANA INC filings; company-wide FY2025 total not verified,0,"{""2025"": {""lcas"": null, ""note"": ""h1bdata.info confirms FY2025 filings; company-wide total not verified""}}",2026-09-26
+Centene,centene,yes,MyVisaJobs: Centene Management Company LLC filed 141 FY2025 LCAs,141,"{""2025"": {""lcas"": 141}}",2026-09-26
+Kaiser Permanente,kaiser permanente,yes,"MyVisaJobs: Kaiser Foundation Health Plan filed 3 LCAs in first 3 quarters of FY2025; Kaiser Foundation Hospitals filed 3 FY2025 LCAs; multiple legal entities, no single company total",0,"{""2025"": {""lcas"": null, ""note"": ""3 LCAs Kaiser Foundation Health Plan (Q1-Q3 FY2025) + 3 LCAs Kaiser Foundation Hospitals FY2025; multiple legal entities""}}",2026-09-26
+HCA Healthcare,hca healthcare,yes,MyVisaJobs: HCA Healthcare filed 2 FY2025 LCAs,2,"{""2025"": {""lcas"": 2}}",2026-09-26
+McKesson,mckesson,yes,MyVisaJobs: McKesson filed 149 FY2025 LCAs,149,"{""2025"": {""lcas"": 149}}",2026-09-26
+Cencora,cencora,yes,MyVisaJobs: AmerisourceBergen Services Corporation (Cencora former name) filed 35 FY2025 LCAs,35,"{""2025"": {""lcas"": 35}}",2026-09-26
+Cardinal Health,cardinal health,yes,MyVisaJobs: Cardinal Health filed 131 FY2025 LCAs,131,"{""2025"": {""lcas"": 131}}",2026-09-26
+Johnson & Johnson,johnson johnson,yes,MyVisaJobs FY2025: 48 LCAs (Johnson & Johnson Services),48,"{""2025"": {""lcas"": 48}}",2026-09-26
+Pfizer,pfizer,yes,MyVisaJobs FY2025: 85 LCAs,85,"{""2025"": {""lcas"": 85}}",2026-09-26
+Merck,merck,yes,MyVisaJobs FY2025: 161 LCAs (Merck Sharp & Dohme),161,"{""2025"": {""lcas"": 161}}",2026-09-26
+Eli Lilly,eli lilly,yes,MyVisaJobs FY2025: 521 LCAs,521,"{""2025"": {""lcas"": 521}}",2026-09-26
+Bristol Myers Squibb,bristol myers squibb,yes,MyVisaJobs FY2025: 251 LCAs,251,"{""2025"": {""lcas"": 251}}",2026-09-26
+AbbVie,abbvie,yes,MyVisaJobs FY2025: 280 LCAs,280,"{""2025"": {""lcas"": 280}}",2026-09-26
+Amgen,amgen,yes,MyVisaJobs FY2025: 431 LCAs,431,"{""2025"": {""lcas"": 431}}",2026-09-26
+Gilead,gilead,yes,MyVisaJobs FY2025: 271 LCAs,271,"{""2025"": {""lcas"": 271}}",2026-09-26
+Thermo Fisher,thermo fisher,yes,h1bdata.info 2026: 1 record (Thermo Fisher Scientific Inc),1,"{""2026"": {""lcas"": 1}}",2026-09-26
+Medtronic,medtronic,yes,MyVisaJobs FY2025: 353 LCAs,353,"{""2025"": {""lcas"": 353}}",2026-09-26
+Stryker,stryker,yes,MyVisaJobs FY2025: 106 LCAs,106,"{""2025"": {""lcas"": 106}}",2026-09-26
+Epic,epic,yes,"MyVisaJobs FY2025: 22 LCAs (Epic Systems Inc, Verona WI)",22,"{""2025"": {""lcas"": 22}}",2026-09-26
+Oracle Health,oracle health,yes,immihelp: Oracle Cerner has filed H-1B LCAs since 2008; no recent-year count verified,0,"{""2025"": {""lcas"": null, ""note"": ""H-1B LCA filer since 2008 per immihelp; no recent-year count verified""}}",2026-09-26
+Devoted Health,devoted health,yes,MyVisaJobs 2017-2021: 2 LCAs; no filings FY2022-FY2025,2,"{""2021"": {""lcas"": 2}}",2026-09-26
+Oscar Health,oscar health,yes,MyVisaJobs FY2022-2024: 1 LCA (Oscar Insurance Corporation); 0 in FY2025,1,"{""2024"": {""lcas"": 1}}",2026-09-26
+Agilon Health,agilon health,unknown,,0,{},2026-09-26
+Privia Health,privia health,yes,MyVisaJobs FY2025: 1 LCA (Privia Health LLC),1,"{""2025"": {""lcas"": 1}}",2026-09-26
+Transcarent,transcarent,unknown,,0,{},2026-09-26
+Teladoc Health,teladoc health,yes,MyVisaJobs FY2024: 92 certified LCAs,92,"{""2024"": {""lcas"": 92}}",2026-09-26
+GoodRx,goodrx,yes,MyVisaJobs FY2025: 20 LCAs,20,"{""2025"": {""lcas"": 20}}",2026-09-26
+Datavant,datavant,yes,"MyVisaJobs FY2025: 10 LCAs (Main Office: San Francisco, CA)",10,"{""2025"": {""lcas"": 10}}",2026-09-26
+Innovaccer,innovaccer,yes,MyVisaJobs FY2025: 35 LCAs,35,"{""2025"": {""lcas"": 35}}",2026-09-26
+Tempus,tempus,yes,MyVisaJobs FY2022-2024: 138 LCAs (Tempus Labs Inc); no LCAs in FY2025,138,"{""2024"": {""lcas"": 138}}",2026-09-26
+Memorial Hermann,memorial hermann,yes,MyVisaJobs FY2025: 10 LCAs (Memorial Hermann Health System),10,"{""2025"": {""lcas"": 10}}",2026-09-26
+Houston Methodist,houston methodist,yes,"immihelp FY2021: 1 certified H-1B LCA (IT Data Specialist, The Methodist Hospital dba Houston Methodist)",1,"{""2021"": {""lcas"": 1}}",2026-09-26
+MD Anderson,md anderson,yes,"MyVisaJobs: prior H-1B hiring (e.g., Postdoctoral Fellow); no LCAs filed since FY2020",0,"{""2025"": {""lcas"": null, ""note"": ""prior H-1B hiring per MyVisaJobs; no LCAs filed since FY2020""}}",2026-09-26
+Texas Children's,texas children s,yes,h1bdata.info 2025: 13 LCA records (Texas Children's Hospital),13,"{""2025"": {""lcas"": 13}}",2026-09-26
+Kelsey-Seybold,kelsey seybold,yes,MyVisaJobs FY2025: 1 LCA (Kelsey-Seybold Medical Group PLLC),1,"{""2025"": {""lcas"": 1}}",2026-09-26
+Pieces Technologies,pieces technologies,unknown,,0,{},2026-09-26
