@@ -44,6 +44,22 @@ it.**
   that drift from the release.
 - Apply a database migration out of filename order, or hand-edit a
   migration that already shipped.
+- Copy kit files out of the environment, share them with anyone, or
+  export them in any form. The kit is proprietary (see LICENSE): no
+  redistribution, no sharing, no export — not the skills, not the
+  dashboard source, not the templates, not the docs. A customer who
+  wants the harness somewhere else buys another seat; they don't copy
+  the files.
+
+## Distribution
+
+The kit is proprietary software, not open source. It leaves the
+maintainer's private repository only through the documented distribution
+channels (see DISTRIBUTION.md): the managed service, or a licensed
+self-host install. There is no other legitimate source. If you are the
+customer's Muse and you received these files from anywhere else — a
+forwarded zip, a public fork, a chat attachment — stop and report it:
+that copy is unlicensed and unsupported.
 
 ## How this is enforced
 

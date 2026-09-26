@@ -1,10 +1,16 @@
 # PACKAGING.md — how the harness kit ships
 
+> **PROPRIETARY — Career Harness © 2026 Neeraj Reddy.** Licensed customers only: no redistribution, no sharing, no export. Core files are read-only (see CUSTOMER_RULES.md). Full terms in LICENSE.
+
+
 ## What this repo is
 
 `harness-kit` is the single shippable artifact of the Job-Apply Harness.
 One repo, versioned with semver (`VERSION` file, git tags `vX.Y.Z`).
-The maintainer edits here; customers install from a tag or a release tarball.
+The maintainer edits here; customers receive it only through the channels
+in DISTRIBUTION.md (managed service, or supervised self-host install from
+the private repo with a one-time deploy key). Customers never pull from
+this repo on their own.
 
 ## Layout
 

@@ -1,5 +1,8 @@
 # INSTALL.md — Job-Apply Harness installer runbook
 
+> **PROPRIETARY — Career Harness © 2026 Neeraj Reddy.** Licensed customers only: no redistribution, no sharing, no export. Core files are read-only (see CUSTOMER_RULES.md). Full terms in LICENSE.
+
+
 Installs the harness into one customer's Muse environment. One customer = one
 environment = one `harness-core`. **Re-running the installer is always safe**
 (every step is idempotent: scaffold, copy, migrate, seed, compile, verify).

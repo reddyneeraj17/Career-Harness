@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# PROPRIETARY — Career Harness (c) 2026 Neeraj Reddy. Licensed customers only:
+# no redistribution, no sharing, no export. Do not edit — see CUSTOMER_RULES.md.
 # upgrade.sh — upgrade an installed harness-kit from one version to another.
 # Rollback = run this again with the older version.
 #

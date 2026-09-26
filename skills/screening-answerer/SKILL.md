@@ -1,3 +1,5 @@
+<!-- PROPRIETARY — Career Harness (c) 2026 Neeraj Reddy. Licensed customers only: no redistribution, no sharing, no export. Core files are read-only — see CUSTOMER_RULES.md. Full terms in LICENSE. -->
+
 ---
 name: screening-answerer
 version: "1.1.0"

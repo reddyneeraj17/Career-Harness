@@ -1,5 +1,8 @@
 # OPERATOR.md — the customer's guide to the Job-Apply Harness
 
+> **PROPRIETARY — Career Harness © 2026 Neeraj Reddy.** Licensed customers only: no redistribution, no sharing, no export. Core files are read-only (see CUSTOMER_RULES.md). Full terms in LICENSE.
+
+
 *You don't need to read the architecture spec. This is the whole manual.*
 
 ## What this is

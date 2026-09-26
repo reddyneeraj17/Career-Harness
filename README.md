@@ -1,5 +1,8 @@
 # Job-Apply Harness — Install Kit
 
+> **PROPRIETARY — Career Harness © 2026 Neeraj Reddy.** Licensed customers only: no redistribution, no sharing, no export. Core files are read-only (see CUSTOMER_RULES.md). Full terms in LICENSE.
+
+
 The shippable software for the Job-Apply Harness (blueprint v2.8, Database
 Edition, Skills-First). Installs into one customer's Muse environment per
 INSTALL.md. One customer = one environment = one `harness-core`.

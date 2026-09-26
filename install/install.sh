@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# PROPRIETARY — Career Harness (c) 2026 Neeraj Reddy. Licensed customers only:
+# no redistribution, no sharing, no export. Do not edit — see CUSTOMER_RULES.md.
 # install.sh — fresh install of the Job-Apply Harness kit into a customer's
 # Muse environment. Idempotent: safe to re-run.
 #
