@@ -1,4 +1,4 @@
-import { integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const profile = sqliteTable("profile", {
   id: integer("id").primaryKey().default(1),
@@ -33,7 +33,7 @@ export const postings = sqliteTable("postings", {
   postingId: text("posting_id").primaryKey(), company: text("company").notNull(), companyNorm: text("company_norm").notNull(),
   role: text("role").notNull(), roleNorm: text("role_norm").notNull(), url: text("url").notNull(), source: text("source").notNull(),
   jdPath: text("jd_path"), jdHash: text("jd_hash"), firstSeen: integer("first_seen", { mode: "timestamp_ms" }).notNull(), lastSeen: integer("last_seen", { mode: "timestamp_ms" }).notNull(),
-}, (t) => [uniqueIndex("postings_company_role_unique").on(t.companyNorm, t.roleNorm)]);
+}, (t) => [index("postings_company_role_idx").on(t.companyNorm, t.roleNorm)]);
 
 export const applications = sqliteTable("applications", {
   appId: text("app_id").primaryKey(), postingId: text("posting_id").notNull(), companyNorm: text("company_norm").notNull(), roleNorm: text("role_norm").notNull(),
@@ -41,7 +41,7 @@ export const applications = sqliteTable("applications", {
   resumePath: text("resume_path"), resumeHash: text("resume_hash"), screenshotPath: text("screenshot_path"), confirmation: text("confirmation"), confirmationPath: text("confirmation_path"),
   intentId: text("intent_id"), evidencePath: text("evidence_path"), blocker: text("blocker"), outcome: text("outcome"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()), updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()), submittedAt: integer("submitted_at", { mode: "timestamp_ms" }), kitVersion: text("kit_version"),
-}, (t) => [uniqueIndex("applications_company_role_unique").on(t.companyNorm, t.roleNorm)]);
+}, (t) => [uniqueIndex("applications_posting_unique").on(t.postingId)]);
 
 export const reviews = sqliteTable("reviews", {
   id: integer("id").primaryKey({ autoIncrement: true }), jdHash: text("jd_hash").notNull(), resumeHash: text("resume_hash").notNull(),

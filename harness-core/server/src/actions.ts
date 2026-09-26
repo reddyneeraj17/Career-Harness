@@ -578,16 +578,31 @@ export const Actions = {
     request: z.object({ rows: z.array(postingRow).max(500) }), response: z.object({ new_ids: z.array(z.string()), seen: z.number() }),
     async handler(ctx, args) {
       const db = ctx.db<typeof schema>(); const newIds: string[] = [];
+      const TERMINAL = ["submitted", "confirmed", "blocked", "rejected"];
       for (const row of args.rows) {
         const companyNorm = norm(row.company); const roleNorm = norm(row.role);
-        const existing = (await db.select({ id: schema.postings.postingId }).from(schema.postings).where(or(eq(schema.postings.postingId, row.posting_id), and(eq(schema.postings.companyNorm, companyNorm), eq(schema.postings.roleNorm, roleNorm)))).limit(1))[0];
         const lastSeen = row.last_seen ? new Date(row.last_seen) : now();
-        if (existing) {
-          await db.update(schema.postings).set({ company: row.company, role: row.role, url: row.url, source: row.source, jdPath: row.jd_path ?? null, jdHash: row.jd_hash ?? null, lastSeen }).where(eq(schema.postings.postingId, existing.id));
-        } else {
-          await db.insert(schema.postings).values({ postingId: row.posting_id, company: row.company, companyNorm, role: row.role, roleNorm, url: row.url, source: row.source, jdPath: row.jd_path ?? null, jdHash: row.jd_hash ?? null, firstSeen: row.first_seen ? new Date(row.first_seen) : lastSeen, lastSeen });
-          newIds.push(row.posting_id);
+        const byId = (await db.select({ id: schema.postings.postingId }).from(schema.postings).where(eq(schema.postings.postingId, row.posting_id)).limit(1))[0];
+        if (byId) {
+          await db.update(schema.postings).set({ company: row.company, role: row.role, url: row.url, source: row.source, jdPath: row.jd_path ?? null, jdHash: row.jd_hash ?? null, lastSeen }).where(eq(schema.postings.postingId, byId.id));
+          continue;
         }
+        const byRole = (await db.select({ id: schema.postings.postingId }).from(schema.postings).where(and(eq(schema.postings.companyNorm, companyNorm), eq(schema.postings.roleNorm, roleNorm))).limit(1))[0];
+        if (byRole) {
+          // Same company+role, different posting_id: re-post or same live listing?
+          const app = (await db.select({ state: schema.applications.state }).from(schema.applications).where(eq(schema.applications.postingId, byRole.id)).limit(1))[0];
+          if (app && TERMINAL.includes(app.state)) {
+            // The old listing ran its course — this is a genuinely new posting. Re-apply allowed.
+            await db.insert(schema.postings).values({ postingId: row.posting_id, company: row.company, companyNorm, role: row.role, roleNorm, url: row.url, source: row.source, jdPath: row.jd_path ?? null, jdHash: row.jd_hash ?? null, firstSeen: lastSeen, lastSeen });
+            newIds.push(row.posting_id);
+          } else {
+            // Same live listing re-scraped (pipeline still open) — refresh, keep the original posting_id.
+            await db.update(schema.postings).set({ company: row.company, role: row.role, url: row.url, source: row.source, jdPath: row.jd_path ?? null, jdHash: row.jd_hash ?? null, lastSeen }).where(eq(schema.postings.postingId, byRole.id));
+          }
+          continue;
+        }
+        await db.insert(schema.postings).values({ postingId: row.posting_id, company: row.company, companyNorm, role: row.role, roleNorm, url: row.url, source: row.source, jdPath: row.jd_path ?? null, jdHash: row.jd_hash ?? null, firstSeen: row.first_seen ? new Date(row.first_seen) : lastSeen, lastSeen });
+        newIds.push(row.posting_id);
       }
       if (args.rows.length) ctx.invalidateQueries(); return { new_ids: newIds, seen: args.rows.length };
     },
@@ -603,14 +618,14 @@ export const Actions = {
         SELECT ${appId}, p.posting_id, p.company_norm, p.role_norm, 'discovered', c.campaign_id, ${openRun.runId}, ${created}, ${created}, ${openRun.kitVersion}
         FROM postings p JOIN campaigns c ON c.campaign_id = ${args.campaign_id}
         WHERE p.posting_id = ${args.posting_id}
-          AND NOT EXISTS (SELECT 1 FROM applications a WHERE a.company_norm=p.company_norm AND a.role_norm=p.role_norm)
+          AND NOT EXISTS (SELECT 1 FROM applications a WHERE a.posting_id=p.posting_id)
           AND (SELECT COUNT(*) FROM applications a WHERE a.run_id=${openRun.runId}) < c.cap_per_run
           AND (SELECT COUNT(*) FROM applications a WHERE a.campaign_id=c.campaign_id AND strftime('%Y-%m-%d', a.created_at/1000, 'unixepoch', '-5 hours')=${day}) < c.cap_per_day
         ON CONFLICT DO NOTHING`);
       const inserted = (await db.select({ appId: schema.applications.appId }).from(schema.applications).where(eq(schema.applications.appId, appId)).limit(1))[0];
       if (!inserted) {
-        const duplicate = (await db.select({ id: schema.applications.appId }).from(schema.applications).innerJoin(schema.postings, and(eq(schema.applications.companyNorm, schema.postings.companyNorm), eq(schema.applications.roleNorm, schema.postings.roleNorm))).where(eq(schema.postings.postingId, args.posting_id)).limit(1))[0];
-        return { ok: false, reason: duplicate ? "Duplicate company and role." : "Campaign cap reached, or posting/campaign is unavailable." };
+        const duplicate = (await db.select({ id: schema.applications.appId }).from(schema.applications).where(eq(schema.applications.postingId, args.posting_id)).limit(1))[0];
+        return { ok: false, reason: duplicate ? "Duplicate posting — an application already exists for this posting." : "Campaign cap reached, or posting/campaign is unavailable." };
       }
       await db.insert(schema.events).values({ runId: openRun.runId, appId, type: "application_claimed", payload: { posting_id: args.posting_id, campaign_id: args.campaign_id } });
       ctx.invalidateQueries(); return { ok: true, app_id: appId };
