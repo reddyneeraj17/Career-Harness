@@ -21,7 +21,9 @@ Acknowledge you have read it before continuing.
   environment. Skip the clone; start at the verify step.
 - *Self-host install:* clone with the one-time deploy key the maintainer
   provides — `git clone --branch v1.2.0 <url-with-one-time-key>
-  ~/workspace/harness-kit`. The key is revoked when this setup finishes;
+  ~/workspace/harness-kit`. `--branch` accepts a tag, so this pins exactly
+  v1.2.0 (tags are the release mechanism; there are no GitHub Releases).
+  The key is revoked when this setup finishes;
   the customer never keeps repo credentials and never pulls updates.
 - `cd ~/workspace/harness-kit` and run `./install/install.sh --check`.
   All checks must pass (0 failures). A checksum failure means a damaged
