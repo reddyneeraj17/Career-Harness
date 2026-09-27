@@ -2,12 +2,15 @@
 
 ---
 name: run-coordinator
-version: "1.10.0"
+version: "1.13.0"
 description: Orchestrates one campaign run through the 7-stage pipeline, owns all state transitions, enforces caps, and closes the run.
 ---
 
 # run-coordinator
 
+> Changelog 1.12.0 (2026-09-27): Pipeline orchestration — lane construction from `profile.role_types`; lane-balanced tier rotation (fair rotation, not quota); submission target separated from the candidate-processing ceiling with replenishment after attrition; H-1B routing owned by the coordinator (bypass for `c2c_contract`, soft lookup otherwise); deterministic dataset→web expansion ladder with stop rules; structured provenance carried through every stage.
+> Changelog 1.13.0: Resume sweep — right after the login gate, the coordinator picks up applications in `reviewed` from prior runs (including rows the customer resumed via `app_resume`) and routes them straight into APPLY; no re-tailor, no re-review, no looping on re-parked rows.
+> Changelog 1.11.0: Source expansion — datasets are a launchpad, not a fence. When the tier-ascending dataset sweep leaves the run short of its target, the coordinator expands outward (open web search, then additional sources) until the target is met or sources are exhausted.
 > Changelog 1.10.0: Status reasons + posting verdicts + vendor-prep — every `app_transition` carries a short human-readable `reason`; the coordinator records `posting_verdict` for each posting at SCOUT (claimed) and SCREEN (judge decision); after an application reaches `submitted`, the coordinator invokes `vendor-prep` once to generate and attach recruiter talking points.
 > Changelog 1.7.0: SCOUT now feeds `company-discovery` (observed companies with ≥2 sightings enter the companies table at tier 3, insert-only) so the portal sweep list grows.
 > Changelog 1.6.0: JD-FETCH stage between SCOUT and SCREEN — the coordinator invokes `jd-fetch` once per run over genuinely-new postings; SCREEN judges receive `jd_text` from the snapshot files, and fetch failures hold with `insufficient jd text`.
@@ -75,6 +78,15 @@ but only the boards whose logins are actually in the credentials vault:
 
 Stages: SCOUT -> JD-FETCH -> SCREEN -> PICK -> COMPANY-READ -> TAILOR -> REVIEW GATE -> APPLY -> VERIFY.
 
+### Resume sweep (right after the login gate, before SCOUT)
+
+Resumed work re-enters at APPLY — it already passed TAILOR + REVIEW GATE.
+
+1. Select applications where `state = 'reviewed'` and `run_id != <this run's id>`: these are rows a previous run left behind plus rows the customer resumed via `app_resume` (parked/needs_me → reviewed). Resumed rows carry a status_reason starting "Resumed by".
+2. Route each one straight into the APPLY stage: write intent via `app_transition(reviewed → applying, intent_id=...)`, spawn the coordinator-level browser task with the ledger `app_id`, `url`, `ats_type`, `pdf_path`, `resume_hash`, then VERIFY with the evidence rule. Do NOT re-tailor or re-review them.
+3. If a resumed row parks again (CAPTCHA still there, blocker unchanged), leave it parked with the reason — do not loop on it within this run.
+4. Log one `event_log` row: `resumed_pickup` with the app ids and their prior states.
+
 - **JD-FETCH bridges scouts and judges.** After SCOUT, the coordinator
   collects the genuinely-new posting ids and invokes `jd-fetch` once: one
   browser fetch per posting, normalized text written to
@@ -120,6 +132,110 @@ Stages: SCOUT -> JD-FETCH -> SCREEN -> PICK -> COMPANY-READ -> TAILOR -> REVIEW 
   ≥ 2): genuinely-new names enter the companies table at tier 3 for
   `career-portal-sweep` to visit. Insert-only — no tier changes, no
   un-skipping, agencies never promoted.
+
+### Lane construction from profile.role_types
+
+Read `profile.role_types` at run start (via `profile_get`). Every role type
+present is an enabled lane for the run — e.g. `full_time`, `w2_contract`,
+`c2c_contract`.
+
+- Lane → primary discovery:
+  - `full_time` → company portals, tier 1 → 2 → 3.
+  - `w2_contract` → vendor portals + company portals, tier 1 → 2 → 3.
+  - `c2c_contract` → vendor portals first, tier 1 → 2 → 3, then company
+    portals for direct-hire C2C listings.
+- Part-time / internship, if enabled, sweep companies + boards with the soft
+  H-1B policy by default — never invent a different rule for them.
+
+### Lane-balanced tier rotation — fair rotation, not a quota
+
+Within each tier, sweep in rounds: one turn per enabled lane per round (FT
+company source → W2 vendor/company source → C2C vendor source), advancing to
+the next source in each lane each round. This is **fair rotation, not a
+quota** — selecting three lanes does not force a 33/33/33 split. If a lane
+has no fresh results, its unused turn flows immediately to the lanes that
+do; if vendor sources produce most of the qualified jobs, W2/C2C may supply
+most of the submissions. Move to the next tier only when the working target
+is still unmet and the current tier's useful sources are exhausted.
+
+### Target and replenishment semantics
+
+Targets count **verified submissions**, never raw claims:
+
+- `remaining_run_target = run_submission_target − submitted_this_run`
+- `remaining_day_target = daily_submission_target − submitted_today`
+- `working_target = min(remaining_run_target, remaining_day_target)`
+
+Duplicates, rejects, holds, and parked or failed portal attempts never reduce
+the target — only verified `submitted` rows count. Finding ten postings is
+not the same as submitting ten applications.
+
+Keep a separate **candidate-processing safety ceiling** (max claims per run
+and/or run time budget) so a batch of ten claims that yields two submissions
+does not stop the run: after each batch, reconcile the ledger via
+`snapshot` and replenish from the current tier, then lower tiers, then
+expansion, until the working target is met or a stop condition fires. The
+SQL-enforced caps in `app_claim` remain authoritative; this ceiling is the
+coordinator's own discovery budget, tracked in the run's event log.
+
+### H-1B routing
+
+The coordinator decides H-1B routing from `selected_lane` before invoking
+judges — the bypass is a routing rule, never a judge verdict:
+
+- `selected_lane = c2c_contract` → never invoke `h1b-judge`. Record the
+  verdict note `H-1B bypass — C2C lane`; set `h1b_mode=bypass_c2c`,
+  `h1b_result=not_applicable`.
+- Any other lane → invoke `h1b-judge` with the profile's gate (soft per the
+  current policy). Unknown record → the honest hold/check path; never an
+  invented score.
+- Vendor membership is not sponsorship evidence; an H-1B record does not
+  prove a specific posting offers sponsorship — the JD and the application
+  form stay authoritative for posting-specific restrictions.
+- `eligibility-judge` v1.1.0 returns the canonical `selected_lane` per the
+  multi-type rules; the coordinator feeds it into H-1B routing and passes it
+  to `screening-answerer` at APPLY.
+
+### Source expansion ladder and stop rules
+
+The expansion order is deterministic and owned by the coordinator:
+
+1. **Preferred dataset tiers**, ascending (tier 1 → 2 → 3).
+2. **Remaining dataset tiers** — deeper known records, including tier 3,
+   when the preferred tiers fall short.
+3. **Open web** via the `open-web-scout` worker — profile-derived queries
+   plus lane/tier context, discovery only, exact provenance recorded.
+4. **Additional sources** — legitimate boards beyond the four, ATS pages,
+   vendor pages, employer pages discovered from the web — through the same
+   worker.
+
+`job-board-search` and `linkedin-feed-hunting` keep their fixed contracts;
+they never absorb open-web expansion. Stop a source after **3 consecutive
+empty result pages** or a terminal condition (block, rate limit, unavailable
+page) — a blocked source is never retried through another mechanism in the
+same run. Stop discovery entirely when the working target is met, the daily
+cap is reached, the run safety budget is reached, or the ordered sources are
+honestly exhausted.
+
+### Provenance through every stage
+
+Carry this provenance on every posting from claim through VERIFY:
+
+- `source_class`: `company_portal` | `vendor_portal` | `linkedin` |
+  `job_board` | `open_web`
+- `source_name`: exact board, vendor, employer, or discovery source
+- `discovery_phase`: `dataset` | `web_expansion` | `additional_source`
+- `source_tier`: `1` | `2` | `3` | `unknown`
+- `employment_types_offered`: `[...]` (from posting evidence, never inferred)
+- `selected_lane`: `full_time` | `w2_contract` | `c2c_contract` | …
+- `h1b_mode`: `soft_lookup` | `bypass_c2c`
+- `h1b_result`: `scored` | `unknown` | `not_applicable`
+
+Claim-time verdict reasons name the source (`claimed — tier-1 vendor
+portal`, `claimed — open-web expansion`); SCREEN reasons name the lane and
+H-1B behavior (`screen passed — W2, H-1B soft score recorded`, `screen
+passed — C2C, H-1B bypassed`, `held — H-1B record unknown`). New companies
+or vendors observed in any phase feed `company-discovery` as before.
 
 - **Pipelined, not batched.** Stage n+1 starts on the first ready row, not the last. Scouts still search while the first resume is tailored; appliers submit each resume the moment its approval lands.
 - **One subagent per skill invocation**, spawned with a small brief: "You are the <skill name>. Read ~/workspace/skills/<path>/SKILL.md and follow it exactly. Inputs: <json>. Return ONLY the JSON verdict." Max tree depth 2: workers never spawn further workers; a stuck worker reports back to the coordinator via the store.
@@ -234,7 +350,7 @@ No application is marked `submitted` without complete evidence:
 ## Output
 
 ```json
-{"skill":"run-coordinator","version":"1.3.0","verdict":"pass|hold|reject","score":0-100,
+{"skill":"run-coordinator","version":"1.12.0","verdict":"pass|hold|reject","score":0-100,
  "reasons":["run closed clean","3 submitted","1 parked: CAPTCHA"],
  "evidence":{"run_id":"...","campaign_id":"...","counts":{"submitted":3,"blocked":0,"parked":1,"needs_me":0},"tokens":{"input":19445162,"output":104161,"total":19549323,"reported":true}},
  "tokens":19549323}

@@ -2,7 +2,7 @@
 
 ---
 name: linkedin-replier
-version: "1.1.0"
+version: "1.2.0"
 description: Classifies inbound LinkedIn messages, routes them by reply tiers, and sends or holds replies under rules R1-R8.
 ---
 
@@ -46,6 +46,12 @@ Same rules as email-replier, with channel notes:
 **HOLD regardless of tier:** salary numbers, specific call times, exclusivity, documents beyond resume, sensitive-data asks, scam signals, anything outside R1-R8.
 
 **Routing:** classify, then route by `reply_tiers`: `auto_send` -> send citing rule id; `draft_for_review` -> draft file + `held`; `never` -> `skipped`. The LinkedIn inbox coordinator advances the watermark only after this skill's `reply_log` row is written.
+
+**Approved held drafts (first step of every scan, before classifying new inbound):** some held drafts were reviewed and approved by the customer on the dashboard via `held_reply_resolve`. Pick them up and send them:
+1. Select replies where `action = 'held'`, the held decision is "approved", and no `sent`/`auto_sent` reply row with `reason = 'approved_held:<reply_id>'` exists yet for that held reply.
+2. Read the draft text from the reply's `draft_path` (the customer may have edited it) and send it through the normal send path, citing the original rule id plus "user-approved". Never attach PDFs on LinkedIn — reference the resume by name per R4.
+3. Record `reply_log` with `action: 'sent'`, `rule_id` of the original classification, and `reason: 'approved_held:<reply_id>'`.
+4. Never re-send an approved draft twice; never send a held draft the customer discarded.
 
 **Voice:** 2-4 short sentences, plain words, like replying from a phone. Never em dashes. Never "hope this finds you well".
 

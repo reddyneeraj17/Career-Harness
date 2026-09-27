@@ -4,6 +4,80 @@ All notable changes to the Job-Apply Harness kit are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.2.5] — 2026-09-27
+
+### Added
+- **Source expansion (run-coordinator 1.11.0)**: datasets (`companies`,
+  `h1b_sponsors`, `prime_vendors`) are now specified as a launchpad, not a
+  hard boundary. When the tier-ascending dataset sweep leaves a run short of
+  its per-run target, the coordinator expands outward — open web search
+  first, then additional job boards/sources — until the target is met or
+  sources are exhausted (three consecutive empty result pages ends a
+  source). Expanded-source postings pass through the identical screening
+  chain, and each claimed posting's verdict reason records its source.
+- **Pipeline orchestration (run-coordinator 1.12.0 + scout upgrades)**:
+  lanes built from `profile.role_types` (FT → company portals, W2 →
+  companies + vendors, C2C → vendors first); lane-balanced tier rotation
+  (fair rotation, not a quota); submission target separated from the
+  candidate-processing ceiling with replenishment after attrition; H-1B
+  bypass for C2C is a coordinator routing rule (soft lookup for all other
+  lanes); structured provenance (`source_class`, `source_tier`,
+  `selected_lane`, `h1b_mode`, …) carried through every stage.
+  `career-portal-sweep` 1.1.0 accepts ordered company + vendor records;
+  `job-board-search` 1.2.0 takes lane-tagged queries (four-board contract
+  intact, never absorbs open-web expansion); `linkedin-feed-hunting`
+  1.1.0 runs query blocks per enabled lane; `screening-answerer` 1.2.0
+  accepts `selected_lane`; `eligibility-judge` 1.1.0 emits canonical
+  `selected_lane`. New `open-web-scout` 1.0.0 owns the expansion rungs
+  (bounded, discovery-only, exact provenance, 3-empty-page stop rule).
+- **Prime vendor dataset (migration 0009)**: new `prime_vendors` table plus
+  `prime_vendors_import`. Vendor H-1B notes are always labeled "Unverified
+  sponsorship note" — never sponsorship evidence, never scored.
+- **Datasets page**: the Vendors tab is now **Datasets**, browsing all three
+  reference datasets (Companies, H-1B sponsors, Vendors) through the new
+  `dataset_browse` action — server-side search, per-dataset filters
+  (company tier, vendor tier normalized for stored "Tier N" values, H-1B
+  minimum LCAs), 100 rows per page, debounced search, and the last loaded
+  page cached per dataset. H-1B year history renders actual yearly LCA
+  counts. Thousands of rows are never dumped into the DOM.
+- **Submission sources panel**: the Applications tab's verified-submission
+  breakdowns (by source class/name, discovery phase, tier, lane, H-1B
+  result) now live in a "Submission sources" panel, collapsed by default —
+  click the header to expand or collapse.
+- **Resumable applications (`app_resume`)**: parked and needs-me
+  applications get a Resume control (with optional operator note) returning
+  them to `reviewed`, where the coordinator's new resume sweep (see below)
+  picks them up directly into APPLY — no re-tailoring, no re-review. Resume
+  refuses applications in any other state, and refuses needs-me applications
+  with an open approval, naming the approval and pointing to the Overview
+  tab. Repeated Resume is idempotent.
+- **Held-reply review (`held_reply_resolve`, `held_reply_draft`, migration
+  0011)**: held replies record an `approved`/`discarded` decision plus
+  resolution time. The Replies tab shows View, Approve & send (with draft
+  editing), and Discard controls; editing writes a new draft file next to
+  the original and repoints the reply. The dashboard never sends mail — the
+  scheduled replier sends approved drafts exactly once on its next scan and
+  never sends discarded ones.
+- **Resume sweep (run-coordinator 1.13.0)**: after the login gate and before
+  SCOUT, the coordinator picks up applications returned to `reviewed` via
+  `app_resume` and routes them straight into APPLY with fresh intent.
+- **Approved held-draft pickup (email-replier 1.1.0, linkedin-replier
+  1.2.0)**: each scan begins by finding approved held drafts, reads the
+  current (possibly edited) draft file, sends through the normal channel
+  path, and records a sent reply with reason `approved_held:<reply_id>`.
+- **Large seed CSVs via URL**: `h1b_import`, `companies_import`, and
+  `prime_vendors_import` accept `csv_url` (a fetchable URL) instead of
+  pasting multi-megabyte CSVs into action args.
+- **DATA-PLAN.md**: the harness-core data plan now documents the three seed
+  datasets, operational tables, workspace evidence files, retention/purge,
+  and privacy rules.
+
+### Changed
+- The `snapshot` "vendors" view is removed; dataset browsing goes through
+  `dataset_browse`.
+- `h1b-judge` 1.1.1 documents the soft-gate wording used with the new
+  provenance fields.
+
 ## [1.2.4] — 2026-09-26
 
 ### Added

@@ -33,6 +33,11 @@ export const postings = sqliteTable("postings", {
   postingId: text("posting_id").primaryKey(), company: text("company").notNull(), companyNorm: text("company_norm").notNull(),
   role: text("role").notNull(), roleNorm: text("role_norm").notNull(), url: text("url").notNull(), source: text("source").notNull(),
   jdPath: text("jd_path"), jdHash: text("jd_hash"), firstSeen: integer("first_seen", { mode: "timestamp_ms" }).notNull(), lastSeen: integer("last_seen", { mode: "timestamp_ms" }).notNull(),
+  // Pipeline provenance (migration 0010): carried from claim through VERIFY, per run-coordinator skill.
+  sourceClass: text("source_class"), sourceName: text("source_name"), discoveryPhase: text("discovery_phase"),
+  sourceTier: text("source_tier").default("unknown"),
+  employmentTypesOffered: text("employment_types_offered", { mode: "json" }).notNull().default([]),
+  selectedLane: text("selected_lane"), h1bMode: text("h1b_mode"), h1bResult: text("h1b_result"),
 }, (t) => [index("postings_company_role_idx").on(t.companyNorm, t.roleNorm)]);
 
 export const applications = sqliteTable("applications", {
@@ -83,6 +88,16 @@ export const companies = sqliteTable("companies", {
   careersUrl: text("careers_url"), atsType: text("ats_type"), parkCount: integer("park_count").notNull().default(0), skipFlag: integer("skip_flag", { mode: "boolean" }).notNull().default(false), skipReason: text("skip_reason"),
 });
 
+// Prime vendor dataset (migration 0009): staffing vendors/recruiters used by the
+// career-portal scout for W2/C2C lanes. h1b_note is a vendor's own claim —
+// always rendered as an "Unverified sponsorship note", never as evidence.
+export const primeVendors = sqliteTable("prime_vendors", {
+  vendorNorm: text("vendor_norm").primaryKey(), vendorName: text("vendor_name").notNull(),
+  portalUrl: text("portal_url"), tier: text("tier"), category: text("category"),
+  specialties: text("specialties"), engagementTypes: text("engagement_types"),
+  h1bNote: text("h1b_note"), lastRefreshed: integer("last_refreshed", { mode: "timestamp_ms" }),
+});
+
 export const contacts = sqliteTable("contacts", {
   contactId: text("contact_id").primaryKey(), name: text("name").notNull(), pageUrl: text("page_url"), companyNorm: text("company_norm"),
 });
@@ -96,6 +111,9 @@ export const replies = sqliteTable("replies", {
   replyId: text("reply_id").primaryKey(), threadId: text("thread_id").notNull(), direction: text("direction").notNull(),
   action: text("action", { enum: ["sent", "held", "auto_sent", "skipped"] }).notNull(), ruleId: text("rule_id"), draftPath: text("draft_path"), reason: text("reason"),
   runId: text("run_id"), approvalId: text("approval_id"), attachmentName: text("attachment_name"), at: integer("at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  // Held-reply resolution (migration 0011): dashboard approve/discard decision. Null = still pending.
+  heldResolution: text("held_resolution", { enum: ["approved", "discarded"] }),
+  heldResolvedAt: integer("held_resolved_at", { mode: "timestamp_ms" }),
 });
 
 export const tokenUsage = sqliteTable("token_usage", {

@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { SafeAreaTopScrim, bytesToBase64 } from "@hatch/space-sdk/client";
 import { api } from "./api";
 
-type Tab = "overview" | "applications" | "resumes" | "runs" | "schedules" | "replies" | "profile";
+type Tab = "overview" | "applications" | "resumes" | "runs" | "schedules" | "replies" | "datasets" | "profile";
 type AnyData = Record<string, any>;
 
 const tabs: { id: Tab; label: string; icon: string }[] = [
@@ -13,6 +13,7 @@ const tabs: { id: Tab; label: string; icon: string }[] = [
   { id: "runs", label: "Runs", icon: "play" },
   { id: "schedules", label: "Schedules", icon: "schedule" },
   { id: "replies", label: "Replies", icon: "reply" },
+  { id: "datasets", label: "Datasets", icon: "search" },
   { id: "profile", label: "Profile", icon: "profile" },
 ];
 
@@ -147,8 +148,15 @@ function ScreenshotEvidence({ appId, path }: { appId: string; path: string }) {
   return <a className="screenshot-link" href={asset.data.file_url} target="_blank" rel="noreferrer" download={asset.data.filename} aria-label={`Open submission screenshot ${asset.data.filename}`}><img src={asset.data.file_url} alt="Submission evidence screenshot" /><span>Open capture</span></a>;
 }
 
-function Section({ title, aside, children, className = "" }: { title: string; aside?: ReactNode; children: ReactNode; className?: string }) {
-  return <section className={`section ${className}`}><div className="section-head"><h2>{title}</h2>{aside}</div>{children}</section>;
+function Section({ title, aside, children, className = "", collapsible = false, defaultCollapsed = false }: { title: string; aside?: ReactNode; children: ReactNode; className?: string; collapsible?: boolean; defaultCollapsed?: boolean }) {
+  const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  const toggle = () => setCollapsed((c) => !c);
+  return <section className={`section ${className}${collapsed ? " is-collapsed" : ""}`}>
+    <div className={`section-head${collapsible ? " section-head-toggle" : ""}`} onClick={collapsible ? toggle : undefined} onKeyDown={collapsible ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } } : undefined} role={collapsible ? "button" : undefined} tabIndex={collapsible ? 0 : undefined} aria-expanded={collapsible ? !collapsed : undefined} aria-label={collapsible ? `${collapsed ? "Expand" : "Collapse"} ${title}` : undefined}>
+      <h2>{collapsible && <Icon name="chevron" size={14} />}{title}</h2>{aside}
+    </div>
+    {(!collapsible || !collapsed) && children}
+  </section>;
 }
 
 function Overview({ data, onRefresh, refreshing }: { data: AnyData; onRefresh: () => void; refreshing: boolean }) {
@@ -177,7 +185,27 @@ function Overview({ data, onRefresh, refreshing }: { data: AnyData; onRefresh: (
   </>;
 }
 
-function Applications({ data, onRefresh, refreshing }: { data: AnyData; onRefresh: () => void; refreshing: boolean }) {
+function ResumeControl({ appId, state, onResumed, onOpenOverview }: { appId: string; state: string; onResumed: () => void; onOpenOverview: () => void }) {
+  const [note, setNote] = useState("");
+  const [message, setMessage] = useState("");
+  const [needsApproval, setNeedsApproval] = useState(false);
+  const resume = useMutation({
+    mutationFn: () => api.app_resume({ app_id: appId, note: note.trim() || undefined }),
+    onSuccess: (result) => {
+      if (result.ok) { setMessage(""); setNeedsApproval(false); onResumed(); }
+      else { setMessage(result.message ?? "Resume failed."); setNeedsApproval(/approval/i.test(result.message ?? "")); }
+    },
+    onError: (error) => setMessage(error instanceof Error ? error.message : "Resume failed."),
+  });
+  if (state !== "parked" && state !== "needs_me") return null;
+  return <div className="resume-control">
+    <input type="text" aria-label="Resume note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional note" maxLength={2000} />
+    <button type="button" disabled={resume.isPending} onClick={() => resume.mutate()}>{resume.isPending ? "Resuming…" : "Resume"}</button>
+    {message && <p className="resume-message" role="alert">{message}{needsApproval && <> <button type="button" className="text-link" onClick={onOpenOverview}>Open Overview</button></>}</p>}
+  </div>;
+}
+
+function Applications({ data, onRefresh, refreshing, onOpenOverview }: { data: AnyData; onRefresh: () => void; refreshing: boolean; onOpenOverview: () => void }) {
   const ledger = Array.isArray(data.ledger) ? data.ledger : [];
   const [filter, setFilter] = useState("all"); const [search, setSearch] = useState("");
   const [dateRange, setDateRange] = useState<DateRange>({ preset: "all", start: "", end: "" });
@@ -198,6 +226,7 @@ function Applications({ data, onRefresh, refreshing }: { data: AnyData; onRefres
   return <>
     <div className="page-lead"><div><p className="eyebrow">Application ledger</p><h1>Applications, fully traceable</h1><p>Filter the ledger without losing its evidence trail.</p></div><RefreshButton onClick={onRefresh} active={refreshing} /></div>
     <div className="kpi-band applications-kpis"><Kpi hero label="Matching applications" value={shown.length} note={rangeNote} /><Kpi label="Submitted" value={counts.submitted} /><Kpi label="Held" value={(counts.held ?? 0) + (counts.needs_me ?? 0)} /><Kpi label="Blocked" value={counts.blocked} /><Kpi label="Rejected" value={counts.rejected} /><Kpi label="Parked" value={counts.parked} /></div>
+    <SubmittedBreakdowns data={data} />
     <Section title="Application ledger" aside={<span className="count-label">{fmt(shown.length)} of {fmt(ledger.length)}</span>}>
       <div className="filter-console">
         <div className="filters"><label><span>Search</span><input type="search" aria-label="Search applications" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Company, role, reason, or ID" /></label><label><span>State</span><select aria-label="Filter by application state" value={filter} onChange={(e) => setFilter(e.target.value)}>{states.map((s) => <option key={s} value={s}>{titleCase(s)}</option>)}</select></label></div>
@@ -206,6 +235,7 @@ function Applications({ data, onRefresh, refreshing }: { data: AnyData; onRefres
       {shown.length === 0 ? <Empty title={ledger.length ? "No applications match" : "No applications yet"} body={ledger.length ? "Change a date, state, or search filter to widen the ledger." : "Claimed postings will appear here with state, evidence, and attribution."} /> : <div className="ledger">{shown.map((a: AnyData) => <article className="ledger-row application-row" key={a.app_id}>
         <div className="ledger-main"><div><h3>{a.role}</h3><p>{a.company}</p></div><Status value={a.state} /></div>
         <div className="ledger-meta"><span>{a.campaign_id}</span><code>{a.app_id}</code><span>{chicagoWhen(a.updated_at)}</span></div>
+        <ProvenanceLine a={a} />
         <div className="evidence-grid">
           <div className="evidence-cell"><span>Resume used</span>{a.resume_path ? <><WorkspaceFileButton fileRef={{ app_id: String(a.app_id), kind: "resume" }} label={fileName(String(a.resume_path))} displayName={fileName(String(a.resume_path))} />{a.variant_id && <small>{a.variant_id}</small>}{a.resume_hash && <code title={String(a.resume_hash)}>{String(a.resume_hash).slice(0, 12)}…</code>}</> : <b>Not recorded</b>}</div>
           <div className="evidence-cell"><span>Screenshot</span>{a.screenshot_path && a.screenshot_exists ? <ScreenshotEvidence appId={String(a.app_id)} path={String(a.screenshot_path)} /> : <b className="evidence-missing">not captured</b>}</div>
@@ -215,15 +245,154 @@ function Applications({ data, onRefresh, refreshing }: { data: AnyData; onRefres
         {a.confirmation && <blockquote className="confirmation">“{a.confirmation}”{a.confirmation_path && <small>{fileName(String(a.confirmation_path))}</small>}</blockquote>}
         {a.blocker && <p className="blocker">{a.blocker}</p>}
         {a.url && <a className="text-link" href={a.url} target="_blank" rel="noreferrer">Open posting <Icon name="external" size={14} /></a>}
+        <ResumeControl appId={String(a.app_id)} state={String(a.state)} onResumed={onRefresh} onOpenOverview={onOpenOverview} />
       </article>)}</div>}
     </Section>
   </>;
 }
 
-function suggestedVariantId(filename: string): string {
-  return filename.replace(/\.pdf$/i, "").toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^[._-]+|[._-]+$/g, "");
+function Breakdown({ label, entries }: { label: string; entries: AnyData }) {
+  const rows = Object.entries(entries ?? {}).sort((a, b) => Number(b[1]) - Number(a[1])).slice(0, 8);
+  if (rows.length === 0) return null;
+  return <div className="breakdown"><span>{label}</span><ul>{rows.map(([key, value]) => <li key={key}><b>{titleCase(String(key))}</b><span>{fmt(value)}</span></li>)}</ul></div>;
 }
 
+function SubmittedBreakdowns({ data }: { data: AnyData }) {
+  const bd = (data.submitted_breakdowns ?? {}) as AnyData;
+  const facets = [
+    { label: "Source class", entries: bd.by_source_class },
+    { label: "Discovery phase", entries: bd.by_discovery_phase },
+    { label: "Tier", entries: bd.by_source_tier },
+    { label: "Lane", entries: bd.by_lane },
+    { label: "H-1B result", entries: bd.by_h1b_result },
+  ].filter((f) => f.entries && Object.keys(f.entries).length > 0);
+  if (facets.length === 0) return null;
+  return <Section title="Submission sources" collapsible defaultCollapsed aside={<span className="source-note">Verified submissions only</span>}>
+    <div className="breakdown-grid">{facets.map((f) => <Breakdown key={f.label} label={f.label} entries={f.entries} />)}</div>
+  </Section>;
+}
+
+function ProvenanceLine({ a }: { a: AnyData }) {
+  const parts: string[] = [];
+  if (a.source_name) parts.push(String(a.source_name));
+  if (a.source_class) parts.push(titleCase(String(a.source_class)));
+  if (a.source_tier && a.source_tier !== "unknown") parts.push(`tier ${a.source_tier}`);
+  if (a.discovery_phase) parts.push(titleCase(String(a.discovery_phase)));
+  const offered = Array.isArray(a.employment_types_offered) ? a.employment_types_offered.filter(Boolean) : [];
+  if (offered.length) parts.push(`offered: ${offered.map((t: unknown) => titleCase(String(t))).join(", ")}`);
+  if (a.selected_lane) parts.push(`lane: ${titleCase(String(a.selected_lane))}`);
+  if (a.h1b_mode === "bypass_c2c") parts.push("H-1B bypassed (C2C)");
+  else if (a.h1b_result) parts.push(`H-1B: ${titleCase(String(a.h1b_result))}`);
+  if (parts.length === 0) return null;
+  return <p className="provenance-line">{parts.join(" · ")}</p>;
+}
+
+type DatasetId = "companies" | "h1b_sponsors" | "prime_vendors";
+const DATASET_TABS: { id: DatasetId; label: string }[] = [
+  { id: "companies", label: "Companies" },
+  { id: "h1b_sponsors", label: "H-1B sponsors" },
+  { id: "prime_vendors", label: "Vendors" },
+];
+
+// Datasets page: every dataset browses server-side through dataset_browse
+// (100 rows per page). The dashboard never dumps thousands of rows into the DOM.
+function Datasets({ onRefresh, refreshing }: { onRefresh: () => void; refreshing: boolean }) {
+  const [dataset, setDataset] = useState<DatasetId>("companies");
+  const [search, setSearch] = useState("");
+  const [debounced, setDebounced] = useState("");
+  const [pages, setPages] = useState<Record<DatasetId, number>>({ companies: 1, h1b_sponsors: 1, prime_vendors: 1 });
+  const [tier, setTier] = useState("");
+  const [minLca, setMinLca] = useState("");
+  const page = pages[dataset] ?? 1;
+
+  // Debounce the search input; changing the query resets to page 1.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebounced(search);
+      setPages((p) => ({ ...p, [dataset]: 1 }));
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [search, dataset]);
+
+  const switchDataset = (next: DatasetId) => { setSearch(""); setDebounced(""); setTier(""); setMinLca(""); setDataset(next); };
+  const goPage = (next: number) => setPages((p) => ({ ...p, [dataset]: Math.max(1, next) }));
+
+  const browse = useQuery({
+    queryKey: ["dataset_browse", dataset, debounced, tier, minLca, page],
+    queryFn: () => api.dataset_browse({
+      dataset,
+      search: debounced.trim() || undefined,
+      tier: dataset !== "h1b_sponsors" && tier ? tier : undefined,
+      min_lca: dataset === "h1b_sponsors" && minLca.trim() ? Number(minLca) : undefined,
+      page, page_size: 100,
+    }),
+    staleTime: 30_000, refetchOnMount: "always",
+  });
+  const result = (browse.data ?? {}) as AnyData;
+  const rows = Array.isArray(result.rows) ? result.rows : [];
+  const total = Number(result.total ?? 0);
+  const pageSize = Number(result.page_size ?? 100);
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const to = Math.min(total, page * pageSize);
+
+  const yearHistory = (stats: unknown) => {
+    const obj = (stats && typeof stats === "object" ? stats : {}) as Record<string, AnyData>;
+    const years = Object.keys(obj).filter((y) => /^\d{4}$/.test(y)).sort();
+    if (years.length === 0) return "—";
+    return years.map((y) => `${y}: ${fmt(Number(obj[y]?.lcas ?? obj[y] ?? 0))}`).join(" · ");
+  };
+
+  return <>
+    <div className="page-lead"><div><p className="eyebrow">Reference datasets</p><h1>Datasets</h1><p>The launchpad the scouts sweep before expanding to the open web.</p></div><RefreshButton onClick={onRefresh} active={refreshing} /></div>
+    <div className="dataset-tabs" role="tablist" aria-label="Datasets">
+      {DATASET_TABS.map((t) => <button key={t.id} role="tab" aria-selected={dataset === t.id} className={dataset === t.id ? "active" : ""} onClick={() => switchDataset(t.id)}>{t.label}</button>)}
+    </div>
+    <div className="kpi-band"><Kpi hero label={DATASET_TABS.find((t) => t.id === dataset)?.label ?? "Rows"} value={total} note="server-side paging · 100 per page" /></div>
+    <Section title={DATASET_TABS.find((t) => t.id === dataset)?.label ?? "Dataset"} aside={<span className="count-label">Showing {fmt(from)}–{fmt(to)} of {fmt(total)}</span>}>
+      <div className="filter-console"><div className="filters">
+        <label><span>Search</span><input type="search" aria-label="Search dataset" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={dataset === "prime_vendors" ? "Name, category, tier, specialty" : "Company name"} /></label>
+        {dataset !== "h1b_sponsors" && <label><span>Tier</span><select aria-label="Filter by tier" value={tier} onChange={(e) => { setTier(e.target.value); setPages((p) => ({ ...p, [dataset]: 1 })); }}><option value="">All tiers</option><option value="1">Tier 1</option><option value="2">Tier 2</option><option value="3">Tier 3</option></select></label>}
+        {dataset === "h1b_sponsors" && <label><span>Min LCAs</span><input type="number" min={0} aria-label="Minimum LCA count" value={minLca} onChange={(e) => { setMinLca(e.target.value); setPages((p) => ({ ...p, [dataset]: 1 })); }} placeholder="e.g. 100" /></label>}
+      </div></div>
+      {browse.isPending ? <div className="loading"><span /><p>Reading dataset…</p></div>
+        : browse.isError ? <Empty title="Dataset unavailable" body="The dataset could not be read. Try refreshing." />
+        : rows.length === 0 ? <Empty title="No rows match" body="Change the search or filters to widen the dataset." />
+        : <div className="ledger">{rows.map((row: AnyData, index: number) => {
+          const key = String(row.company_norm ?? row.vendor_norm ?? `${dataset}-${index}`);
+          if (dataset === "companies") return <article className="ledger-row" key={key}>
+            <div className="ledger-main"><div><h3>{titleCase(String(row.company_norm ?? ""))}</h3><p>{row.industry ? titleCase(String(row.industry)) : "—"}{row.hq_state ? ` · ${row.hq_state}` : ""}</p></div>{row.tier ? <Status value={`tier ${row.tier}`} /> : null}</div>
+            <div className="ledger-meta">{row.careers_url ? <a className="text-link" href={String(row.careers_url)} target="_blank" rel="noreferrer">Careers <Icon name="external" size={14} /></a> : null}{row.skip_flag ? <span className="reply-action action-discarded">Skipped</span> : null}</div>
+            <div className="evidence-grid">
+              {row.ats_type ? <div className="evidence-cell"><span>ATS</span><b>{titleCase(String(row.ats_type))}</b></div> : null}
+              {row.park_count ? <div className="evidence-cell"><span>Parks</span><b>{fmt(row.park_count)}</b></div> : null}
+              {row.skip_reason ? <div className="evidence-cell"><span>Skip reason</span><b>{String(row.skip_reason)}</b></div> : null}
+            </div>
+          </article>;
+          if (dataset === "h1b_sponsors") return <article className="ledger-row" key={key}>
+            <div className="ledger-main"><div><h3>{titleCase(String(row.company_norm ?? ""))}</h3><p>H-1B sponsor history</p></div><Status value={`${fmt(row.lca_count)} LCAs`} /></div>
+            <div className="ledger-meta">{row.last_refreshed ? <span>Refreshed {chicagoWhen(row.last_refreshed)}</span> : null}</div>
+            <div className="evidence-grid">
+              <div className="evidence-cell"><span>Yearly LCAs</span><b>{yearHistory(row.stats_by_year)}</b></div>
+            </div>
+          </article>;
+          return <article className="ledger-row" key={key}>
+            <div className="ledger-main"><div><h3>{row.vendor_name}</h3><p>{row.category ?? "—"}</p></div>{row.tier ? <Status value={String(row.tier)} /> : null}</div>
+            <div className="ledger-meta">{row.portal_url ? <a className="text-link" href={String(row.portal_url)} target="_blank" rel="noreferrer">Portal <Icon name="external" size={14} /></a> : null}{row.last_refreshed ? <span>{chicagoWhen(row.last_refreshed)}</span> : null}</div>
+            <div className="evidence-grid">
+              {row.specialties ? <div className="evidence-cell"><span>Specialties</span><b>{row.specialties}</b></div> : null}
+              {row.engagement_types ? <div className="evidence-cell"><span>Engagement types</span><b>{row.engagement_types}</b></div> : null}
+              {row.h1b_note_unverified ? <div className="evidence-cell"><span>Unverified sponsorship note</span><b>{row.h1b_note_unverified}</b></div> : null}
+            </div>
+          </article>;
+        })}</div>}
+      <div className="pager"><span>Page {fmt(page)} of {fmt(pageCount)}</span><div>
+        <button type="button" disabled={page <= 1 || browse.isPending} onClick={() => goPage(page - 1)}>Previous</button>
+        <button type="button" disabled={page >= pageCount || browse.isPending} onClick={() => goPage(page + 1)}>Next</button>
+      </div></div>
+    </Section>
+  </>;
+}
 
 function suggestedVariantId(filename: string): string {
   return filename.replace(/\.pdf$/i, "").toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^[._-]+|[._-]+$/g, "");
@@ -494,6 +663,47 @@ function Schedules() {
   </>;
 }
 
+function HeldReplyControls({ reply, onChanged }: { reply: AnyData; onChanged: () => void }) {
+  const replyId = String(reply.replyId ?? reply.reply_id ?? "");
+  const decision = (reply.heldResolution ?? reply.held_resolution ?? null) as string | null;
+  const [viewing, setViewing] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [original, setOriginal] = useState("");
+  const [message, setMessage] = useState("");
+  const load = useMutation({
+    mutationFn: () => api.held_reply_draft({ reply_id: replyId }),
+    onSuccess: (r) => {
+      if (r.ok && typeof r.draft_text === "string") { setDraft(r.draft_text); setOriginal(r.draft_text); }
+      else setMessage(r.message ?? "No draft available.");
+    },
+    onError: (e) => setMessage(e instanceof Error ? e.message : "Could not load the draft."),
+  });
+  const resolve = useMutation({
+    mutationFn: (next: "approved" | "discarded") => api.held_reply_resolve({ reply_id: replyId, decision: next, edited_text: next === "approved" && editing && draft !== original ? draft : undefined }),
+    onSuccess: (r) => {
+      if (r.ok) { setViewing(false); setEditing(false); setMessage(""); onChanged(); }
+      else setMessage(r.message ?? "Could not record the decision.");
+    },
+    onError: (e) => setMessage(e instanceof Error ? e.message : "Could not record the decision."),
+  });
+  if (decision) return <span className={`reply-action action-${decision}`}>{decision === "approved" ? "Approved" : "Discarded"}</span>;
+  return <div className="held-controls">
+    <div className="held-buttons">
+      <button type="button" disabled={load.isPending} onClick={() => { setMessage(""); setEditing(false); setViewing(true); if (!draft && !original) load.mutate(); }}>View</button>
+      <button type="button" disabled={load.isPending} onClick={() => { setMessage(""); setViewing(false); setEditing(true); if (!draft && !original) load.mutate(); }}>Approve &amp; send</button>
+      <button type="button" disabled={resolve.isPending} onClick={() => resolve.mutate("discarded")}>Discard</button>
+    </div>
+    {(viewing || editing) && <div className="held-draft">
+      {load.isPending ? <p>Loading draft…</p> : editing
+        ? <><textarea aria-label="Edit held draft" value={draft} onChange={(e) => setDraft(e.target.value)} rows={8} />
+            <div className="held-buttons"><button type="button" disabled={resolve.isPending} onClick={() => resolve.mutate("approved")}>{resolve.isPending ? "Recording…" : "Save approval"}</button><button type="button" onClick={() => setEditing(false)}>Cancel</button></div></>
+        : <pre>{draft || "—"}</pre>}
+    </div>}
+    {message && <p className="resume-message" role="alert">{message}</p>}
+  </div>;
+}
+
 function Replies({ data, onRefresh, refreshing }: { data: AnyData; onRefresh: () => void; refreshing: boolean }) {
   const awaiting = Array.isArray(data.awaiting_me) ? data.awaiting_me : []; const funnel = data.funnel ?? {};
   const replies = useMemo(() => {
@@ -537,7 +747,7 @@ function Replies({ data, onRefresh, refreshing }: { data: AnyData; onRefresh: ()
         <DateRangeControl value={dateRange} onChange={setDateRange} label="Filter replies by date" />
       </div>
       {replies.length === 0 ? <Empty title="No reply activity yet" body="Sent, held, skipped, and auto-sent activity will appear here in time order." /> : visibleReplies.length === 0 ? <Empty title="No matching activity" body="Change or clear a filter to see more events." /> : <div className="reply-table-wrap"><table className="reply-table">
-        <thead><tr><th>Date</th><th>Channel</th><th>Person / topic</th><th>Action</th><th>Rule</th><th>Reason / source</th></tr></thead>
+        <thead><tr><th>Date</th><th>Channel</th><th>Person / topic</th><th>Action</th><th>Held decision</th><th>Rule</th><th>Reason / source</th></tr></thead>
         <tbody>{visibleReplies.map((reply: AnyData, index: number) => {
           const replyId = String(reply.replyId ?? reply.reply_id ?? `reply-${index}`); const threadId = String(reply.threadId ?? reply.thread_id ?? "");
           const prefix = (threadId.split("|")[0] ?? "").trim().toLowerCase(); const channel = prefix === "linkedin" ? "LinkedIn" : prefix === "email" ? "Email" : titleCase(prefix || "unknown");
@@ -548,6 +758,7 @@ function Replies({ data, onRefresh, refreshing }: { data: AnyData; onRefresh: ()
             <td data-label="Channel"><span className={`channel-pill channel-${prefix === "linkedin" ? "linkedin" : prefix === "email" ? "email" : "other"}`}>{channel}</span></td>
             <td data-label="Person / topic"><span className="reply-topic" title={descriptor}>{descriptor}</span></td>
             <td data-label="Action"><span className={`reply-action action-${action}`}>{action === "auto_sent" ? "Auto-sent" : titleCase(action)}</span></td>
+            <td data-label="Held decision">{action === "held" ? <HeldReplyControls reply={reply} onChanged={onRefresh} /> : <span className="reply-action">—</span>}</td>
             <td data-label="Rule"><span className="rule-pill">{rule}</span></td>
             <td data-label="Reason / source"><button type="button" className={`reason-toggle ${isExpanded ? "expanded" : ""}`} onClick={() => toggleReason(replyId)} aria-expanded={isExpanded} aria-label={`${isExpanded ? "Collapse" : "Expand"} reason for ${descriptor}`}><span>{reason}</span><small>{isExpanded ? "Show less" : "Show all"}</small></button></td>
           </tr>;
@@ -865,16 +1076,20 @@ export function App() {
   const profileQuery = useQuery({ queryKey: ["profile"], queryFn: () => api.profile_get({}), refetchOnMount: "always", staleTime: 0 });
   useEffect(() => { if (profileQuery.isSuccess && profileQuery.data.profile === null) setOnboardingLock(true); }, [profileQuery.isSuccess, profileQuery.data?.profile]);
   const needsOnboarding = onboardingLock || (profileQuery.isSuccess && profileQuery.data.profile === null);
-  const snapshotView = active === "profile" || active === "schedules" ? "overview" : active;
-  const snapshot = useQuery({ queryKey: ["snapshot", active], queryFn: () => api.snapshot({ view: snapshotView }), refetchOnMount: "always", staleTime: 0, enabled: profileQuery.isSuccess && profileQuery.data.profile !== null && !needsOnboarding && active !== "profile" && active !== "schedules" });
+  const isDatasets = active === "datasets";
+  const snapshotView = (active === "profile" || active === "schedules" || isDatasets ? "overview" : active) as "overview" | "applications" | "resumes" | "runs" | "replies";
+  const snapshot = useQuery({ queryKey: ["snapshot", active], queryFn: () => api.snapshot({ view: snapshotView }), refetchOnMount: "always", staleTime: 0, enabled: profileQuery.isSuccess && profileQuery.data.profile !== null && !needsOnboarding && active !== "profile" && active !== "schedules" && !isDatasets });
   const data = (snapshot.data?.data ?? {}) as AnyData;
-  const refresh = () => { void queryClient.invalidateQueries({ queryKey: ["snapshot", active] }); void snapshot.refetch(); };
+  const refresh = () => {
+    if (isDatasets) { void queryClient.invalidateQueries({ queryKey: ["dataset_browse"] }); return; }
+    void queryClient.invalidateQueries({ queryKey: ["snapshot", active] }); void snapshot.refetch();
+  };
   if (profileQuery.isPending) return <div className="app-shell"><SafeAreaTopScrim backgroundColor="var(--bg)" /><main className="workspace"><div className="loading"><span /><p>Reading profile…</p></div></main></div>;
   if (profileQuery.isError) return <div className="app-shell"><SafeAreaTopScrim backgroundColor="var(--bg)" /><main className="workspace"><div className="error-screen"><div className="health-orb"><Icon name="profile" size={28} /></div><h1>Profile unavailable</h1><p>The current profile could not be read.</p><button onClick={() => profileQuery.refetch()}>Retry</button></div></main></div>;
   if (needsOnboarding) return <Onboarding onOpenDashboard={() => { void profileQuery.refetch().then((result) => { if (result.data?.profile) setOnboardingLock(false); }); }} />;
   return <div className="app-shell"><SafeAreaTopScrim backgroundColor="var(--bg)" /><aside className="rail" aria-label="Dashboard navigation"><div className="rail-mark"><span /><span /></div><nav>{tabs.map((tab) => <button key={tab.id} className={active === tab.id ? "active" : ""} onClick={() => setActive(tab.id)} aria-current={active === tab.id ? "page" : undefined}><Icon name={tab.icon} /><span>{tab.label}</span></button>)}</nav><div className="rail-foot"><span className="live-dot">Private</span></div></aside>
     <main className="workspace">
-      {active === "profile" ? <Profile onOpenSchedules={() => setActive("schedules")} /> : active === "schedules" ? <Schedules /> : snapshot.isPending ? <div className="loading"><span /><p>Reading {active} ledger…</p></div> : snapshot.isError ? <div className="error-screen"><div className="health-orb"><Icon name="shield" size={28} /></div><h1>Source unavailable</h1><p>The {active} snapshot could not be read.</p><button onClick={() => snapshot.refetch()}>Retry</button></div> : <>{active === "overview" && <Overview data={data} onRefresh={refresh} refreshing={snapshot.isFetching} />}{active === "applications" && <Applications data={data} onRefresh={refresh} refreshing={snapshot.isFetching} />}{active === "resumes" && <Resumes data={data} onRefresh={refresh} refreshing={snapshot.isFetching} />}{active === "runs" && <Runs data={data} onRefresh={refresh} refreshing={snapshot.isFetching} />}{active === "replies" && <Replies data={data} onRefresh={refresh} refreshing={snapshot.isFetching} />}</>}
+      {active === "profile" ? <Profile onOpenSchedules={() => setActive("schedules")} /> : active === "schedules" ? <Schedules /> : active === "datasets" ? <Datasets onRefresh={refresh} refreshing={false} /> : snapshot.isPending ? <div className="loading"><span /><p>Reading {active} ledger…</p></div> : snapshot.isError ? <div className="error-screen"><div className="health-orb"><Icon name="shield" size={28} /></div><h1>Source unavailable</h1><p>The {active} snapshot could not be read.</p><button onClick={() => snapshot.refetch()}>Retry</button></div> : <>{active === "overview" && <Overview data={data} onRefresh={refresh} refreshing={snapshot.isFetching} />}{active === "applications" && <Applications data={data} onRefresh={refresh} refreshing={snapshot.isFetching} onOpenOverview={() => setActive("overview")} />}{active === "resumes" && <Resumes data={data} onRefresh={refresh} refreshing={snapshot.isFetching} />}{active === "runs" && <Runs data={data} onRefresh={refresh} refreshing={snapshot.isFetching} />}{active === "replies" && <Replies data={data} onRefresh={refresh} refreshing={snapshot.isFetching} />}</>}
       {active !== "profile" && active !== "schedules" && snapshot.data && <p className="freshness">Snapshot {when(snapshot.data.generated_at)}</p>}
     </main>
     <nav className="bottom-nav" aria-label="Dashboard navigation">{tabs.map((tab) => <button key={tab.id} className={active === tab.id ? "active" : ""} onClick={() => setActive(tab.id)} aria-current={active === tab.id ? "page" : undefined}><Icon name={tab.icon} /><span>{tab.label}</span></button>)}</nav>

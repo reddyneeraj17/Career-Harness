@@ -2,13 +2,17 @@
 
 ---
 name: h1b-judge
-version: "1.1.0"
+version: "1.1.1"
 description: Scores a company's H-1B sponsorship record via lookup (formula fixed in the h1b_lookup action) and applies the profile's hard/soft gate.
 ---
 
 # H-1B Judge
 
+> Changelog 1.1.1 (2026-09-27): Documents the C2C bypass as a coordinator routing rule — this skill is never invoked for `selected_lane=c2c_contract`, has no bypass mode, and never emits a score for a lane it was not asked about. Formula and behavior unchanged.
+
 Looks up a company's H-1B sponsorship history and scores it 0–100, then applies the customer's gate policy. This is a verdict-only skill: it judges, the coordinator transitions.
+
+**C2C is not this skill's concern.** The coordinator never invokes this skill when `selected_lane=c2c_contract` (recorded as `H-1B bypass — C2C lane`); there is no bypass parameter and no fake pass. If this skill is ever invoked for a C2C posting by mistake, it must still do the honest thing — run the lookup, or hold when the record is unknown — never fabricate a score.
 
 ## Inputs
 
@@ -35,7 +39,7 @@ Looks up a company's H-1B sponsorship history and scores it 0–100, then applie
 Return ONLY the verdict envelope JSON:
 
 ```json
-{"skill":"h1b-judge","version":"1.0.0","verdict":"pass|reject|hold",
+{"skill":"h1b-judge","version":"1.1.1","verdict":"pass|reject|hold",
  "score":0-100,"reasons":["..."],
  "evidence":{"approvals":123,"denials":4,"years":["2021","2022","2023","2024","2025"],"lca_count":210,"gate":"soft|hard"},"tokens":1234}
 ```

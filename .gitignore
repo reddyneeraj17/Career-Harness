@@ -15,6 +15,7 @@ schedules_manifest.json
 
 # Build output
 node_modules/
+.bun-cache/
 dist/
 dist-cvm/
 .tsbuildinfo*

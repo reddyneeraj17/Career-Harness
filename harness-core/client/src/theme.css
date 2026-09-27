@@ -614,3 +614,45 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .browser-captures b { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; overflow-wrap: anywhere; }
 .browser-captures span { color: var(--dim); font-size: 10px; }
 .browser-captures p { margin: 0; color: var(--dim); font-size: 11px; line-height: 1.45; }
+
+/* Pipeline provenance (v1.2.5): per-row provenance line + submission breakdowns + vendors directory. */
+.provenance-line { margin: 8px 0 0; color: var(--dim); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.breakdown-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+.breakdown { padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.breakdown > span { display: block; color: var(--dim); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 8px; }
+.breakdown ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.breakdown li { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 11px; }
+.breakdown li b { font-weight: 500; overflow-wrap: anywhere; }
+.breakdown li span { color: var(--dim); font-variant-numeric: tabular-nums; }
+
+/* Datasets page (v1.2.5): dataset toggle, server-side pager, collapsible sections. */
+.dataset-tabs { display: flex; gap: 8px; margin: 4px 0 16px; flex-wrap: wrap; }
+.dataset-tabs button { border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--dim); padding: 8px 16px; font-size: 12px; font-weight: 650; cursor: pointer; }
+.dataset-tabs button.active { background: var(--cyan); border-color: var(--cyan); color: var(--bg); }
+.pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; color: var(--dim); font-size: 12px; }
+.pager > div { display: flex; gap: 8px; }
+.pager button { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: inherit; padding: 8px 14px; font-size: 12px; font-weight: 650; cursor: pointer; }
+.pager button:disabled { opacity: .4; cursor: default; }
+.section-head-toggle { cursor: pointer; border-radius: 8px; }
+.section-head-toggle h2 { display: inline-flex; align-items: center; gap: 8px; }
+.section-head-toggle svg { transition: transform .15s ease; transform: rotate(0deg); }
+.section.is-collapsed .section-head-toggle svg { transform: rotate(-90deg); }
+
+/* Resume control (v1.2.5): parked / needs-me applications. */
+.resume-control { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.resume-control input[type="text"] { flex: 1 1 200px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: inherit; padding: 8px 10px; font-size: 12px; }
+.resume-control > button { border: 1px solid var(--cyan); border-radius: 8px; background: transparent; color: var(--cyan); padding: 8px 14px; font-size: 12px; font-weight: 650; cursor: pointer; }
+.resume-control > button:disabled { opacity: .5; cursor: default; }
+.resume-message { width: 100%; margin: 0; color: var(--warn); font-size: 12px; line-height: 1.5; }
+.resume-message .text-link { margin-top: 0; }
+
+/* Held-reply decision controls (v1.2.5). */
+.held-controls { display: grid; gap: 8px; min-width: 180px; }
+.held-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+.held-buttons button { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: inherit; padding: 6px 10px; font-size: 11px; font-weight: 650; cursor: pointer; }
+.held-buttons button:disabled { opacity: .5; cursor: default; }
+.held-draft pre { margin: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-size: 11px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; }
+.held-draft textarea { width: 100%; box-sizing: border-box; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: inherit; padding: 10px 12px; font-size: 12px; line-height: 1.5; font-family: inherit; }
+.held-draft p { margin: 0; color: var(--dim); font-size: 11px; }
+.reply-action.action-approved { color: var(--mint); background: color-mix(in srgb, var(--mint) 15%, transparent); }
+.reply-action.action-discarded { color: var(--dim); background: var(--surface-strong); }

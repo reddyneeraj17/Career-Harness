@@ -1,6 +1,7 @@
 import { defineAction, z, type ActionsModule, type Ctx } from "@hatch/space-sdk";
 import { privileged } from "@space/privileged";
-import { and, asc, desc, eq, gte, inArray, isNull, lt, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lt, or, sql, type SQL, type SQLWrapper } from "drizzle-orm";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import * as schema from "./schema";
 
 const jsonValue = z.unknown();
@@ -15,9 +16,19 @@ const chicagoDay = (date = new Date()) => new Intl.DateTimeFormat("en-CA", { tim
 const jsonObject = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const jsonArray = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
 
+const sourceClass = z.enum(["company_portal", "vendor_portal", "linkedin", "job_board", "open_web"]);
+const discoveryPhase = z.enum(["dataset", "web_expansion", "additional_source"]);
+const sourceTier = z.enum(["1", "2", "3", "unknown"]);
+const h1bMode = z.enum(["soft_lookup", "bypass_c2c"]);
+const h1bResult = z.enum(["scored", "unknown", "not_applicable"]);
 const postingRow = z.object({
   posting_id: z.string().min(1), company: z.string().min(1), role: z.string().min(1), url: z.string().min(1), source: z.string().min(1),
   jd_path: z.string().nullable().optional(), jd_hash: z.string().nullable().optional(), first_seen: z.string().datetime().optional(), last_seen: z.string().datetime().optional(),
+  // Provenance (migration 0010): scouts supply it; the coordinator owns it from claim on.
+  source_class: sourceClass.nullable().optional(), source_name: z.string().nullable().optional(),
+  discovery_phase: discoveryPhase.nullable().optional(), source_tier: sourceTier.nullable().optional(),
+  employment_types_offered: z.array(z.string()).nullable().optional(),
+  selected_lane: z.enum(["full_time", "part_time", "w2_contract", "c2c_contract", "internship"]).nullable().optional(), h1b_mode: h1bMode.nullable().optional(), h1b_result: h1bResult.nullable().optional(),
 });
 const profilePayload = z.object({
   identity: jsonValue, work_auth: jsonValue, role_types: jsonValue, locations: jsonValue, targeting: jsonValue, comp: jsonValue,
@@ -462,6 +473,17 @@ function recordsFromCsv(csv: string): Record<string, string>[] {
   return rows.slice(1).map((row) => Object.fromEntries(headers.map((h, i) => [h, row[i] ?? ""])));
 }
 
+// Large seed CSVs travel as a URL instead of action args.
+async function csvTextFromArgs(args: { csv?: string; csv_url?: string }): Promise<string> {
+  if (args.csv) return args.csv;
+  if (args.csv_url) {
+    const res = await fetch(args.csv_url);
+    if (!res.ok) throw new Error(`CSV download failed: HTTP ${res.status}`);
+    return await res.text();
+  }
+  throw new Error("Provide csv or csv_url.");
+}
+
 const safeResumeFilenamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]*\.pdf$/i;
 const safeResumeVariantPattern = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const resumeUploadResponse = z.union([
@@ -501,6 +523,21 @@ function profileYearsMatrix(row: typeof schema.profile.$inferSelect | undefined)
     if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) return candidate as Record<string, unknown>;
   }
   return {};
+}
+
+// Held-draft files are stored as workspace-relative paths (e.g. "goals/<campaign>/…/drafts/<file>.md"
+// or "/home/hatch/workspace/goals/…"). Resolve them to absolute paths under ~/workspace and
+// refuse anything that would escape it.
+const workspaceHome = () => `${process.env.HOME ?? "/home/hatch"}/workspace`;
+function draftAbsolutePath(stored: string): string | null {
+  const normalized = stored.replaceAll("\\", "/");
+  if (normalized.includes("..")) return null;
+  const abs = normalized.startsWith("/") ? normalized : `${workspaceHome()}/${normalized.replace(/^workspace\//, "")}`;
+  return abs === workspaceHome() || abs.startsWith(`${workspaceHome()}/`) ? abs : null;
+}
+function workspaceRelativeDir(abs: string): string {
+  const prefix = `${workspaceHome()}/`;
+  return abs.startsWith(prefix) ? abs.slice(prefix.length) : abs;
 }
 
 export const Actions = {
@@ -579,12 +616,24 @@ export const Actions = {
     async handler(ctx, args) {
       const db = ctx.db<typeof schema>(); const newIds: string[] = [];
       const TERMINAL = ["submitted", "confirmed", "blocked", "rejected"];
+      const provenanceInsert = (row: z.infer<typeof postingRow>) => ({
+        sourceClass: row.source_class ?? null, sourceName: row.source_name ?? row.source,
+        discoveryPhase: row.discovery_phase ?? null, sourceTier: row.source_tier ?? "unknown",
+        employmentTypesOffered: row.employment_types_offered ?? [],
+        selectedLane: row.selected_lane ?? null, h1bMode: row.h1b_mode ?? null, h1bResult: row.h1b_result ?? null,
+      });
+      // On re-scrape only overwrite provenance the scout actually supplied.
+      const provenancePatch = (row: z.infer<typeof postingRow>) => Object.fromEntries(
+        [["sourceClass", row.source_class], ["sourceName", row.source_name], ["discoveryPhase", row.discovery_phase],
+         ["sourceTier", row.source_tier], ["employmentTypesOffered", row.employment_types_offered],
+         ["selectedLane", row.selected_lane], ["h1bMode", row.h1b_mode], ["h1bResult", row.h1b_result]]
+          .filter(([, v]) => v !== undefined && v !== null).map(([k, v]) => [k, v]));
       for (const row of args.rows) {
         const companyNorm = norm(row.company); const roleNorm = norm(row.role);
         const lastSeen = row.last_seen ? new Date(row.last_seen) : now();
         const byId = (await db.select({ id: schema.postings.postingId }).from(schema.postings).where(eq(schema.postings.postingId, row.posting_id)).limit(1))[0];
         if (byId) {
-          await db.update(schema.postings).set({ company: row.company, role: row.role, url: row.url, source: row.source, jdPath: row.jd_path ?? null, jdHash: row.jd_hash ?? null, lastSeen }).where(eq(schema.postings.postingId, byId.id));
+          await db.update(schema.postings).set({ company: row.company, role: row.role, url: row.url, source: row.source, jdPath: row.jd_path ?? null, jdHash: row.jd_hash ?? null, lastSeen, ...provenancePatch(row) }).where(eq(schema.postings.postingId, byId.id));
           continue;
         }
         const byRole = (await db.select({ id: schema.postings.postingId }).from(schema.postings).where(and(eq(schema.postings.companyNorm, companyNorm), eq(schema.postings.roleNorm, roleNorm))).limit(1))[0];
@@ -593,15 +642,15 @@ export const Actions = {
           const app = (await db.select({ state: schema.applications.state }).from(schema.applications).where(eq(schema.applications.postingId, byRole.id)).limit(1))[0];
           if (app && TERMINAL.includes(app.state)) {
             // The old listing ran its course — this is a genuinely new posting. Re-apply allowed.
-            await db.insert(schema.postings).values({ postingId: row.posting_id, company: row.company, companyNorm, role: row.role, roleNorm, url: row.url, source: row.source, jdPath: row.jd_path ?? null, jdHash: row.jd_hash ?? null, firstSeen: lastSeen, lastSeen });
+            await db.insert(schema.postings).values({ postingId: row.posting_id, company: row.company, companyNorm, role: row.role, roleNorm, url: row.url, source: row.source, jdPath: row.jd_path ?? null, jdHash: row.jd_hash ?? null, firstSeen: lastSeen, lastSeen, ...provenanceInsert(row) });
             newIds.push(row.posting_id);
           } else {
             // Same live listing re-scraped (pipeline still open) — refresh, keep the original posting_id.
-            await db.update(schema.postings).set({ company: row.company, role: row.role, url: row.url, source: row.source, jdPath: row.jd_path ?? null, jdHash: row.jd_hash ?? null, lastSeen }).where(eq(schema.postings.postingId, byRole.id));
+            await db.update(schema.postings).set({ company: row.company, role: row.role, url: row.url, source: row.source, jdPath: row.jd_path ?? null, jdHash: row.jd_hash ?? null, lastSeen, ...provenancePatch(row) }).where(eq(schema.postings.postingId, byRole.id));
           }
           continue;
         }
-        await db.insert(schema.postings).values({ postingId: row.posting_id, company: row.company, companyNorm, role: row.role, roleNorm, url: row.url, source: row.source, jdPath: row.jd_path ?? null, jdHash: row.jd_hash ?? null, firstSeen: row.first_seen ? new Date(row.first_seen) : lastSeen, lastSeen });
+        await db.insert(schema.postings).values({ postingId: row.posting_id, company: row.company, companyNorm, role: row.role, roleNorm, url: row.url, source: row.source, jdPath: row.jd_path ?? null, jdHash: row.jd_hash ?? null, firstSeen: row.first_seen ? new Date(row.first_seen) : lastSeen, lastSeen, ...provenanceInsert(row) });
         newIds.push(row.posting_id);
       }
       if (args.rows.length) ctx.invalidateQueries(); return { new_ids: newIds, seen: args.rows.length };
@@ -710,6 +759,30 @@ export const Actions = {
           submittedAt: args.to === "submitted" ? changed : row.submittedAt,
         }).where(and(eq(schema.applications.appId, args.app_id), eq(schema.applications.state, args.from))),
         db.insert(schema.events).values({ runId: row.runId, appId: row.appId, type: "state_transition", payload: { from: args.from, to: args.to, reason: args.reason ?? null, evidence: args.evidence, intent_id: args.intent_id ?? null }, at: changed }),
+      ]);
+      ctx.invalidateQueries(); return { ok: true };
+    },
+  }),
+
+  // Resume a parked / needs-me application: returns it to reviewed so the
+  // coordinator's resume sweep picks it up and re-drives APPLY → VERIFY.
+  // Never submits from the button; needs-me still requires its approval first.
+  app_resume: defineAction({
+    request: z.object({ app_id: z.string().min(1), note: z.string().min(1).max(2000).optional() }),
+    response: z.object({ ok: z.boolean(), message: z.string().optional() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const app = (await db.select().from(schema.applications).where(eq(schema.applications.appId, args.app_id)).limit(1))[0];
+      if (!app) return { ok: false, message: "Application not found." };
+      if (app.state !== "parked" && app.state !== "needs_me") return { ok: false, message: `Application is ${app.state}; only parked or needs-me applications can be resumed.` };
+      if (app.state === "needs_me") {
+        const open = (await db.select().from(schema.approvals).where(and(eq(schema.approvals.appId, app.appId), isNull(schema.approvals.resolvedAt))).orderBy(asc(schema.approvals.createdAt)).limit(1))[0];
+        if (open) return { ok: false, message: `Resolve approval “${open.question}” (${open.approvalId}) on the Overview tab before resuming.` };
+      }
+      const changed = now(); const reason = args.note ? `Resumed by user: ${args.note}` : "Resumed by user";
+      await db.batch([
+        db.update(schema.applications).set({ state: "reviewed", statusReason: reason, updatedAt: changed }).where(eq(schema.applications.appId, app.appId)),
+        db.insert(schema.events).values({ runId: app.runId, appId: app.appId, type: "application_resumed", payload: { from: app.state, note: args.note ?? null }, at: changed }),
       ]);
       ctx.invalidateQueries(); return { ok: true };
     },
@@ -1427,8 +1500,29 @@ export const Actions = {
           blocker: a.blocker, outcome: a.outcome, created_at: a.createdAt.toISOString(), updated_at: a.updatedAt.toISOString(), submitted_at: iso(a.submittedAt),
           reason: a.statusReason, talking_points_path: a.talkingPointsPath,
           prep_exists: a.talkingPointsPath ? prepExists.get(a.appId) === true : false,
+          // Provenance carried from claim through VERIFY (migration 0010).
+          source_class: p?.sourceClass ?? null, source_name: p?.sourceName ?? null,
+          discovery_phase: p?.discoveryPhase ?? null, source_tier: p?.sourceTier ?? null,
+          employment_types_offered: p?.employmentTypesOffered ?? [],
+          selected_lane: p?.selectedLane ?? null, h1b_mode: p?.h1bMode ?? null, h1b_result: p?.h1bResult ?? null,
         }; });
-        return { view: args.view, generated_at: generatedAt.toISOString(), data: { counts, ledger, resumes } };
+        // Verified-submission counts by provenance facet (migration 0010).
+        type Posting = typeof schema.postings.$inferSelect;
+        const submittedProvenance = apps.filter((a) => a.state === "submitted");
+        const facet = (pick: (p: Posting | undefined) => string | null) => {
+          const m = new Map<string, number>();
+          for (const a of submittedProvenance) { const key = pick(postMap.get(a.postingId)) ?? "unknown"; m.set(key, (m.get(key) ?? 0) + 1); }
+          return Object.fromEntries(m);
+        };
+        const submitted_breakdowns = {
+          by_source_class: facet((p) => p?.sourceClass ?? null),
+          by_source_name: facet((p) => p?.sourceName ?? null),
+          by_discovery_phase: facet((p) => p?.discoveryPhase ?? null),
+          by_source_tier: facet((p) => p?.sourceTier ?? null),
+          by_lane: facet((p) => p?.selectedLane ?? null),
+          by_h1b_result: facet((p) => p?.h1bResult ?? null),
+        };
+        return { view: args.view, generated_at: generatedAt.toISOString(), data: { counts, ledger, resumes, submitted_breakdowns } };
       }
       if (args.view === "runs") {
         const runRows = await db.select().from(schema.runs).orderBy(desc(schema.runs.started)).limit(200);
@@ -1503,6 +1597,54 @@ export const Actions = {
     async handler(ctx, args) { const db = ctx.db<typeof schema>(); const thread = (await db.select().from(schema.conversations).where(eq(schema.conversations.threadId, args.thread_id)).limit(1))[0]; if (!thread) return { ok: false, message: "Conversation not found." }; if (thread.channel.toLowerCase() === "linkedin" && (args.attachment_name ?? "").toLowerCase().endsWith(".pdf")) return { ok: false, message: "PDF attachments are not permitted on LinkedIn replies." }; const replyId = args.reply_id ?? id("reply"); await db.insert(schema.replies).values({ replyId, threadId: args.thread_id, direction: args.direction, action: args.action, ruleId: args.rule_id ?? null, draftPath: args.draft_path ?? null, reason: args.reason ?? null, runId: args.run_id ?? null, approvalId: args.approval_id ?? null, attachmentName: args.attachment_name ?? null }); ctx.invalidateQueries(); return { ok: true, reply_id: replyId }; },
   }),
 
+  // Read the current draft text of a held reply (what the customer approved or will edit).
+  held_reply_draft: defineAction({
+    request: z.object({ reply_id: z.string().min(1) }),
+    response: z.object({ ok: z.boolean(), draft_text: z.string().optional(), draft_path: z.string().nullable().optional(), message: z.string().optional() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const reply = (await db.select().from(schema.replies).where(eq(schema.replies.replyId, args.reply_id)).limit(1))[0];
+      if (!reply) return { ok: false, message: "Reply not found." };
+      if (reply.action !== "held") return { ok: false, message: "Only held replies have drafts." };
+      if (!reply.draftPath) return { ok: false, message: "No draft file is attached to this held reply." };
+      const abs = draftAbsolutePath(reply.draftPath);
+      if (!abs || !existsSync(abs)) return { ok: false, message: "No draft file is attached to this held reply." };
+      return { ok: true, draft_text: readFileSync(abs, "utf8"), draft_path: reply.draftPath };
+    },
+  }),
+
+  // Record the dashboard decision on a held reply. Approve → the scheduled replier
+  // sends the (possibly edited) draft on its next scan, exactly once. Discard →
+  // the replier never sends it. The dashboard never sends mail itself.
+  held_reply_resolve: defineAction({
+    request: z.object({ reply_id: z.string().min(1), decision: z.enum(["approved", "discarded"]), edited_text: z.string().min(1).max(200000).optional() }),
+    response: z.object({ ok: z.boolean(), message: z.string().optional() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const reply = (await db.select().from(schema.replies).where(eq(schema.replies.replyId, args.reply_id)).limit(1))[0];
+      if (!reply) return { ok: false, message: "Reply not found." };
+      if (reply.action !== "held") return { ok: false, message: "Only held replies can be resolved." };
+      if (reply.heldResolution) return { ok: false, message: `This held reply was already ${reply.heldResolution}.` };
+      let draftPath = reply.draftPath;
+      if (args.edited_text !== undefined) {
+        if (!reply.draftPath) return { ok: false, message: "The held reply has no draft file to edit." };
+        const abs = draftAbsolutePath(reply.draftPath);
+        if (!abs) return { ok: false, message: "The held reply's draft path is invalid." };
+        const slash = abs.lastIndexOf("/"); const dir = abs.slice(0, slash); const base = abs.slice(slash + 1);
+        const stamp = Date.now();
+        const nextBase = base.includes(".") ? base.replace(/(\.[^.]+)$/, `.edited-${stamp}$1`) : `${base}.edited-${stamp}`;
+        writeFileSync(`${dir}/${nextBase}`, args.edited_text, "utf8");
+        draftPath = `${workspaceRelativeDir(abs)}/${nextBase}`;
+      }
+      const resolvedAt = now();
+      await db.batch([
+        db.update(schema.replies).set({ heldResolution: args.decision, heldResolvedAt: resolvedAt, draftPath }).where(eq(schema.replies.replyId, reply.replyId)),
+        db.insert(schema.events).values({ runId: reply.runId, appId: null, type: "held_reply_resolved", payload: { reply_id: reply.replyId, decision: args.decision, edited: args.edited_text !== undefined }, at: resolvedAt }),
+      ]);
+      ctx.invalidateQueries(); return { ok: true };
+    },
+  }),
+
   spillover_replay: defineAction({
     request: z.object({ run_id: z.string() }), response: z.object({ replayed: z.boolean(), count: z.number() }),
     async handler(ctx, args) { const db = ctx.db<typeof schema>(); const prior = (await db.select({ id: schema.events.id }).from(schema.events).where(and(eq(schema.events.runId, args.run_id), eq(schema.events.type, "spillover_replayed"))).limit(1))[0]; if (prior) return { replayed: false, count: 0 }; const parked = await db.select().from(schema.applications).where(and(eq(schema.applications.runId, args.run_id), inArray(schema.applications.state, ["parked", "blocked"]))); await db.insert(schema.events).values({ runId: args.run_id, type: "spillover_replayed", payload: { app_ids: parked.map((a) => a.appId), count: parked.length } }); ctx.invalidateQueries(); return { replayed: true, count: parked.length }; },
@@ -1563,14 +1705,89 @@ export const Actions = {
     },
   }),
 
+  // Seed CSVs are too large for action args; callers may pass csv_url (a fetchable
+  // URL) instead of pasting the CSV. Exactly one of csv / csv_url is required.
   h1b_import: defineAction({
-    request: z.object({ csv: z.string().min(1) }), response: z.object({ imported: z.number(), skipped: z.number() }),
-    async handler(ctx, args) { const db = ctx.db<typeof schema>(); const records = recordsFromCsv(args.csv); let imported = 0; let skipped = 0; for (const r of records) { const company = r.company_norm || r.company || r.employer; if (!company) { skipped += 1; continue; } const stats = r.stats_by_year ? (() => { try { return JSON.parse(r.stats_by_year); } catch { return {}; } })() : {}; const lca = Number(r.lca_count ?? 0); await db.insert(schema.h1bSponsors).values({ companyNorm: norm(company), statsByYear: stats, lcaCount: Number.isFinite(lca) ? lca : 0, lastRefreshed: r.last_refreshed ? new Date(r.last_refreshed) : now() }).onConflictDoUpdate({ target: schema.h1bSponsors.companyNorm, set: { statsByYear: stats, lcaCount: Number.isFinite(lca) ? lca : 0, lastRefreshed: r.last_refreshed ? new Date(r.last_refreshed) : now() } }); imported += 1; } if (imported) ctx.invalidateQueries(); return { imported, skipped }; },
+    request: z.object({ csv: z.string().min(1).optional(), csv_url: z.string().url().optional() }).refine((v) => v.csv || v.csv_url, { message: "Provide csv or csv_url." }),
+    response: z.object({ imported: z.number(), skipped: z.number() }),
+    async handler(ctx, args) { const db = ctx.db<typeof schema>(); const records = recordsFromCsv(await csvTextFromArgs(args)); let imported = 0; let skipped = 0; for (const r of records) { const company = r.company_norm || r.company || r.employer; if (!company) { skipped += 1; continue; } const stats = r.stats_by_year ? (() => { try { return JSON.parse(r.stats_by_year); } catch { return {}; } })() : {}; const lca = Number(r.lca_count ?? 0); await db.insert(schema.h1bSponsors).values({ companyNorm: norm(company), statsByYear: stats, lcaCount: Number.isFinite(lca) ? lca : 0, lastRefreshed: r.last_refreshed ? new Date(r.last_refreshed) : now() }).onConflictDoUpdate({ target: schema.h1bSponsors.companyNorm, set: { statsByYear: stats, lcaCount: Number.isFinite(lca) ? lca : 0, lastRefreshed: r.last_refreshed ? new Date(r.last_refreshed) : now() } }); imported += 1; } if (imported) ctx.invalidateQueries(); return { imported, skipped }; },
   }),
 
   companies_import: defineAction({
-    request: z.object({ csv: z.string().min(1) }), response: z.object({ imported: z.number(), skipped: z.number() }),
-    async handler(ctx, args) { const db = ctx.db<typeof schema>(); const records = recordsFromCsv(args.csv); let imported = 0; let skipped = 0; for (const r of records) { const company = r.company_norm || r.company; if (!company) { skipped += 1; continue; } await db.insert(schema.companies).values({ companyNorm: norm(company), tier: Number(r.tier || 3), industry: r.industry || null, hqState: r.hq_state || null, careersUrl: r.careers_url || null, atsType: r.ats_type || null, parkCount: Number(r.park_count || 0), skipFlag: ["1", "true", "yes"].includes((r.skip_flag ?? "").toLowerCase()), skipReason: r.skip_reason || null }).onConflictDoUpdate({ target: schema.companies.companyNorm, set: { tier: Number(r.tier || 3), industry: r.industry || null, hqState: r.hq_state || null, careersUrl: r.careers_url || null, atsType: r.ats_type || null, parkCount: Number(r.park_count || 0), skipFlag: ["1", "true", "yes"].includes((r.skip_flag ?? "").toLowerCase()), skipReason: r.skip_reason || null } }); imported += 1; } if (imported) ctx.invalidateQueries(); return { imported, skipped }; },
+    request: z.object({ csv: z.string().min(1).optional(), csv_url: z.string().url().optional() }).refine((v) => v.csv || v.csv_url, { message: "Provide csv or csv_url." }),
+    response: z.object({ imported: z.number(), skipped: z.number() }),
+    async handler(ctx, args) { const db = ctx.db<typeof schema>(); const records = recordsFromCsv(await csvTextFromArgs(args)); let imported = 0; let skipped = 0; for (const r of records) { const company = r.company_norm || r.company; if (!company) { skipped += 1; continue; } await db.insert(schema.companies).values({ companyNorm: norm(company), tier: Number(r.tier || 3), industry: r.industry || null, hqState: r.hq_state || null, careersUrl: r.careers_url || null, atsType: r.ats_type || null, parkCount: Number(r.park_count || 0), skipFlag: ["1", "true", "yes"].includes((r.skip_flag ?? "").toLowerCase()), skipReason: r.skip_reason || null }).onConflictDoUpdate({ target: schema.companies.companyNorm, set: { tier: Number(r.tier || 3), industry: r.industry || null, hqState: r.hq_state || null, careersUrl: r.careers_url || null, atsType: r.ats_type || null, parkCount: Number(r.park_count || 0), skipFlag: ["1", "true", "yes"].includes((r.skip_flag ?? "").toLowerCase()), skipReason: r.skip_reason || null } }); imported += 1; } if (imported) ctx.invalidateQueries(); return { imported, skipped }; },
+  }),
+
+  prime_vendors_import: defineAction({
+    request: z.object({ csv: z.string().min(1).optional(), csv_url: z.string().url().optional() }).refine((v) => v.csv || v.csv_url, { message: "Provide csv or csv_url." }),
+    response: z.object({ imported: z.number(), skipped: z.number() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>(); const records = recordsFromCsv(await csvTextFromArgs(args)); let imported = 0; let skipped = 0;
+      for (const r of records) {
+        const name = r.vendor_name || r.vendor || r.name;
+        if (!name) { skipped += 1; continue; }
+        const values = {
+          vendorNorm: norm(name), vendorName: name,
+          portalUrl: r.portal_url || null, tier: r.tier || null, category: r.category || null,
+          specialties: r.specialties || null, engagementTypes: r.engagement_types || null,
+          // Vendor's own sponsorship claim — surfaced as an "Unverified sponsorship note", never scored.
+          h1bNote: r.h1b_note || null, lastRefreshed: r.last_refreshed ? new Date(r.last_refreshed) : now(),
+        };
+        const { vendorNorm: _pk, ...rest } = values;
+        await db.insert(schema.primeVendors).values(values).onConflictDoUpdate({ target: schema.primeVendors.vendorNorm, set: rest });
+        imported += 1;
+      }
+      if (imported) ctx.invalidateQueries(); return { imported, skipped };
+    },
+  }),
+
+  // Fast server-side browsing for the Datasets page: the dashboard never dumps
+  // thousands of rows into the DOM. One dataset per call, 100 rows per page.
+  dataset_browse: defineAction({
+    request: z.object({
+      dataset: z.enum(["companies", "h1b_sponsors", "prime_vendors"]),
+      search: z.string().optional(), tier: z.string().optional(), min_lca: z.number().int().min(0).optional(),
+      page: z.number().int().min(1).default(1), page_size: z.number().int().min(1).max(500).default(100),
+    }),
+    response: z.object({ dataset: z.string(), page: z.number(), page_size: z.number(), total: z.number(), rows: z.array(z.unknown()) }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>(); const q = (args.search ?? "").trim().toLowerCase();
+      const like = (col: SQLWrapper) => sql<boolean>`${col} LIKE ${`%${q.replace(/[%_]/g, "")}%`}`;
+      const offset = (args.page - 1) * args.page_size;
+      if (args.dataset === "companies") {
+        const conds: SQLWrapper[] = []; if (q) conds.push(like(schema.companies.companyNorm)); if (args.tier) conds.push(eq(schema.companies.tier, Number(args.tier)));
+        const where = conds.length ? and(...conds) : undefined;
+        const total = (await db.select({ n: sql<number>`count(*)` }).from(schema.companies).where(where))[0]?.n ?? 0;
+        const rows = await db.select().from(schema.companies).where(where).orderBy(schema.companies.companyNorm).limit(args.page_size).offset(offset);
+        return { dataset: args.dataset, page: args.page, page_size: args.page_size, total, rows: rows.map((c) => ({ company_norm: c.companyNorm, tier: c.tier, industry: c.industry, hq_state: c.hqState, careers_url: c.careersUrl, ats_type: c.atsType, park_count: c.parkCount, skip_flag: c.skipFlag, skip_reason: c.skipReason })) };
+      }
+      if (args.dataset === "h1b_sponsors") {
+        const conds: SQLWrapper[] = []; if (q) conds.push(like(schema.h1bSponsors.companyNorm)); if (args.min_lca) conds.push(gte(schema.h1bSponsors.lcaCount, args.min_lca));
+        const where = conds.length ? and(...conds) : undefined;
+        const total = (await db.select({ n: sql<number>`count(*)` }).from(schema.h1bSponsors).where(where))[0]?.n ?? 0;
+        const rows = await db.select().from(schema.h1bSponsors).where(where).orderBy(desc(schema.h1bSponsors.lcaCount)).limit(args.page_size).offset(offset);
+        return { dataset: args.dataset, page: args.page, page_size: args.page_size, total, rows: rows.map((h) => ({ company_norm: h.companyNorm, lca_count: h.lcaCount, stats_by_year: h.statsByYear, last_refreshed: iso(h.lastRefreshed) })) };
+      }
+      // prime_vendors: stored tiers look like "Tier 1" — normalize both sides before comparing.
+      const tierNorm = (t: string | null) => (t ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+      const wantTier = args.tier ? tierNorm(args.tier) : "";
+      const conds: SQLWrapper[] = [];
+      if (q) conds.push(sql<boolean>`(${like(schema.primeVendors.vendorNorm)} OR ${like(schema.primeVendors.vendorName)} OR ${like(schema.primeVendors.category)} OR ${like(schema.primeVendors.tier)} OR ${like(schema.primeVendors.specialties)} OR ${like(schema.primeVendors.engagementTypes)})`);
+      const where = conds.length ? and(...conds) : undefined;
+      const all = await db.select().from(schema.primeVendors).where(where).orderBy(schema.primeVendors.vendorName);
+      const filtered = wantTier ? all.filter((v) => tierNorm(v.tier) === wantTier) : all;
+      const rows = filtered.slice(offset, offset + args.page_size);
+      return {
+        dataset: args.dataset, page: args.page, page_size: args.page_size, total: filtered.length,
+        rows: rows.map((v) => ({
+          vendor_name: v.vendorName, vendor_norm: v.vendorNorm, portal_url: v.portalUrl, tier: v.tier,
+          category: v.category, specialties: v.specialties, engagement_types: v.engagementTypes,
+          // A vendor's own sponsorship claim — surfaced as an unverified note, never evidence.
+          h1b_note_unverified: v.h1bNote, last_refreshed: iso(v.lastRefreshed),
+        })),
+      };
+    },
   }),
 
   token_record: defineAction({
