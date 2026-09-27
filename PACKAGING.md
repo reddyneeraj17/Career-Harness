@@ -25,6 +25,7 @@ harness-kit/
 ├── templates/               # *.body.md cron templates + profile.schema.yaml
 ├── harness-core/            # dashboard artifact source (client/, server/, drizzle/)
 ├── seed/                    # h1b_employer_hub.csv, companies_seed.csv
+├── client-onboarding-form/  # excel_to_persona_yaml.py (staged to ~/workspace/client-onboarding-form/ by install.sh)
 ├── goal-skeletons/          # empty per-campaign goal dirs
 ├── profile.example.yaml     # redacted template; never real data
 ├── docs/                    # architecture blueprint PDF (the spec)

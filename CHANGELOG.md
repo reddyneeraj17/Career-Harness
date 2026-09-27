@@ -4,6 +4,20 @@ All notable changes to the Job-Apply Harness kit are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- **Onboarding converter now ships in the kit**: the `client-onboarding`
+  skill runs `python3 ~/workspace/client-onboarding-form/excel_to_persona_yaml.py`,
+  but the script was never committed to the kit and `install.sh` never
+  staged it — fresh installs stalled at the Excel onboarding step with no
+  converter to run. The script now lives at
+  `client-onboarding-form/excel_to_persona_yaml.py` in the kit;
+  `install.sh` verifies it in `--check`, stages it to
+  `~/workspace/client-onboarding-form/`, and includes it in the read-only
+  lockdown. A customer mid-install on an earlier 1.2.x can drop the single
+  maintainer-provided file at that path and continue.
+
 ## [1.2.2] — 2026-09-26
 
 ### Fixed

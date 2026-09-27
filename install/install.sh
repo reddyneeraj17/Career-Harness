@@ -12,7 +12,7 @@
 #   1. prereq checks (bash, python3; git optional)
 #   2. verifies kit integrity (VERSION + required dirs/files present)
 #   3. verifies sha256 checksums against install/MANIFEST.sha256 when present
-#   4. copies skills/, templates/, seed/, goal-skeletons/ into place
+#   4. copies skills/, templates/, seed/, goal-skeletons/, client-onboarding-form/ into place
 #   5. prints the agent runbook (artifact build, migrations, intake, compile)
 #
 # What it does NOT do (the agent does these, see INSTALL.md):
@@ -43,7 +43,7 @@ if command -v sha256sum >/dev/null; then pass "sha256sum"; else echo "  [..] sha
 
 # 2. kit integrity ---------------------------------------------------------
 echo "-- kit integrity --"
-for d in skills templates seed goal-skeletons harness-core install docs; do
+for d in skills templates seed goal-skeletons harness-core install docs client-onboarding-form; do
   [[ -d "$KIT_DIR/$d" ]] && pass "dir $d/" || fail "dir $d/ missing"
 done
 for f in VERSION CHANGELOG.md PACKAGING.md CUSTOMER_RULES.md INSTALL.md profile.example.yaml .gitignore; do
@@ -53,6 +53,7 @@ done
 n_skills=$(find "$KIT_DIR/skills" -maxdepth 2 -name SKILL.md | wc -l)
 [[ "$n_skills" -ge 26 ]] && pass "$n_skills skills with SKILL.md" || fail "only $n_skills skills with SKILL.md (want >= 26)"
 [[ -f "$KIT_DIR/templates/profile.schema.yaml" ]] && pass "templates/profile.schema.yaml" || fail "profile.schema.yaml missing"
+[[ -f "$KIT_DIR/client-onboarding-form/excel_to_persona_yaml.py" ]] && pass "client-onboarding-form/excel_to_persona_yaml.py" || fail "onboarding converter missing"
 [[ -f "$KIT_DIR/harness-core/space.json" ]] && pass "harness-core/space.json" || fail "harness-core/space.json missing"
 [[ -f "$KIT_DIR/harness-core/package.json" ]] && pass "harness-core/package.json" || fail "harness-core/package.json missing"
 [[ -d "$KIT_DIR/harness-core/client/src" ]] && pass "harness-core/client/src" || fail "harness-core client/src missing"
@@ -110,12 +111,15 @@ if [[ ! -f "$WS/profile.yaml" ]]; then
 else
   echo "  [..] $WS/profile.yaml exists; not overwritten"
 fi
+mkdir -p "$WS/client-onboarding-form"
+cp "$KIT_DIR/client-onboarding-form/excel_to_persona_yaml.py" "$WS/client-onboarding-form/"
+pass "onboarding converter -> $WS/client-onboarding-form/ (client-onboarding skill)"
 mkdir -p "$WS/user/files"
 pass "user/files ready (customer drops their resume PDF here)"
 
 # 6. lockdown (CUSTOMER_RULES.md enforcement) ----------------------------------
 echo "-- lockdown (kit code is read-only in customer environments) --"
-chmod -R a-w "$WS/skills" "$WS/templates" 2>/dev/null && pass "staged skills/templates set read-only" || echo "  [..] chmod skipped (non-POSIX fs?)"
+chmod -R a-w "$WS/skills" "$WS/templates" "$WS/client-onboarding-form" 2>/dev/null && pass "staged skills/templates/converter set read-only" || echo "  [..] chmod skipped (non-POSIX fs?)"
 echo "  rule: the customer's Muse never edits kit code; see $KIT_DIR/CUSTOMER_RULES.md"
 
 echo ""
