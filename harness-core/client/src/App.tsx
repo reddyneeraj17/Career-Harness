@@ -178,24 +178,40 @@ function Overview({ data, onRefresh, refreshing }: { data: AnyData; onRefresh: (
 }
 
 function Applications({ data, onRefresh, refreshing }: { data: AnyData; onRefresh: () => void; refreshing: boolean }) {
-  const c = data.counts ?? { by_state: {} }; const ledger = Array.isArray(data.ledger) ? data.ledger : [];
+  const ledger = Array.isArray(data.ledger) ? data.ledger : [];
   const [filter, setFilter] = useState("all"); const [search, setSearch] = useState("");
-  const shown = useMemo(() => ledger.filter((a: AnyData) => (filter === "all" || a.state === filter) && `${a.company} ${a.role} ${a.app_id}`.toLowerCase().includes(search.toLowerCase())), [ledger, filter, search]);
+  const [dateRange, setDateRange] = useState<DateRange>({ preset: "all", start: "", end: "" });
+  const shown = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return ledger.filter((application: AnyData) => {
+      const state = String(application.state ?? "");
+      const haystack = [application.company, application.role, application.app_id, application.campaign_id, application.status_reason].map((value) => String(value ?? "").toLowerCase()).join(" ");
+      return fallsInDateRange(application.updated_at, dateRange) && (filter === "all" || state === filter) && (!query || haystack.includes(query));
+    });
+  }, [ledger, dateRange, filter, search]);
+  const counts = useMemo(() => shown.reduce((summary: Record<string, number>, application: AnyData) => {
+    const state = String(application.state ?? "unknown"); summary[state] = (summary[state] ?? 0) + 1; return summary;
+  }, {}), [shown]);
   const states = ["all", ...Array.from(new Set(ledger.map((a: AnyData) => String(a.state))))];
+  const bounds = dateBounds(dateRange);
+  const rangeNote = dateRange.preset === "all" ? "All recorded dates" : dateRange.preset === "today" ? "Today · America/Chicago" : dateRange.preset === "custom" ? [bounds.start, bounds.end].filter(Boolean).join(" — ") || "Choose start or end" : dateRange.preset === "7d" ? "Last 7 Chicago days" : "Last 30 Chicago days";
   return <>
-    <div className="page-lead"><div><p className="eyebrow">Application ledger</p><h1>Today Applied · Chicago time</h1><p>Exact state, evidence, and resume attribution.</p></div><RefreshButton onClick={onRefresh} active={refreshing} /></div>
-    <div className="kpi-band kpi-band-wide"><Kpi hero label="Today applied" value={c.today_applied} note="America/Chicago" /><Kpi label="Total applications" value={c.total} /><Kpi label="Submitted" value={c.by_state?.submitted} /><Kpi label="Blocked" value={c.by_state?.blocked} /><Kpi label="Rejected" value={c.by_state?.rejected} /><Kpi label="Parked" value={c.by_state?.parked} /><Kpi label="Submitted · 7 days" value={c.submitted_7d} /><Kpi label="Submitted · 30 days" value={c.submitted_30d} /></div>
-    <Section title="Applications" aside={<span className="count-label">{fmt(shown.length)} rows</span>}>
-      <div className="filters"><label><span>Search</span><input aria-label="Search applications" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Company, role, or ID" /></label><label><span>State</span><select aria-label="Filter by application state" value={filter} onChange={(e) => setFilter(e.target.value)}>{states.map((s) => <option key={s} value={s}>{titleCase(s)}</option>)}</select></label></div>
-      {shown.length === 0 ? <Empty title={ledger.length ? "No matches" : "No applications yet"} body={ledger.length ? "Adjust the search or state filter." : "Claimed postings will appear here with their state history."} /> : <div className="ledger">{shown.map((a: AnyData) => <article className="ledger-row application-row" key={a.app_id}>
+    <div className="page-lead"><div><p className="eyebrow">Application ledger</p><h1>Applications, fully traceable</h1><p>Filter the ledger without losing its evidence trail.</p></div><RefreshButton onClick={onRefresh} active={refreshing} /></div>
+    <div className="kpi-band applications-kpis"><Kpi hero label="Matching applications" value={shown.length} note={rangeNote} /><Kpi label="Submitted" value={counts.submitted} /><Kpi label="Held" value={(counts.held ?? 0) + (counts.needs_me ?? 0)} /><Kpi label="Blocked" value={counts.blocked} /><Kpi label="Rejected" value={counts.rejected} /><Kpi label="Parked" value={counts.parked} /></div>
+    <Section title="Application ledger" aside={<span className="count-label">{fmt(shown.length)} of {fmt(ledger.length)}</span>}>
+      <div className="filter-console">
+        <div className="filters"><label><span>Search</span><input type="search" aria-label="Search applications" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Company, role, reason, or ID" /></label><label><span>State</span><select aria-label="Filter by application state" value={filter} onChange={(e) => setFilter(e.target.value)}>{states.map((s) => <option key={s} value={s}>{titleCase(s)}</option>)}</select></label></div>
+        <DateRangeControl value={dateRange} onChange={setDateRange} label="Filter applications by updated date" />
+      </div>
+      {shown.length === 0 ? <Empty title={ledger.length ? "No applications match" : "No applications yet"} body={ledger.length ? "Change a date, state, or search filter to widen the ledger." : "Claimed postings will appear here with state, evidence, and attribution."} /> : <div className="ledger">{shown.map((a: AnyData) => <article className="ledger-row application-row" key={a.app_id}>
         <div className="ledger-main"><div><h3>{a.role}</h3><p>{a.company}</p></div><Status value={a.state} /></div>
-        <div className="ledger-meta"><span>{a.campaign_id}</span><code>{a.app_id}</code><span>{when(a.updated_at)}</span></div>
+        <div className="ledger-meta"><span>{a.campaign_id}</span><code>{a.app_id}</code><span>{chicagoWhen(a.updated_at)}</span></div>
         <div className="evidence-grid">
           <div className="evidence-cell"><span>Resume used</span>{a.resume_path ? <><WorkspaceFileButton fileRef={{ app_id: String(a.app_id), kind: "resume" }} label={fileName(String(a.resume_path))} displayName={fileName(String(a.resume_path))} />{a.variant_id && <small>{a.variant_id}</small>}{a.resume_hash && <code title={String(a.resume_hash)}>{String(a.resume_hash).slice(0, 12)}…</code>}</> : <b>Not recorded</b>}</div>
           <div className="evidence-cell"><span>Screenshot</span>{a.screenshot_path && a.screenshot_exists ? <ScreenshotEvidence appId={String(a.app_id)} path={String(a.screenshot_path)} /> : <b className="evidence-missing">not captured</b>}</div>
-          <div className="evidence-cell"><span>Talking points</span>{a.talking_points_path && a.prep_exists ? <WorkspaceFileButton fileRef={{ app_id: String(a.app_id), kind: "prep" }} label={fileName(String(a.talking_points_path))} displayName="Recruiter talking points" /> : <b className="evidence-missing">not prepared</b>}</div>
+          <div className="evidence-cell"><span>Reason</span><b className={a.status_reason ? "status-reason" : "evidence-missing"}>{a.status_reason ? String(a.status_reason) : "—"}</b></div>
+          {a.talking_points_path && <div className="evidence-cell"><span>Talking points</span><WorkspaceFileButton fileRef={{ app_id: String(a.app_id), kind: "prep" }} label="Open talking points" displayName={fileName(String(a.talking_points_path))} /><small>{fileName(String(a.talking_points_path))}</small></div>}
         </div>
-        {a.reason && <p className="reason-line"><span>Reason</span> {String(a.reason)}</p>}
         {a.confirmation && <blockquote className="confirmation">“{a.confirmation}”{a.confirmation_path && <small>{fileName(String(a.confirmation_path))}</small>}</blockquote>}
         {a.blocker && <p className="blocker">{a.blocker}</p>}
         {a.url && <a className="text-link" href={a.url} target="_blank" rel="noreferrer">Open posting <Icon name="external" size={14} /></a>}
@@ -203,6 +219,11 @@ function Applications({ data, onRefresh, refreshing }: { data: AnyData; onRefres
     </Section>
   </>;
 }
+
+function suggestedVariantId(filename: string): string {
+  return filename.replace(/\.pdf$/i, "").toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^[._-]+|[._-]+$/g, "");
+}
+
 
 function suggestedVariantId(filename: string): string {
   return filename.replace(/\.pdf$/i, "").toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^[._-]+|[._-]+$/g, "");
@@ -295,9 +316,71 @@ const stageEntries = (tokens: unknown): [string, number][] => {
   });
 };
 
+const eventDetail = (payload: unknown): string => {
+  if (payload === null || payload === undefined) return "";
+  if (typeof payload === "string") return payload;
+  if (typeof payload !== "object" || Array.isArray(payload)) return String(payload);
+  const record = payload as Record<string, unknown>;
+  const preferred = ["message", "summary", "decision", "reason", "result", "status", "stage", "company", "role", "count"];
+  const parts = preferred.flatMap((key) => {
+    const value = record[key];
+    return typeof value === "string" || typeof value === "number" || typeof value === "boolean" ? [`${titleCase(key)}: ${String(value)}`] : [];
+  });
+  if (parts.length > 0) return parts.join(" · ");
+  try {
+    const text = JSON.stringify(payload);
+    return text.length > 360 ? `${text.slice(0, 357)}…` : text;
+  } catch {
+    return "Recorded event payload";
+  }
+};
+
+function RunDetail({ runId, onClose, onChanged }: { runId: string; onClose: () => void; onChanged: () => void }) {
+  const queryClient = useQueryClient();
+  const detail = useQuery({ queryKey: ["run-detail", runId], queryFn: () => api.run_detail({ run_id: runId }), refetchInterval: 15_000, refetchOnMount: "always", staleTime: 0 });
+  const [notice, setNotice] = useState("");
+  const watch = useMutation({
+    mutationFn: (next: { watch_chat?: boolean; capture_browser?: boolean }) => api.run_watch_set({ run_id: runId, ...next }),
+    onSuccess: (result) => {
+      setNotice(result.message);
+      void queryClient.invalidateQueries({ queryKey: ["run-detail", runId] });
+      onChanged();
+    },
+  });
+  const resolve = useMutation({
+    mutationFn: ({ id, answer }: { id: string; answer: string }) => api.approval_resolve({ approval_id: id, answer, judged_by: "run_detail" }),
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ["run-detail", runId] }); onChanged(); },
+  });
+  const data = (detail.data?.data ?? {}) as AnyData;
+  const run = (data.run ?? {}) as AnyData;
+  const events = Array.isArray(data.events) ? data.events : [];
+  const approvals = Array.isArray(data.approvals) ? data.approvals : [];
+  const applications = Array.isArray(data.applications) ? data.applications : [];
+  const postingVerdicts = Array.isArray(data.posting_verdicts) ? data.posting_verdicts : [];
+  const screenshots = applications.filter((app: AnyData) => Boolean(app.screenshot_path));
+  const counts = run.current_state_counts && typeof run.current_state_counts === "object" ? Object.entries(run.current_state_counts as Record<string, unknown>) : [];
+  return <div className="run-detail-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <section className="run-detail-panel" role="dialog" aria-modal="true" aria-labelledby="run-detail-title">
+      <header className="run-detail-head"><div><span>{run.status === "running" ? "Live run" : "Run trace"}</span><h2 id="run-detail-title">{runId}</h2></div><button type="button" onClick={onClose} aria-label={`Close run ${runId}`}>Close</button></header>
+      {detail.isPending ? <div className="loading run-detail-loading"><span /><p>Reading run trace…</p></div> : detail.isError || detail.data?.found === false ? <div className="run-detail-error"><b>Run trace unavailable</b><p>This run could not be read. Try again.</p><button type="button" onClick={() => void detail.refetch()}>Retry</button></div> : <div className="run-detail-content">
+        <div className="run-live-strip"><div><span>Current stage</span><strong>{titleCase(String(run.current_stage ?? run.status ?? "unknown"))}</strong></div><div><span>Status</span><Status value={String(run.status ?? "unknown")} /></div><div><span>Started</span><b>{when(run.started)}</b></div><div><span>Last check</span><b>{when(detail.data?.generated_at)}</b></div></div>
+        {run.blocker && <p className="run-detail-blocker"><b>Blocker</b>{String(run.blocker)}</p>}
+        {counts.length > 0 && <div className="run-counts" aria-label="Current application state counts">{counts.map(([state, value]) => <span key={state}>{titleCase(state)} <b>{fmt(value)}</b></span>)}</div>}
+        <section className="watch-controls" aria-labelledby="watch-title"><div className="watch-copy"><h3 id="watch-title">Follow this run</h3><p>Workers receive these preferences with every event they log.</p></div><label className="watch-toggle"><input type="checkbox" checked={run.watch_chat === true} disabled={watch.isPending} onChange={() => watch.mutate({ watch_chat: run.watch_chat !== true })} /><span><b>Main chat updates</b><small>Phase changes and completion</small></span></label><label className="watch-toggle"><input type="checkbox" checked={run.capture_browser === true} disabled={watch.isPending} onChange={() => watch.mutate({ capture_browser: run.capture_browser !== true })} /><span><b>Browser captures</b><small>Ask the worker to retain key portal steps</small></span></label><p className="watch-limit"><b>Live browser video cannot be streamed into main chat.</b> Captured steps appear below when the worker records them.</p>{notice && <p className="watch-notice" role="status">{notice}</p>}{watch.isError && <p className="inline-error" role="alert">Watch settings could not be saved.</p>}</section>
+        {approvals.length > 0 && <section className="run-detail-section"><div className="run-detail-section-head"><h3>Needs your decision</h3><span>{fmt(approvals.length)} open</span></div><div className="stack">{approvals.map((approval: AnyData) => <article className="approval" key={approval.approval_id}><div><Status value={String(approval.kind)} /><h3>{approval.question}</h3><p>{when(approval.created_at)}{approval.app_id ? ` · ${approval.app_id}` : ""}</p></div><div className="approval-actions">{(Array.isArray(approval.options) ? approval.options : []).map((option: string) => <button type="button" key={option} disabled={resolve.isPending} onClick={() => resolve.mutate({ id: String(approval.approval_id), answer: option })}>{option}</button>)}</div></article>)}</div></section>}
+        {applications.length > 0 && <section className="run-detail-section"><div className="run-detail-section-head"><h3>Applications</h3><span>{fmt(applications.length)} claimed</span></div><div className="run-record-list">{applications.map((app: AnyData) => <article key={app.app_id}><div className="run-record-top"><code>{app.app_id}</code><Status value={String(app.state)} /></div><p><b>Reason</b>{app.status_reason ? String(app.status_reason) : "—"}</p>{app.talking_points_path && <WorkspaceFileButton fileRef={{ app_id: String(app.app_id), kind: "prep" }} label="Open talking points" displayName={fileName(String(app.talking_points_path))} />}</article>)}</div></section>}
+        {postingVerdicts.length > 0 && <section className="run-detail-section"><div className="run-detail-section-head"><h3>Posting verdicts</h3><span>{fmt(postingVerdicts.length)} latest</span></div><div className="run-record-list">{postingVerdicts.map((item: AnyData) => <article key={item.posting_id}><div className="run-record-top"><div><b>{item.role || item.posting_id}</b>{item.company && <span>{item.company}</span>}</div><Status value={String(item.verdict)} /></div><p><b>{titleCase(String(item.stage))}</b>{item.reason ? String(item.reason) : "—"}</p><small>{when(item.at)} · {item.posting_id}</small></article>)}</div></section>}
+        <section className="run-detail-section"><div className="run-detail-section-head"><h3>Activity feed</h3><span>{run.status === "running" ? "Refreshes every 15 seconds" : `${fmt(events.length)} events`}</span></div>{events.length === 0 ? <Empty title="No events yet" body="The run is open, but no skill has logged an event." /> : <ol className="event-feed">{events.map((event: AnyData, index: number) => <li key={event.id}><div className={`event-node${index === 0 ? " latest" : ""}`} /><div><div className="event-top"><b>{titleCase(String(event.type))}</b><time>{when(event.at)}</time></div>{event.app_id && <code>{event.app_id}</code>}{eventDetail(event.payload) && <p>{eventDetail(event.payload)}</p>}</div></li>)}</ol>}</section>
+        <section className="run-detail-section"><div className="run-detail-section-head"><h3>Browser evidence</h3><span>{fmt(screenshots.length)} captures</span></div>{screenshots.length === 0 ? <Empty title="No browser captures" body={run.capture_browser ? "Capture is requested. New evidence will appear here after the worker records it." : "Turn on Browser captures to request evidence at key portal steps."} /> : <div className="browser-captures">{screenshots.map((app: AnyData) => <article key={app.app_id}><div><b>{app.app_id}</b><span>{titleCase(String(app.state))}</span></div><ScreenshotEvidence appId={String(app.app_id)} path={String(app.screenshot_path)} />{app.confirmation && <p>{String(app.confirmation)}</p>}</article>)}</div>}</section>
+      </div>}
+    </section>
+  </div>;
+}
+
 function Runs({ data, onRefresh, refreshing }: { data: AnyData; onRefresh: () => void; refreshing: boolean }) {
   const rows = Array.isArray(data.rows) ? data.rows : [];
   const [dateRange, setDateRange] = useState<DateRange>({ preset: "all", start: "", end: "" });
+  const [selectedRun, setSelectedRun] = useState<string | null>(null);
   const visibleRows = useMemo(() => rows.filter((row: AnyData) => fallsInDateRange(row.started, dateRange)), [rows, dateRange]);
   const reported = visibleRows.filter((row: AnyData) => row.tokens_reported === true);
   const totals = reported.reduce((sum: { input: number; output: number; total: number }, row: AnyData) => ({ input: sum.input + Number(row.tokens_input ?? 0), output: sum.output + Number(row.tokens_output ?? 0), total: sum.total + Number(row.tokens_total ?? 0) }), { input: 0, output: 0, total: 0 });
@@ -325,9 +408,9 @@ function Runs({ data, onRefresh, refreshing }: { data: AnyData; onRefresh: () =>
             return <article className="run-table-row" role="row" key={r.run_id}>
               <div className="run-identity" role="cell" data-label="Run"><code>{r.run_id}</code><time>{when(r.started)}</time></div>
               <div className="run-campaign" role="cell" data-label="Campaign"><b>{r.campaign_id}</b>{r.blocker && <span className="run-blocker">{r.blocker}</span>}</div>
-              <div className="status-pair" role="cell" data-label="Status"><Status value={r.status} /><Status value={r.drift} /></div>
+              <div className="status-pair" role="cell" data-label="Status"><Status value={r.status} /><Status value={r.drift} />{r.watch_chat && <span className="watching-badge">Watching</span>}</div>
               <div className={`token-usage-cell ${r.tokens_reported === true ? "" : "unreported"}`} role="cell" data-label="Token usage" title={usageTitle}>{r.tokens_reported === true ? <><strong>{compactTokens(r.tokens_total)}</strong><span>in {compactTokens(r.tokens_input)} · out {compactTokens(r.tokens_output)}</span>{stages.length > 0 && <details><summary>Stage breakdown</summary><div>{stages.map(([stage, value]) => <span key={stage}>{titleCase(stage)} <b>{compactTokens(value)}</b></span>)}</div></details>}</> : <strong aria-label="Usage not reported">—</strong>}</div>
-              {Array.isArray(r.verdicts) && r.verdicts.length > 0 && <details className="run-verdicts" role="cell" data-label="Posting verdicts"><summary>{r.verdicts.length} posting verdict{r.verdicts.length === 1 ? "" : "s"}</summary><ul>{r.verdicts.map((v: AnyData, i: number) => <li key={`${v.posting_id}-${v.stage}-${i}`}><Status value={String(v.verdict)} /><span className="verdict-stage">{titleCase(String(v.stage))}</span><code>{String(v.posting_id)}</code><span className="verdict-reason">{String(v.reason)}</span></li>)}</ul></details>}
+              <button type="button" className="run-open-button" onClick={() => setSelectedRun(String(r.run_id))}>Open live view <Icon name="chevron" size={15} /></button>
             </article>;
           })}</div>
           <div className="runs-total-row" role="row" title={totalsTitle}><strong role="cell">Total {hasUnreported && <small>(reported runs only)</small>}</strong><span role="cell">Input <b>{compactTokens(totals.input)}</b></span><span role="cell">Output <b>{compactTokens(totals.output)}</b></span><span role="cell">Total <b>{compactTokens(totals.total)}</b></span></div>
@@ -335,6 +418,7 @@ function Runs({ data, onRefresh, refreshing }: { data: AnyData; onRefresh: () =>
         {daily.size > 0 && <div className="daily-token-rollup" aria-label="Token usage by day in America Chicago time">{Array.from(daily.values()).map((day, index) => <span key={`${day.label}-${index}`}>{day.label} <b>{compactTokens(day.total)}</b></span>)}</div>}
       </>}
     </Section>
+    {selectedRun && <RunDetail runId={selectedRun} onClose={() => setSelectedRun(null)} onChanged={onRefresh} />}
   </>;
 }
 

@@ -54,7 +54,7 @@ export const runs = sqliteTable("runs", {
   started: integer("started", { mode: "timestamp_ms" }).notNull(), ended: integer("ended", { mode: "timestamp_ms" }), status: text("status").notNull(),
   counts: text("counts", { mode: "json" }).notNull().default({}), tokens: text("tokens", { mode: "json" }).notNull().default({}),
   tokensInput: integer("tokens_input").notNull().default(0), tokensOutput: integer("tokens_output").notNull().default(0), tokensTotal: integer("tokens_total").notNull().default(0), tokensReported: integer("tokens_reported", { mode: "boolean" }).notNull().default(false),
-  needsMe: integer("needs_me", { mode: "boolean" }).notNull().default(false), compiledConfig: text("compiled_config", { mode: "json" }).notNull().default({}), liveConfig: text("live_config", { mode: "json" }).notNull().default({}), blocker: text("blocker"),
+  needsMe: integer("needs_me", { mode: "boolean" }).notNull().default(false), watchChat: integer("watch_chat", { mode: "boolean" }).notNull().default(false), captureBrowser: integer("capture_browser", { mode: "boolean" }).notNull().default(false), compiledConfig: text("compiled_config", { mode: "json" }).notNull().default({}), liveConfig: text("live_config", { mode: "json" }).notNull().default({}), blocker: text("blocker"),
 });
 
 export const events = sqliteTable("events", {

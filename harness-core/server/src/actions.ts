@@ -903,9 +903,81 @@ export const Actions = {
     async handler(ctx, args) { const db = ctx.db<typeof schema>(); const pending = (await db.select({ count: sql<number>`count(*)` }).from(schema.applications).where(and(eq(schema.applications.runId, args.run_id), eq(schema.applications.state, "applying"), or(isNull(schema.applications.outcome), eq(schema.applications.outcome, "")))))[0]; if (countNumber(pending?.count) > 0) return { ok: false, message: "Run cannot close while applying rows lack an outcome." }; await db.update(schema.runs).set({ ended: now(), status: args.status, counts: args.counts ?? {}, tokens: args.tokens ?? {}, needsMe: args.needs_me ?? false, blocker: args.blocker ?? null }).where(eq(schema.runs.runId, args.run_id)); ctx.invalidateQueries(); return { ok: true }; },
   }),
 
+  run_detail: defineAction({
+    request: z.object({ run_id: z.string().min(1) }),
+    response: z.object({ found: z.boolean(), generated_at: z.string(), data: z.unknown().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const run = (await db.select().from(schema.runs).where(eq(schema.runs.runId, args.run_id)).limit(1))[0];
+      if (!run) return { found: false, generated_at: now().toISOString(), data: null };
+      const eventRows = await db.select().from(schema.events).where(eq(schema.events.runId, args.run_id)).orderBy(desc(schema.events.at), desc(schema.events.id)).limit(250);
+      const appRows = await db.select().from(schema.applications).where(eq(schema.applications.runId, args.run_id)).orderBy(desc(schema.applications.updatedAt));
+      const verdictRows = await db.select({
+        postingId: schema.postingVerdicts.postingId, stage: schema.postingVerdicts.stage, verdict: schema.postingVerdicts.verdict,
+        reason: schema.postingVerdicts.reason, at: schema.postingVerdicts.at, company: schema.postings.company, role: schema.postings.role,
+      }).from(schema.postingVerdicts).leftJoin(schema.postings, eq(schema.postingVerdicts.postingId, schema.postings.postingId)).where(eq(schema.postingVerdicts.runId, args.run_id)).orderBy(desc(schema.postingVerdicts.at));
+      const seenPostings = new Set<string>();
+      const latestPostingVerdicts = verdictRows.filter((row) => {
+        if (seenPostings.has(row.postingId)) return false;
+        seenPostings.add(row.postingId);
+        return true;
+      });
+      const appIds = appRows.map((row) => row.appId);
+      const approvalRows = appIds.length > 0
+        ? await db.select().from(schema.approvals).where(and(inArray(schema.approvals.appId, appIds), isNull(schema.approvals.resolvedAt))).orderBy(asc(schema.approvals.createdAt))
+        : [];
+      const stateCounts = Object.fromEntries(Object.entries(appRows.reduce<Record<string, number>>((counts, row) => {
+        counts[row.state] = (counts[row.state] ?? 0) + 1;
+        return counts;
+      }, {})).sort(([left], [right]) => left.localeCompare(right)));
+      return {
+        found: true,
+        generated_at: now().toISOString(),
+        data: {
+          run: {
+            run_id: run.runId, campaign_id: run.campaignId, kit_version: run.kitVersion,
+            started: run.started.toISOString(), ended: iso(run.ended), status: run.status,
+            counts: run.counts, current_state_counts: stateCounts, needs_me: run.needsMe,
+            blocker: run.blocker, watch_chat: run.watchChat, capture_browser: run.captureBrowser,
+            current_stage: eventRows[0]?.type ?? (run.status === "running" ? "starting" : run.status),
+          },
+          events: eventRows.map((event) => ({ id: event.id, app_id: event.appId, type: event.type, payload: event.payload, at: event.at.toISOString() })),
+          approvals: approvalRows.map((approval) => ({ approval_id: approval.approvalId, kind: approval.kind, app_id: approval.appId, question: approval.question, options: approval.options, created_at: approval.createdAt.toISOString() })),
+          applications: appRows.map((app) => ({ app_id: app.appId, posting_id: app.postingId, state: app.state, status_reason: app.statusReason, blocker: app.blocker, outcome: app.outcome, talking_points_path: app.talkingPointsPath, screenshot_path: app.screenshotPath, confirmation: app.confirmation, updated_at: app.updatedAt.toISOString() })),
+          posting_verdicts: latestPostingVerdicts.map((row) => ({ posting_id: row.postingId, company: row.company, role: row.role, stage: row.stage, verdict: row.verdict, reason: row.reason, at: row.at.toISOString() })),
+        },
+      };
+    },
+  }),
+
+  run_watch_set: defineAction({
+    request: z.object({ run_id: z.string().min(1), watch_chat: z.boolean().optional(), capture_browser: z.boolean().optional() }).superRefine((value, ctx) => {
+      if (value.watch_chat === undefined && value.capture_browser === undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Choose at least one watch setting." });
+    }),
+    response: z.object({ ok: z.boolean(), message: z.string(), watch_chat: z.boolean(), capture_browser: z.boolean() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const run = (await db.select().from(schema.runs).where(eq(schema.runs.runId, args.run_id)).limit(1))[0];
+      if (!run) return { ok: false, message: "Run not found.", watch_chat: false, capture_browser: false };
+      const watchChat = args.watch_chat ?? run.watchChat;
+      const captureBrowser = args.capture_browser ?? run.captureBrowser;
+      await db.update(schema.runs).set({ watchChat, captureBrowser }).where(eq(schema.runs.runId, args.run_id));
+      await db.insert(schema.events).values({ runId: args.run_id, type: "watch_settings_changed", payload: { watch_chat: watchChat, capture_browser: captureBrowser }, at: now() });
+      ctx.invalidateQueries();
+      return { ok: true, message: run.status === "running" ? "Watch settings saved for this run." : "Watch settings saved. This run is no longer active.", watch_chat: watchChat, capture_browser: captureBrowser };
+    },
+  }),
+
   event_log: defineAction({
-    request: z.object({ run_id: z.string().nullable().optional(), app_id: z.string().nullable().optional(), type: z.string(), payload: jsonValue.optional(), at: z.string().datetime().optional() }), response: z.object({ id: z.number() }),
-    async handler(ctx, args) { const result = await ctx.db<typeof schema>().insert(schema.events).values({ runId: args.run_id ?? null, appId: args.app_id ?? null, type: args.type, payload: args.payload ?? {}, at: args.at ? new Date(args.at) : now() }).returning({ id: schema.events.id }); const inserted = result[0]; if (!inserted) throw new Error("Event could not be logged."); ctx.invalidateQueries(); return { id: inserted.id }; },
+    request: z.object({ run_id: z.string().nullable().optional(), app_id: z.string().nullable().optional(), type: z.string(), payload: jsonValue.optional(), at: z.string().datetime().optional() }), response: z.object({ id: z.number(), watch_chat: z.boolean(), capture_browser: z.boolean() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const result = await db.insert(schema.events).values({ runId: args.run_id ?? null, appId: args.app_id ?? null, type: args.type, payload: args.payload ?? {}, at: args.at ? new Date(args.at) : now() }).returning({ id: schema.events.id });
+      const inserted = result[0]; if (!inserted) throw new Error("Event could not be logged.");
+      const run = args.run_id ? (await db.select({ watchChat: schema.runs.watchChat, captureBrowser: schema.runs.captureBrowser }).from(schema.runs).where(eq(schema.runs.runId, args.run_id)).limit(1))[0] : undefined;
+      ctx.invalidateQueries();
+      return { id: inserted.id, watch_chat: run?.watchChat ?? false, capture_browser: run?.captureBrowser ?? false };
+    },
   }),
 
   test_data_purge: defineAction({
@@ -1375,6 +1447,8 @@ export const Actions = {
           tokens_reported: r.tokensReported,
           needs_me: r.needsMe,
           blocker: r.blocker,
+          watch_chat: r.watchChat,
+          capture_browser: r.captureBrowser,
           drift: JSON.stringify(r.compiledConfig) === JSON.stringify(r.liveConfig) ? "in_sync" : "drift",
           compiled_config: r.compiledConfig,
           live_config: r.liveConfig,
