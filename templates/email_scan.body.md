@@ -14,8 +14,11 @@ never={{profile.reply_tiers.never}}.
 
 ## 2. Run the replier skill
 Invoke the email-replier skill (~/workspace/skills/email-replier/SKILL.md):
-- Scan and reply ONLY via the outlook-mail skill, using the connected Outlook
-  account {{profile.identity.email}}. Never use Gmail.
+- Scan and reply through the customer's connected mailbox ONLY: use the
+  outlook-mail skill when the customer connected Outlook, or the gmail skill
+  when they connected Gmail. Check which mailbox connector is connected at
+  run start and use that one; never use a mailbox that is not connected.
+  The mailbox account is {{profile.identity.email}}.
 - Scan the mailbox since the `conversations` watermark only.
 - Per inbound message: classify → route by tier → act. One `replies` row per
   action (sent / auto_sent / held / skipped), citing the rule id (R1–R8).

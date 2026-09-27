@@ -79,6 +79,9 @@ versions follow [Semantic Versioning](https://semver.org/).
   recruiter questions answered in order, one clear next step per email.
 - The `snapshot` "vendors" view is removed; dataset browsing goes through
   `dataset_browse`.
+- The kit's `email_scan` template is mailbox-agnostic: customers can connect
+  Outlook or Gmail and the scan uses whichever is connected (the personal
+  template keeps the operator's Outlook-only rule).
 - `h1b-judge` 1.1.1 documents the soft-gate wording used with the new
   provenance fields.
 
