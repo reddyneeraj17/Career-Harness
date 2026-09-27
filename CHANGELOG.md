@@ -4,7 +4,7 @@ All notable changes to the Job-Apply Harness kit are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.2.3] — 2026-09-26
 
 ### Fixed
 - **Onboarding converter now ships in the kit**: the `client-onboarding`
