@@ -1,8 +1,9 @@
 <!-- PROPRIETARY — Career Harness (c) 2026 Neeraj Reddy. Licensed customers only: no redistribution, no sharing, no export. Core files are read-only — see CUSTOMER_RULES.md. Full terms in LICENSE. -->
 
+
 ---
 name: email-replier
-version: "1.1.0"
+version: "1.2.0"
 description: Classifies inbound email, routes it by reply tiers, and sends or holds recruiter replies under rules R1-R8.
 ---
 
@@ -51,12 +52,38 @@ description: Classifies inbound email, routes it by reply tiers, and sends or ho
 3. Record `reply_log` with `action: 'sent'`, `rule_id` of the original classification, and `reason: 'approved_held:<reply_id>'`.
 4. Never re-send an approved draft twice; never send a held draft the customer discarded.
 
-**Voice:** 2-4 short sentences, plain words, like replying from a phone. Never em dashes. Never "hope this finds you well".
+**Writing the email — format rules (the email body must look clean and professional):**
+
+1. **Shape.** Greeting on its own line, blank line, 1–3 short paragraphs separated by blank lines, blank line, sign-off (`Best,` or `Thanks,`) with `Neeraj` on the next line. Never a wall of text; never one giant paragraph.
+2. **Plain text only.** No markdown inside the email body — no `**bold**`, no `# headers`, no `[links]`. Markdown belongs only in the draft file's metadata wrapper around the email.
+3. **No hard line-wrapping.** Write natural flowing lines and let the mail client wrap. Do not break lines at a fixed width.
+4. **Bullets for lists.** When the email lists 2+ items (availability windows, questions for the recruiter, qualifications), put one item per line starting with a dash. Keep each item to one line.
+5. **Answer in order.** Reply to the recruiter's questions in the same order they asked them.
+6. **One next step.** Every email ends with a single clear ask or action (share the JD, suggest a call, confirm a detail).
+7. **Voice.** Warm but professional, plain words. Never "hope this finds you well". Never em dashes.
+
+Example of the shape (R1 outreach reply):
+
+```
+Hi Kunal,
+
+Thanks for reaching out about the Senior Data Engineer role at Acme — it looks like a strong fit for my background in streaming data platforms.
+
+A few quick questions:
+- Is this a full-time direct-hire role?
+- Could you share the full job description?
+- Does the client sponsor H-1B visas?
+
+Happy to jump on a brief call once I have the details. What does your schedule look like early next week?
+
+Best,
+Neeraj
+```
 
 ## Output
 
 ```json
-{"skill":"email-replier","version":"1.0.0","verdict":"pass|hold|reject","score":0-100,
+{"skill":"email-replier","version":"1.2.0","verdict":"pass|hold|reject","score":0-100,
  "reasons":["R1: outreach fits; auto_send tier"],
  "evidence":{"action":"sent|auto_sent|held|skipped","rule_id":"R1","draft_path":"goals/.../drafts/<file>.md"},
  "tokens":1234}

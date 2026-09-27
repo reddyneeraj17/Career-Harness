@@ -73,6 +73,10 @@ versions follow [Semantic Versioning](https://semver.org/).
   and privacy rules.
 
 ### Changed
+- **email-replier 1.2.0**: drafts now follow strict email format rules —
+  proper greeting/body/sign-off shape, plain text (no markdown) in the
+  email body, no hard line-wrapping, dash bullets for 2+ item lists,
+  recruiter questions answered in order, one clear next step per email.
 - The `snapshot` "vendors" view is removed; dataset browsing goes through
   `dataset_browse`.
 - `h1b-judge` 1.1.1 documents the soft-gate wording used with the new
