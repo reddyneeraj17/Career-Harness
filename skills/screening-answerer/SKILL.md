@@ -2,13 +2,14 @@
 
 ---
 name: screening-answerer
-version: "1.2.0"
+version: "1.3.0"
 description: Answers one application screening question from the client persona (Excel-loaded) first, then standing profile answers, honoring the posting's selected employment lane; holds anything unknown for user review.
 ---
 
 # screening-answerer
 
 > Changelog 1.2.0 (2026-09-27): Accepts `selected_lane` (the posting's canonical employment lane from eligibility); lane context only selects among profile-stated facts — it never invents lane-specific claims. Unknown or lane-ambiguous questions still hold.
+> Changelog 1.3.0 (2026-09-27): "Answer shaping" — per-type composition formats and length calibration for the DERIVED-answers path only; verbatim persona/profile answers are never reshaped, unknowns still hold.
 
 ## Inputs
 
@@ -58,6 +59,47 @@ the right profile facts.
    `field_name`. The user reviews and the answer is recorded once — never
    asked twice, never guessed.
 
+## Answer shaping (DERIVED answers only)
+
+Shaping applies ONLY to answers composed on the derived path (lookup step
+2). Verbatim answers from `persona.screening.answers` (step 1) and
+`profile_answers` (step 3) ship exactly as written — never reshaped, never
+reworded. Unknowns still hold.
+
+**Per-type composition formats:**
+
+- **Experience/background** ("How many years with X?", "Describe your
+  experience with Y"): `[Technology] — [X years]. [One sentence: what you
+  used it for, anchored to a real project from the persona.]` Years come
+  only from `years_matrix`; the project anchor must be a real one.
+- **Behavioral/situational** ("Tell me about a time…", "How do you
+  handle…"): condensed STAR without labels — first-person, 3–4 sentences,
+  end on the result. Every detail traceable to persona facts.
+- **Why-this-company/role:** one specific JD-anchored reason + one
+  persona-anchored fit fact. No generic praise.
+- **Open-ended** ("Tell us about yourself"): 2–3 sentences — current
+  scope, key strengths with one anchored result, what you're looking for
+  (from preferences).
+
+**Length calibration (hard limits):**
+
+| Field type | Limit |
+|---|---|
+| Single-line input | 1 sentence |
+| Short answer | 2–4 sentences |
+| Textarea / long answer | 100–250 words |
+
+**Anti-patterns (never in a derived answer):**
+
+- Don't repeat the JD back ("I see you need Spark…" with nothing added).
+- No generic trait claims ("hard worker", "fast learner", "detail-oriented")
+  without an anchored fact.
+- Don't over-qualify or apologize for gaps. Rewrite instead of hedging:
+  "While I may not have exactly 5 years…" →
+  "The role mentions 5 years — I'm at 3, but the systems I've shipped are
+  production-facing." (Years honest per the years rule; the adjacent
+  strength must be a persona fact.)
+
 ## Lane handling
 
 `selected_lane` tells the skill which employment arrangement this posting
@@ -84,7 +126,7 @@ uses. It narrows — never invents:
 The verdict envelope:
 
 ```json
-{"skill":"screening-answerer","version":"1.2.0","verdict":"pass|hold",
+{"skill":"screening-answerer","version":"1.3.0","verdict":"pass|hold",
  "score":0-100,"reasons":["..."],
  "evidence":{"answer":"Yes","source":"persona.screening.answers","selected_lane":"w2_contract"},
  "tokens":1234}

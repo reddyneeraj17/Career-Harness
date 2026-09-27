@@ -148,10 +148,10 @@ function ScreenshotEvidence({ appId, path }: { appId: string; path: string }) {
   return <a className="screenshot-link" href={asset.data.file_url} target="_blank" rel="noreferrer" download={asset.data.filename} aria-label={`Open submission screenshot ${asset.data.filename}`}><img src={asset.data.file_url} alt="Submission evidence screenshot" /><span>Open capture</span></a>;
 }
 
-function Section({ title, aside, children, className = "", collapsible = false, defaultCollapsed = false }: { title: string; aside?: ReactNode; children: ReactNode; className?: string; collapsible?: boolean; defaultCollapsed?: boolean }) {
+function Section({ title, aside, children, className = "", id, collapsible = false, defaultCollapsed = false }: { title: string; aside?: ReactNode; children: ReactNode; className?: string; id?: string; collapsible?: boolean; defaultCollapsed?: boolean }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const toggle = () => setCollapsed((c) => !c);
-  return <section className={`section ${className}${collapsed ? " is-collapsed" : ""}`}>
+  return <section className={`section ${className}${collapsed ? " is-collapsed" : ""}`} id={id}>
     <div className={`section-head${collapsible ? " section-head-toggle" : ""}`} onClick={collapsible ? toggle : undefined} onKeyDown={collapsible ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } } : undefined} role={collapsible ? "button" : undefined} tabIndex={collapsible ? 0 : undefined} aria-expanded={collapsible ? !collapsed : undefined} aria-label={collapsible ? `${collapsed ? "Expand" : "Collapse"} ${title}` : undefined}>
       <h2>{collapsible && <Icon name="chevron" size={14} />}{title}</h2>{aside}
     </div>
@@ -159,21 +159,58 @@ function Section({ title, aside, children, className = "", collapsible = false, 
   </section>;
 }
 
+// LinkedIn optimizer (v1.2.6): per-section proposal card with side-by-side
+// current/proposed text and Approve / Edit / Discard. Edit lets the customer
+// rewrite the proposal inline; the edited text is stored on the approval and
+// is what the apply worker uses.
+function LinkedInApprovalCard({ a, onResolve, resolving }: { a: AnyData; onResolve: (id: string, answer: string, editedText?: string) => void; resolving: boolean }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(String(a.proposed_text ?? ""));
+  const section = String(a.section ?? "section");
+  return <article className="linkedin-card">
+    <div><Status value="linkedin_section" /><h3>LinkedIn · {section}</h3><p className="muted">{String(a.question ?? "")}</p><p className="muted">{when(a.created_at)}</p></div>
+    {editing ? <>
+      <textarea aria-label={`Edited ${section} text`} value={draft} onChange={(e) => setDraft(e.target.value)} />
+      <div className="approval-actions">
+        <button disabled={resolving || !draft.trim()} onClick={() => onResolve(String(a.approval_id), "approved", draft.trim())}>{resolving ? "Saving…" : "Save & approve"}</button>
+        <button disabled={resolving} onClick={() => { setEditing(false); setDraft(String(a.proposed_text ?? "")); }}>Cancel</button>
+      </div>
+    </> : <>
+      <div className="linkedin-diff">
+        <figure><figcaption>Current</figcaption><pre>{String(a.current_text ?? "—")}</pre></figure>
+        <figure><figcaption>Proposed</figcaption><pre className="proposed">{String(a.proposed_text ?? "—")}</pre></figure>
+      </div>
+      <div className="approval-actions">
+        <button disabled={resolving} onClick={() => onResolve(String(a.approval_id), "approved")}>Approve</button>
+        <button disabled={resolving} onClick={() => { setDraft(String(a.proposed_text ?? "")); setEditing(true); }}>Edit</button>
+        <button disabled={resolving} onClick={() => onResolve(String(a.approval_id), "discarded")}>Discard</button>
+      </div>
+    </>}
+  </article>;
+}
+
 function Overview({ data, onRefresh, refreshing }: { data: AnyData; onRefresh: () => void; refreshing: boolean }) {
   const c = data.counts ?? { by_state: {} }; const approvals = Array.isArray(data.approvals) ? data.approvals : [];
   const [question, setQuestion] = useState(""); const [answer, setAnswer] = useState<AnyData | null>(null);
   const ask = useMutation({ mutationFn: (query: string) => api.snapshot({ view: "ask", query }), onSuccess: (r) => setAnswer((r.data ?? {}) as AnyData) });
-  const resolve = useMutation({ mutationFn: ({ id, answer }: { id: string; answer: string }) => api.approval_resolve({ approval_id: id, answer, judged_by: "dashboard" }), onSuccess: onRefresh });
+  const resolve = useMutation({ mutationFn: ({ id, answer, editedText }: { id: string; answer: string; editedText?: string }) => api.approval_resolve({ approval_id: id, answer, judged_by: "dashboard", edited_text: editedText }), onSuccess: onRefresh });
+  const optimize = useMutation({ mutationFn: () => api.linkedin_optimize_start({}), onSuccess: onRefresh });
   const submitAsk = (e: FormEvent) => { e.preventDefault(); const q = question.trim(); if (q) ask.mutate(q); };
+  const linkedInApprovals = approvals.filter((a: AnyData) => a.kind === "linkedin_section");
+  const otherApprovals = approvals.filter((a: AnyData) => a.kind !== "linkedin_section");
   return <>
-    <div className="page-lead"><div><p className="eyebrow">Live control plane</p><h1>What needs attention now?</h1><p>Throughput, fleet signal, and decisions from one store.</p></div><RefreshButton onClick={onRefresh} active={refreshing} /></div>
+    <div className="page-lead"><div><p className="eyebrow">Live control plane</p><h1>What needs attention now?</h1><p>Throughput, fleet signal, and decisions from one store.</p></div><div className="page-actions"><button type="button" className="optimize-btn" disabled={optimize.isPending} onClick={() => optimize.mutate()} title="Start a LinkedIn profile optimization run: audit, propose per-section rewrites, apply only what you approve."><Icon name="play" /><span>{optimize.isPending ? "Starting…" : "Optimize LinkedIn"}</span></button><RefreshButton onClick={onRefresh} active={refreshing} /></div></div>
+    {optimize.isError && <p className="inline-error" role="alert">Could not start the LinkedIn optimizer. Try again.</p>}
     <div className="kpi-band"><Kpi hero label="Total applications" value={c.total} note="All recorded states" /><Kpi label="Submitted" value={c.by_state?.submitted} /><Kpi label="Blocked" value={c.by_state?.blocked} /><Kpi label="Runs · 24h" value={data.runs_24h} /><Kpi label="Events · 24h" value={data.events_24h} /></div>
     <div className="overview-grid">
       <Section title="Fleet health · 24 hours" aside={<span className="live-dot">Live</span>}>
         <div className="signal"><div className="signal-ring"><strong>{fmt(data.healthy_runs_24h)}</strong><span>healthy</span></div><div><p><b>{fmt(data.runs_24h)}</b> runs observed</p><p><b>{fmt(data.events_24h)}</b> ledger events</p><p className="muted">Health is derived from runs and events.</p></div></div>
       </Section>
-      <Section title="Approval batch" aside={<span className="count-label">{fmt(approvals.length)} open</span>}>
-        {approvals.length === 0 ? <Empty title="Queue clear" body="New approval requests will appear here." /> : <div className="stack">{approvals.map((a: AnyData) => <article className="approval" key={a.approval_id}><div><Status value={a.kind} /><h3>{a.question}</h3><p>{when(a.created_at)}</p></div><div className="approval-actions">{(Array.isArray(a.options) ? a.options : []).map((option: string) => <button key={option} onClick={() => resolve.mutate({ id: a.approval_id, answer: option })}>{option}</button>)}</div></article>)}</div>}
+      <Section title="Approval batch" id="approval-batch" aside={<span className="count-label">{fmt(approvals.length)} open</span>}>
+        {approvals.length === 0 ? <Empty title="Queue clear" body="New approval requests will appear here." /> : <div className="stack">
+          {linkedInApprovals.map((a: AnyData) => <LinkedInApprovalCard key={a.approval_id} a={a} resolving={resolve.isPending} onResolve={(id, answer, editedText) => resolve.mutate({ id, answer, editedText })} />)}
+          {otherApprovals.map((a: AnyData) => <article className="approval" key={a.approval_id}><div><Status value={a.kind} /><h3>{a.question}</h3><p>{when(a.created_at)}</p></div><div className="approval-actions">{(Array.isArray(a.options) ? a.options : []).map((option: string) => <button key={option} onClick={() => resolve.mutate({ id: a.approval_id, answer: option })}>{option}</button>)}</div></article>)}
+        </div>}
       </Section>
     </div>
     <Section title="Ask the ledger" aside={<span className="source-note">Deterministic routing</span>} className="ask-section">
@@ -504,7 +541,117 @@ const eventDetail = (payload: unknown): string => {
   }
 };
 
-function RunDetail({ runId, onClose, onChanged }: { runId: string; onClose: () => void; onChanged: () => void }) {
+// --- Run suggestions + Ask about this run (v1.2.6) ---
+// Deterministic, derived only from run_detail data — no LLM, no schema change.
+
+type SuggestionAction = "retry_browser" | "review_blocker" | "review_approvals" | "open_event_log" | "watch_hint";
+type RunSuggestion = { id: string; label: string; why: string; action: SuggestionAction };
+
+function isOpenApproval(a: AnyData): boolean {
+  return (a.resolved_at ?? a.resolvedAt) == null;
+}
+
+function suggestForRun(run: AnyData, approvals: AnyData[], events: AnyData[]): RunSuggestion[] {
+  const out: RunSuggestion[] = [];
+  const blocker = String(run.blocker ?? "");
+  const campaign = String(run.campaign_id ?? "");
+  const status = String(run.status ?? "");
+  const active = (run.ended ?? run.ended_at ?? run.endedAt) == null;
+
+  if (/(^|[^a-z0-9])(999|bot[ -]?block|rate[ -]?limit)([^a-z0-9]|$)/i.test(blocker)) {
+    let why = "The text fetch was bot-blocked; the live browser route is not.";
+    if (campaign === "linkedin_optimize") why += " The optimizer skill delegates browser steps to the parent agent.";
+    out.push({ id: "retry-browser", label: "Retry this run via the live browser route", why, action: "retry_browser" });
+  } else if (blocker.trim()) {
+    const short = blocker.length > 160 ? `${blocker.slice(0, 160).trimEnd()}…` : blocker;
+    out.push({ id: "review-blocker", label: "Review the blocker", why: short, action: "review_blocker" });
+  }
+
+  const open = approvals.filter(isOpenApproval);
+  if (open.length > 0) out.push({ id: "review-approvals", label: `Review ${open.length} pending approval${open.length === 1 ? "" : "s"}`, why: `${open.length} decision${open.length === 1 ? " is" : "s are"} waiting on you.`, action: "review_approvals" });
+
+  const failed = status === "failed" || status === "completed_with_issues" || events.some((e: AnyData) => /^(fail|failed|error)$/i.test(String(e?.payload?.verdict ?? e?.verdict ?? "")));
+  if (failed) out.push({ id: "open-event-log", label: "Open the event log for this run", why: "See what failed and the recorded reason.", action: "open_event_log" });
+
+  if (active) out.push({ id: "watch-hint", label: "Watch in chat", why: "Flip the watch toggle to get screenshots in chat as it works.", action: "watch_hint" });
+
+  return out.slice(0, 3);
+}
+
+async function copyText(text: string): Promise<boolean> {
+  try { await navigator.clipboard.writeText(text); return true; } catch { /* clipboard may be unavailable */ }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta); return ok;
+  } catch { return false; }
+}
+
+function RunSuggestions({ run, approvals, events, onAction }: {
+  run: AnyData; approvals: AnyData[]; events: AnyData[];
+  onAction: (action: SuggestionAction, suggestion: RunSuggestion) => void;
+}) {
+  const suggestions = useMemo(() => suggestForRun(run, approvals, events), [run, approvals, events]);
+  if (suggestions.length === 0) return null;
+  return <section className="run-suggestions" aria-label="Suggested next steps">
+    <h3>Suggested next steps</h3>
+    <ul>{suggestions.map((s) => <li key={s.id}>
+      <button type="button" className="suggestion-btn" onClick={() => onAction(s.action, s)}>{s.label}</button>
+      <p>{s.why}</p>
+    </li>)}</ul>
+  </section>;
+}
+
+function AskAboutRun({ run, approvals, events, onAsked }: { run: AnyData; approvals: AnyData[]; events: AnyData[]; onAsked: () => void }) {
+  const [question, setQuestion] = useState("");
+  const [toast, setToast] = useState("");
+  const log = useMutation({
+    mutationFn: (q: string) => api.event_log({ type: "run_question_asked", run_id: String(run.run_id), payload: { question: q } }),
+  });
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    const q = question.trim();
+    if (!q) return;
+    const lines: string[] = [
+      `run_id: ${run.run_id}`,
+      `campaign: ${run.campaign_id ?? "—"}`,
+      `mode: ${run.mode ?? "—"}`,
+      `status: ${run.status ?? "—"}`,
+      `stage: ${run.current_stage ?? "—"}`,
+    ];
+    if (run.blocker) lines.push(`blocker: ${run.blocker}`);
+    const counts = run.current_state_counts && typeof run.current_state_counts === "object"
+      ? Object.entries(run.current_state_counts as Record<string, unknown>).map(([k, v]) => `${k}=${v}`).join(", ") : "";
+    if (counts) lines.push(`state counts: ${counts}`);
+    const recent = events.slice(0, 8).map((ev: AnyData) => {
+      const p = (ev.payload ?? {}) as AnyData;
+      return `- ${ev.type} @ ${ev.at}${p.verdict ? ` · verdict ${p.verdict}` : ""}${p.reason ? ` · ${String(p.reason).slice(0, 120)}` : ""}`;
+    });
+    if (recent.length) lines.push("recent events:", ...recent);
+    const open = approvals.filter(isOpenApproval).slice(0, 5).map((a: AnyData) => `- ${a.kind ?? "approval"}: ${String(a.question ?? a.section ?? "").slice(0, 100)}`);
+    if (open.length) lines.push("open approvals:", ...open);
+    const prompt = `Ask Muse about run ${run.run_id} (${run.campaign_id ?? "unknown campaign"}): ${q}\n\n--- run context ---\n${lines.join("\n")}`;
+    const ok = await copyText(prompt);
+    setToast(ok ? "Copied — paste it into the main chat and send; Muse will answer with full run context." : "Copy failed — select the prompt text manually.");
+    setQuestion("");
+    try { await log.mutateAsync(q); } catch { /* feed record is best-effort */ }
+    onAsked();
+    window.setTimeout(() => setToast(""), 8000);
+  };
+  return <section className="run-ask" aria-label="Ask about this run">
+    <h3>Ask about this run</h3>
+    <form className="run-ask-form" onSubmit={(e) => { void submit(e); }}>
+      <input aria-label="Ask about this run" value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="e.g. Why did this run get blocked?" />
+      <button type="submit" disabled={!question.trim()}>Send</button>
+    </form>
+    {toast && <p className="run-ask-toast" role="status">{toast}</p>}
+    <p className="muted">The question and a compact run summary are copied for the main chat, and the question is recorded in this run's activity feed.</p>
+  </section>;
+}
+
+function RunDetail({ runId, onClose, onChanged, onOpenApprovals }: { runId: string; onClose: () => void; onChanged: () => void; onOpenApprovals: () => void }) {
   const queryClient = useQueryClient();
   const detail = useQuery({ queryKey: ["run-detail", runId], queryFn: () => api.run_detail({ run_id: runId }), refetchInterval: 15_000, refetchOnMount: "always", staleTime: 0 });
   const [notice, setNotice] = useState("");
@@ -528,25 +675,40 @@ function RunDetail({ runId, onClose, onChanged }: { runId: string; onClose: () =
   const postingVerdicts = Array.isArray(data.posting_verdicts) ? data.posting_verdicts : [];
   const screenshots = applications.filter((app: AnyData) => Boolean(app.screenshot_path));
   const counts = run.current_state_counts && typeof run.current_state_counts === "object" ? Object.entries(run.current_state_counts as Record<string, unknown>) : [];
+  const blockerRef = useRef<HTMLParagraphElement>(null);
+  const feedRef = useRef<HTMLElement>(null);
+  const watchRef = useRef<HTMLElement>(null);
+  const scrollTo = (ref: React.RefObject<HTMLElement | HTMLParagraphElement | null>) => ref.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  const onSuggestion = (action: SuggestionAction) => {
+    if (action === "retry_browser") {
+      void copyText(`Retry run ${runId} via the live browser route`).then((ok) => setNotice(ok ? "Retry prompt copied — paste it into the main chat to re-run via the live browser." : "Copy failed — the retry prompt could not be copied."));
+    } else if (action === "review_blocker") scrollTo(blockerRef);
+    else if (action === "review_approvals") onOpenApprovals();
+    else if (action === "open_event_log") scrollTo(feedRef);
+    else if (action === "watch_hint") { scrollTo(watchRef); setNotice("Turn on Main chat updates below to follow this run in chat."); }
+  };
+  const onAsked = () => { void queryClient.invalidateQueries({ queryKey: ["run-detail", runId] }); onChanged(); };
   return <div className="run-detail-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="run-detail-panel" role="dialog" aria-modal="true" aria-labelledby="run-detail-title">
       <header className="run-detail-head"><div><span>{run.status === "running" ? "Live run" : "Run trace"}</span><h2 id="run-detail-title">{runId}</h2></div><button type="button" onClick={onClose} aria-label={`Close run ${runId}`}>Close</button></header>
       {detail.isPending ? <div className="loading run-detail-loading"><span /><p>Reading run trace…</p></div> : detail.isError || detail.data?.found === false ? <div className="run-detail-error"><b>Run trace unavailable</b><p>This run could not be read. Try again.</p><button type="button" onClick={() => void detail.refetch()}>Retry</button></div> : <div className="run-detail-content">
         <div className="run-live-strip"><div><span>Current stage</span><strong>{titleCase(String(run.current_stage ?? run.status ?? "unknown"))}</strong></div><div><span>Status</span><Status value={String(run.status ?? "unknown")} /></div><div><span>Started</span><b>{when(run.started)}</b></div><div><span>Last check</span><b>{when(detail.data?.generated_at)}</b></div></div>
-        {run.blocker && <p className="run-detail-blocker"><b>Blocker</b>{String(run.blocker)}</p>}
+        {run.blocker && <p className="run-detail-blocker" ref={blockerRef}><b>Blocker</b>{String(run.blocker)}</p>}
         {counts.length > 0 && <div className="run-counts" aria-label="Current application state counts">{counts.map(([state, value]) => <span key={state}>{titleCase(state)} <b>{fmt(value)}</b></span>)}</div>}
-        <section className="watch-controls" aria-labelledby="watch-title"><div className="watch-copy"><h3 id="watch-title">Follow this run</h3><p>Workers receive these preferences with every event they log.</p></div><label className="watch-toggle"><input type="checkbox" checked={run.watch_chat === true} disabled={watch.isPending} onChange={() => watch.mutate({ watch_chat: run.watch_chat !== true })} /><span><b>Main chat updates</b><small>Phase changes and completion</small></span></label><label className="watch-toggle"><input type="checkbox" checked={run.capture_browser === true} disabled={watch.isPending} onChange={() => watch.mutate({ capture_browser: run.capture_browser !== true })} /><span><b>Browser captures</b><small>Ask the worker to retain key portal steps</small></span></label><p className="watch-limit"><b>Live browser video cannot be streamed into main chat.</b> Captured steps appear below when the worker records them.</p>{notice && <p className="watch-notice" role="status">{notice}</p>}{watch.isError && <p className="inline-error" role="alert">Watch settings could not be saved.</p>}</section>
+        <RunSuggestions run={run} approvals={approvals} events={events} onAction={onSuggestion} />
+        <AskAboutRun run={run} approvals={approvals} events={events} onAsked={onAsked} />
+        <section className="watch-controls" ref={watchRef} aria-labelledby="watch-title"><div className="watch-copy"><h3 id="watch-title">Follow this run</h3><p>Workers receive these preferences with every event they log.</p></div><label className="watch-toggle"><input type="checkbox" checked={run.watch_chat === true} disabled={watch.isPending} onChange={() => watch.mutate({ watch_chat: run.watch_chat !== true })} /><span><b>Main chat updates</b><small>Phase changes and completion</small></span></label><label className="watch-toggle"><input type="checkbox" checked={run.capture_browser === true} disabled={watch.isPending} onChange={() => watch.mutate({ capture_browser: run.capture_browser !== true })} /><span><b>Browser captures</b><small>Ask the worker to retain key portal steps</small></span></label><p className="watch-limit"><b>Live browser video cannot be streamed into main chat.</b> Captured steps appear below when the worker records them.</p>{notice && <p className="watch-notice" role="status">{notice}</p>}{watch.isError && <p className="inline-error" role="alert">Watch settings could not be saved.</p>}</section>
         {approvals.length > 0 && <section className="run-detail-section"><div className="run-detail-section-head"><h3>Needs your decision</h3><span>{fmt(approvals.length)} open</span></div><div className="stack">{approvals.map((approval: AnyData) => <article className="approval" key={approval.approval_id}><div><Status value={String(approval.kind)} /><h3>{approval.question}</h3><p>{when(approval.created_at)}{approval.app_id ? ` · ${approval.app_id}` : ""}</p></div><div className="approval-actions">{(Array.isArray(approval.options) ? approval.options : []).map((option: string) => <button type="button" key={option} disabled={resolve.isPending} onClick={() => resolve.mutate({ id: String(approval.approval_id), answer: option })}>{option}</button>)}</div></article>)}</div></section>}
         {applications.length > 0 && <section className="run-detail-section"><div className="run-detail-section-head"><h3>Applications</h3><span>{fmt(applications.length)} claimed</span></div><div className="run-record-list">{applications.map((app: AnyData) => <article key={app.app_id}><div className="run-record-top"><code>{app.app_id}</code><Status value={String(app.state)} /></div><p><b>Reason</b>{app.status_reason ? String(app.status_reason) : "—"}</p>{app.talking_points_path && <WorkspaceFileButton fileRef={{ app_id: String(app.app_id), kind: "prep" }} label="Open talking points" displayName={fileName(String(app.talking_points_path))} />}</article>)}</div></section>}
         {postingVerdicts.length > 0 && <section className="run-detail-section"><div className="run-detail-section-head"><h3>Posting verdicts</h3><span>{fmt(postingVerdicts.length)} latest</span></div><div className="run-record-list">{postingVerdicts.map((item: AnyData) => <article key={item.posting_id}><div className="run-record-top"><div><b>{item.role || item.posting_id}</b>{item.company && <span>{item.company}</span>}</div><Status value={String(item.verdict)} /></div><p><b>{titleCase(String(item.stage))}</b>{item.reason ? String(item.reason) : "—"}</p><small>{when(item.at)} · {item.posting_id}</small></article>)}</div></section>}
-        <section className="run-detail-section"><div className="run-detail-section-head"><h3>Activity feed</h3><span>{run.status === "running" ? "Refreshes every 15 seconds" : `${fmt(events.length)} events`}</span></div>{events.length === 0 ? <Empty title="No events yet" body="The run is open, but no skill has logged an event." /> : <ol className="event-feed">{events.map((event: AnyData, index: number) => <li key={event.id}><div className={`event-node${index === 0 ? " latest" : ""}`} /><div><div className="event-top"><b>{titleCase(String(event.type))}</b><time>{when(event.at)}</time></div>{event.app_id && <code>{event.app_id}</code>}{eventDetail(event.payload) && <p>{eventDetail(event.payload)}</p>}</div></li>)}</ol>}</section>
+        <section className="run-detail-section" ref={feedRef}><div className="run-detail-section-head"><h3>Activity feed</h3><span>{run.status === "running" ? "Refreshes every 15 seconds" : `${fmt(events.length)} events`}</span></div>{events.length === 0 ? <Empty title="No events yet" body="The run is open, but no skill has logged an event." /> : <ol className="event-feed">{events.map((event: AnyData, index: number) => <li key={event.id}><div className={`event-node${index === 0 ? " latest" : ""}`} /><div><div className="event-top"><b>{titleCase(String(event.type))}</b><time>{when(event.at)}</time></div>{event.app_id && <code>{event.app_id}</code>}{eventDetail(event.payload) && <p>{eventDetail(event.payload)}</p>}</div></li>)}</ol>}</section>
         <section className="run-detail-section"><div className="run-detail-section-head"><h3>Browser evidence</h3><span>{fmt(screenshots.length)} captures</span></div>{screenshots.length === 0 ? <Empty title="No browser captures" body={run.capture_browser ? "Capture is requested. New evidence will appear here after the worker records it." : "Turn on Browser captures to request evidence at key portal steps."} /> : <div className="browser-captures">{screenshots.map((app: AnyData) => <article key={app.app_id}><div><b>{app.app_id}</b><span>{titleCase(String(app.state))}</span></div><ScreenshotEvidence appId={String(app.app_id)} path={String(app.screenshot_path)} />{app.confirmation && <p>{String(app.confirmation)}</p>}</article>)}</div>}</section>
       </div>}
     </section>
   </div>;
 }
 
-function Runs({ data, onRefresh, refreshing }: { data: AnyData; onRefresh: () => void; refreshing: boolean }) {
+function Runs({ data, onRefresh, refreshing, onOpenApprovals }: { data: AnyData; onRefresh: () => void; refreshing: boolean; onOpenApprovals: () => void }) {
   const rows = Array.isArray(data.rows) ? data.rows : [];
   const [dateRange, setDateRange] = useState<DateRange>({ preset: "all", start: "", end: "" });
   const [selectedRun, setSelectedRun] = useState<string | null>(null);
@@ -587,7 +749,7 @@ function Runs({ data, onRefresh, refreshing }: { data: AnyData; onRefresh: () =>
         {daily.size > 0 && <div className="daily-token-rollup" aria-label="Token usage by day in America Chicago time">{Array.from(daily.values()).map((day, index) => <span key={`${day.label}-${index}`}>{day.label} <b>{compactTokens(day.total)}</b></span>)}</div>}
       </>}
     </Section>
-    {selectedRun && <RunDetail runId={selectedRun} onClose={() => setSelectedRun(null)} onChanged={onRefresh} />}
+    {selectedRun && <RunDetail runId={selectedRun} onClose={() => setSelectedRun(null)} onChanged={onRefresh} onOpenApprovals={onOpenApprovals} />}
   </>;
 }
 
@@ -1084,12 +1246,16 @@ export function App() {
     if (isDatasets) { void queryClient.invalidateQueries({ queryKey: ["dataset_browse"] }); return; }
     void queryClient.invalidateQueries({ queryKey: ["snapshot", active] }); void snapshot.refetch();
   };
+  const openApprovalsQueue = () => {
+    setActive("overview");
+    window.setTimeout(() => { document.getElementById("approval-batch")?.scrollIntoView({ behavior: "smooth", block: "start" }); }, 200);
+  };
   if (profileQuery.isPending) return <div className="app-shell"><SafeAreaTopScrim backgroundColor="var(--bg)" /><main className="workspace"><div className="loading"><span /><p>Reading profile…</p></div></main></div>;
   if (profileQuery.isError) return <div className="app-shell"><SafeAreaTopScrim backgroundColor="var(--bg)" /><main className="workspace"><div className="error-screen"><div className="health-orb"><Icon name="profile" size={28} /></div><h1>Profile unavailable</h1><p>The current profile could not be read.</p><button onClick={() => profileQuery.refetch()}>Retry</button></div></main></div>;
   if (needsOnboarding) return <Onboarding onOpenDashboard={() => { void profileQuery.refetch().then((result) => { if (result.data?.profile) setOnboardingLock(false); }); }} />;
   return <div className="app-shell"><SafeAreaTopScrim backgroundColor="var(--bg)" /><aside className="rail" aria-label="Dashboard navigation"><div className="rail-mark"><span /><span /></div><nav>{tabs.map((tab) => <button key={tab.id} className={active === tab.id ? "active" : ""} onClick={() => setActive(tab.id)} aria-current={active === tab.id ? "page" : undefined}><Icon name={tab.icon} /><span>{tab.label}</span></button>)}</nav><div className="rail-foot"><span className="live-dot">Private</span></div></aside>
     <main className="workspace">
-      {active === "profile" ? <Profile onOpenSchedules={() => setActive("schedules")} /> : active === "schedules" ? <Schedules /> : active === "datasets" ? <Datasets onRefresh={refresh} refreshing={false} /> : snapshot.isPending ? <div className="loading"><span /><p>Reading {active} ledger…</p></div> : snapshot.isError ? <div className="error-screen"><div className="health-orb"><Icon name="shield" size={28} /></div><h1>Source unavailable</h1><p>The {active} snapshot could not be read.</p><button onClick={() => snapshot.refetch()}>Retry</button></div> : <>{active === "overview" && <Overview data={data} onRefresh={refresh} refreshing={snapshot.isFetching} />}{active === "applications" && <Applications data={data} onRefresh={refresh} refreshing={snapshot.isFetching} onOpenOverview={() => setActive("overview")} />}{active === "resumes" && <Resumes data={data} onRefresh={refresh} refreshing={snapshot.isFetching} />}{active === "runs" && <Runs data={data} onRefresh={refresh} refreshing={snapshot.isFetching} />}{active === "replies" && <Replies data={data} onRefresh={refresh} refreshing={snapshot.isFetching} />}</>}
+      {active === "profile" ? <Profile onOpenSchedules={() => setActive("schedules")} /> : active === "schedules" ? <Schedules /> : active === "datasets" ? <Datasets onRefresh={refresh} refreshing={false} /> : snapshot.isPending ? <div className="loading"><span /><p>Reading {active} ledger…</p></div> : snapshot.isError ? <div className="error-screen"><div className="health-orb"><Icon name="shield" size={28} /></div><h1>Source unavailable</h1><p>The {active} snapshot could not be read.</p><button onClick={() => snapshot.refetch()}>Retry</button></div> : <>{active === "overview" && <Overview data={data} onRefresh={refresh} refreshing={snapshot.isFetching} />}{active === "applications" && <Applications data={data} onRefresh={refresh} refreshing={snapshot.isFetching} onOpenOverview={() => setActive("overview")} />}{active === "resumes" && <Resumes data={data} onRefresh={refresh} refreshing={snapshot.isFetching} />}{active === "runs" && <Runs data={data} onRefresh={refresh} refreshing={snapshot.isFetching} onOpenApprovals={openApprovalsQueue} />}{active === "replies" && <Replies data={data} onRefresh={refresh} refreshing={snapshot.isFetching} />}</>}
       {active !== "profile" && active !== "schedules" && snapshot.data && <p className="freshness">Snapshot {when(snapshot.data.generated_at)}</p>}
     </main>
     <nav className="bottom-nav" aria-label="Dashboard navigation">{tabs.map((tab) => <button key={tab.id} className={active === tab.id ? "active" : ""} onClick={() => setActive(tab.id)} aria-current={active === tab.id ? "page" : undefined}><Icon name={tab.icon} /><span>{tab.label}</span></button>)}</nav>

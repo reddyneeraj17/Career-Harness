@@ -57,6 +57,9 @@ export const reviews = sqliteTable("reviews", {
 export const runs = sqliteTable("runs", {
   runId: text("run_id").primaryKey(), campaignId: text("campaign_id").notNull(), kitVersion: text("kit_version"),
   started: integer("started", { mode: "timestamp_ms" }).notNull(), ended: integer("ended", { mode: "timestamp_ms" }), status: text("status").notNull(),
+  // Run mode (migration 0013): 'scheduled' for cron-driven campaign runs,
+  // 'manual' for dashboard-triggered runs (e.g. the LinkedIn optimizer).
+  mode: text("mode").notNull().default("scheduled"),
   counts: text("counts", { mode: "json" }).notNull().default({}), tokens: text("tokens", { mode: "json" }).notNull().default({}),
   tokensInput: integer("tokens_input").notNull().default(0), tokensOutput: integer("tokens_output").notNull().default(0), tokensTotal: integer("tokens_total").notNull().default(0), tokensReported: integer("tokens_reported", { mode: "boolean" }).notNull().default(false),
   needsMe: integer("needs_me", { mode: "boolean" }).notNull().default(false), watchChat: integer("watch_chat", { mode: "boolean" }).notNull().default(false), captureBrowser: integer("capture_browser", { mode: "boolean" }).notNull().default(false), compiledConfig: text("compiled_config", { mode: "json" }).notNull().default({}), liveConfig: text("live_config", { mode: "json" }).notNull().default({}), blocker: text("blocker"),
@@ -77,6 +80,10 @@ export const approvals = sqliteTable("approvals", {
   approvalId: text("approval_id").primaryKey(), kind: text("kind").notNull(), appId: text("app_id"), question: text("question").notNull(),
   options: text("options", { mode: "json" }).notNull().default([]), judgedBy: text("judged_by"), createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
   resolvedAt: integer("resolved_at", { mode: "timestamp_ms" }), answer: text("answer"),
+  // LinkedIn optimizer (migration 0012): kind='linkedin_section' rows carry the
+  // profile section, live text at audit time, and the proposed rewrite.
+  section: text("section"), currentText: text("current_text"), proposedText: text("proposed_text"),
+  proposalPath: text("proposal_path"), runId: text("run_id"),
 });
 
 export const h1bSponsors = sqliteTable("h1b_sponsors", {

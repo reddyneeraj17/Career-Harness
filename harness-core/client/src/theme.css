@@ -656,3 +656,33 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .held-draft p { margin: 0; color: var(--dim); font-size: 11px; }
 .reply-action.action-approved { color: var(--mint); background: color-mix(in srgb, var(--mint) 15%, transparent); }
 .reply-action.action-discarded { color: var(--dim); background: var(--surface-strong); }
+
+/* LinkedIn optimizer (v1.2.6): per-section proposal approval cards. */
+.linkedin-card { padding: 14px; background: var(--surface-2); border-radius: 11px; }
+.linkedin-card h3 { margin: 10px 0 4px; font-size: 15px; }
+.linkedin-card .muted { margin: 0; color: var(--dim); font-size: 12px; }
+.linkedin-diff { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+@media (max-width: 720px) { .linkedin-diff { grid-template-columns: 1fr; } }
+.linkedin-diff figure { margin: 0; }
+.linkedin-diff figcaption { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--dim); margin-bottom: 6px; }
+.linkedin-diff pre { margin: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; }
+.linkedin-diff pre.proposed { border-color: var(--accent); }
+.linkedin-card textarea { width: 100%; box-sizing: border-box; border: 1px solid var(--accent); border-radius: 8px; background: var(--surface); color: inherit; padding: 10px 12px; font-size: 12px; line-height: 1.55; font-family: inherit; min-height: 120px; margin-top: 12px; }
+.page-actions { display: flex; gap: 8px; align-items: center; }
+.optimize-btn { border: 1px solid var(--accent); border-radius: 8px; background: color-mix(in srgb, var(--accent) 14%, transparent); color: inherit; padding: 8px 12px; font-size: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.optimize-btn:disabled { opacity: .6; cursor: default; }
+
+/* Run suggestions + Ask about this run (v1.2.6) */
+.run-suggestions { margin-top: 14px; padding: 13px 15px; border: 1px solid color-mix(in srgb, var(--mint) 30%, var(--border)); border-radius: 12px; background: color-mix(in srgb, var(--mint) 5%, var(--surface)); }
+.run-suggestions h3, .run-ask h3 { margin: 0 0 8px; font-size: 13px; }
+.run-suggestions ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+.run-suggestions li { display: grid; gap: 3px; }
+.suggestion-btn { justify-self: start; padding: 7px 12px; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--mint) 45%, var(--border)); background: color-mix(in srgb, var(--mint) 12%, var(--surface)); color: var(--text); font-size: 12px; font-weight: 600; cursor: pointer; }
+.suggestion-btn:hover { background: color-mix(in srgb, var(--mint) 20%, var(--surface)); }
+.run-suggestions p, .run-ask .muted { margin: 0; color: var(--dim); font-size: 11px; line-height: 1.45; }
+.run-ask { margin-top: 14px; padding: 13px 15px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.run-ask-form { display: flex; gap: 8px; margin-bottom: 8px; }
+.run-ask-form input { flex: 1; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 12px; }
+.run-ask-form button { padding: 8px 14px; border-radius: 8px; border: none; background: var(--cyan); color: #06281f; font-size: 12px; font-weight: 700; cursor: pointer; }
+.run-ask-form button:disabled { opacity: 0.45; cursor: default; }
+.run-ask-toast { margin: 0 0 8px; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--cyan) 12%, var(--surface)); color: var(--text); font-size: 11px; line-height: 1.45; }

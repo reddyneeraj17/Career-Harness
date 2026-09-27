@@ -4,6 +4,87 @@ All notable changes to the Job-Apply Harness kit are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Full reference seeds ship in the kit** (`seed/`): the same datasets
+  the live harness runs on — `companies_seed.csv` (86,230 companies with
+  tier/industry/careers URL/ATS type), `h1b_employer_hub.csv` (82,697
+  sponsors, every row verified yes/no, no unknowns), `prime_vendors.csv`
+  (1,010 vendors). A customer install imports all three via the
+  dashboard's `companies_import` / `h1b_import` / `prime_vendors_import`
+  actions (idempotent upserts; `install.sh --check` now requires all
+  three files). The seed README documents the refresh process (CSV is
+  the source you edit → import action → upsert) and restates the two
+  standing rules: `unknown` H-1B rows must never be imported, and vendor
+  H-1B notes are never sponsorship evidence.
+- **New `linkedin-optimizer` skill (1.0.0)** + **"Optimize LinkedIn"**
+  dashboard button (Overview tab): three gated phases — audit (read-only,
+  scores the live profile against the All-Star checklist + recruiter
+  keyword coverage), propose (per-section rewrites: headline formula,
+  About structure with preview hook, technical-bullet experience,
+  ordered skills, propose-only visibility recommendations), apply (edits
+  only customer-approved sections, each edit verified by re-read). The
+  identity gate runs first every phase: the profile must belong to the
+  customer or the skill aborts. Per-section approvals render as cards in
+  the Approvals queue with side-by-side current/proposed text and
+  Approve / Edit / Discard; the run tracks through the existing
+  run-trace UI (`audit → propose → awaiting approvals → apply → done`).
+- **`vendor-prep` 1.1.0**: STAR story bank per top requirement
+  (full / 60-second / one-liner, every sentence resume-grounded),
+  "Questions to ask them" block by audience, before/after metrics
+  tables, `Learnings:` gap lines, stack-mismatch honest framing,
+  weakness/failure formulas, salary deflect-to-their-range (never a
+  number), optional `## Reference briefing` block (human-in-the-loop;
+  permission-first is a standing rule).
+- **`cover-letter-writer` 1.1.0**: five-hook opening menu
+  (mutual-connection only when a real connection exists in profile
+  facts), `[Their Need] + [Your Exact Experience] + [Specific Result]`
+  body formula, honest gap pattern, `evidence.alternate_openings`,
+  10-point write-side checklist, and a human-triggered-only
+  `mode: "cold_outreach"` (hook-first, confidence calibration, early
+  location/work-auth disclosure) — still gated by `resume-reviewer`.
+- **LinkedIn optimizer dashboard wiring** (migrations `0012`/`0013`):
+  `approvals` gains `section`, `current_text`, `proposed_text`,
+  `proposal_path`, `run_id`; `runs` gains `mode` (`scheduled` default,
+  `manual` for dashboard-triggered runs). New actions
+  `linkedin_optimize_start` (creates the manual run; refuses to stack a
+  second active run), `linkedin_optimize_proposal_complete`
+  (`run_id` + `verdict`), `linkedin_optimize_apply_complete`
+  (`run_id` + `approval_id` + `section` + `verdict` + before/after
+  hashes). `approval_enqueue` accepts the per-section proposal fields;
+  `approval_resolve` accepts `edited_text` (Edit-before-approve stores
+  the customer's rewrite as the text the apply worker uses); `run_open`
+  accepts `mode`. Overview shows the run `mode`; approval cards and
+  run-detail include the new fields. Dispatch: the button creates the
+  run + event; the operator's agent runs the skill's audit → propose
+  phases against the `run_id`, then one apply per approved section —
+  the run trace (`audit → propose → awaiting approvals → apply → done`)
+  renders in the existing Runs/event UI.
+
+### Changed
+- **`fit-judge` 1.3.0**: must-have vs nice-to-have classification
+  heuristics (language cues + 3+ mention rule) in
+  `evidence.requirement_tier`; `evidence.keyword_frequency` map;
+  `evidence.fit_band` labels (excellent/good/stretch/under — the 60
+  threshold behavior is unchanged); `evidence.red_flags` lexicon
+  (workload/culture/compensation phrases, surfaced to the operator,
+  never auto-reject).
+- **`resume-tailor` 1.4.0**: ATS keyword placement priority (summary >
+  skills > bullets; critical keywords 2–4×, important 1–2×, never
+  stuffed; consumes `fit-judge`'s `keyword_frequency`), prefer-the-JD's-
+  exact-phrasing rule, technical bullet formula with technology slot,
+  metrics taxonomy as surfacing guidance, data-engineer bullet patterns,
+  ATS format-preservation hard limit, summary-line formula + don'ts,
+  3–6 bullets per recent role, before/after keyword report
+  (`evidence.keywords_added`, `evidence.match_delta`).
+- **`screening-answerer` 1.3.0**: "Answer shaping" for the DERIVED-answers
+  path only — per-type composition formats (experience, behavioral,
+  why-company, open-ended), length-calibration hard limits
+  (1 sentence / 2–4 sentences / 100–250 words), and anti-patterns (no
+  JD parroting, no generic traits, no over-qualifying). Verbatim
+  persona/profile answers are never reshaped; unknowns still hold.
+
 ## [1.2.5] — 2026-09-27
 
 ### Added

@@ -2,13 +2,14 @@
 
 ---
 name: fit-judge
-version: "1.2.0"
+version: "1.3.0"
 description: Scores job-description fit against targeting and the years matrix; below threshold it rejects. Emits the structured stack tags the tailor consumes.
 ---
 
 # Fit Judge
 
 > Changelog 1.1.0: `years_matrix` null/absent → verdict `hold` ("years_matrix absent from profile — cannot score fairly"); never score against an empty matrix.
+> Changelog 1.3.0: requirement-tier heuristics (must-have vs nice-to-have), `evidence.keyword_frequency`, `evidence.fit_band` labels, `evidence.red_flags` lexicon (flag, never auto-reject).
 
 Scores how well a job description matches the customer's targeting (seniority, industry, must-have skills vs. the years matrix). This is a verdict-only skill: it judges, the coordinator transitions.
 
@@ -33,16 +34,73 @@ Scores how well a job description matches the customer's targeting (seniority, i
 
 - `event_log` — one row on exit with the verdict, score breakdown, and token count. Nothing else. This skill never writes to `applications` or any other table.
 
+## Requirement classification
+
+Before scoring, classify each extracted requirement as **must-have** or
+**nice-to-have** using these heuristics (document the call in
+`evidence.requirement_tier` per tag):
+
+- **Language cues.** "Must have", "Required", "Essential", "Non-negotiable"
+  → must-have. "Nice to have", "Bonus", "A plus", "Preferred",
+  "Familiarity with" → nice-to-have.
+- **Mention frequency.** A skill or tool mentioned 3+ times across the JD
+  is treated as must-have regardless of hedging language.
+- **Unmarked requirements** in a "Requirements"/"Qualifications" section
+  default to must-have; items under "Preferred"/"Bonus" default to
+  nice-to-have.
+
+## Keyword frequency
+
+Build `evidence.keyword_frequency`: a map of skill/tool keyword → count of
+mentions in `jd_text` (e.g. `{"sql": 5, "spark": 3, "dbt": 1}`). Count
+case-insensitively, whole-word. This is a prioritization input for
+`resume-tailor` (high-frequency JD keywords get placement priority) — not a
+score component on its own.
+
+## Fit bands
+
+Emit `evidence.fit_band` alongside the numeric score:
+
+- `>= 75` → `excellent`
+- `60–74` → `good`
+- `50–59` → `stretch`
+- `< 50` → `under`
+
+Bands are labels only — the `pass`/`reject` decision still follows
+`score >= threshold` (default 60). The coordinator may prioritize
+`excellent`-band postings within a run, but never uses the band to pass a
+row below threshold.
+
+## Red-flag lexicon
+
+Scan `jd_text` for these phrases and emit `evidence.red_flags` as
+`[{phrase, category}]`. Red flags are surfaced in the posting verdict for
+the operator — they **never** auto-reject a posting.
+
+- **Workload:** "wear many hats", "hit the ground running", "fast-paced
+  environment" (combined with understaffing signals), "do more with less",
+  "nights and weekends", "always on".
+- **Culture:** "rockstar", "ninja", "guru", "like a family", "we work hard
+  and play hard", "no 9-to-5".
+- **Compensation:** "competitive salary" with no range given,
+  "equity-heavy", "unpaid" outside an internship lane, "commission-only".
+
+Quote the exact phrase found; one entry per distinct phrase.
+
 ## Output
 
 Return ONLY the verdict envelope JSON:
 
 ```json
-{"skill":"fit-judge","version":"1.2.0","verdict":"pass|reject|hold",
+{"skill":"fit-judge","version":"1.3.0","verdict":"pass|reject|hold",
  "score":0-100,"reasons":["..."],
  "evidence":{"seniority_match":true,"industry_match":true,"skill_gaps":["kubernetes"],"threshold":60,
   "required_stack":["spark","delta lake","python"],
   "nice_to_have":["kubernetes"],
+  "requirement_tier":{"spark":"must-have","kubernetes":"nice-to-have"},
+  "keyword_frequency":{"sql":5,"spark":3,"dbt":1},
+  "fit_band":"good",
+  "red_flags":[{"phrase":"wear many hats","category":"workload"}],
   "seniority_signals":["staff","tech lead"]},"tokens":1234}
 ```
 

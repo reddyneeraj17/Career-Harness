@@ -2,13 +2,19 @@
 
 ---
 name: vendor-prep
-version: "1.0.0"
+version: "1.1.0"
 description: Generates vendor/recruiter call talking points for one application, grounded only in the stored job description and the exact tailored resume PDF that was submitted.
 ---
 
 # vendor-prep
 
-Builds the call-prep sheet Neeraj reads before a vendor/recruiter screen: a
+> Changelog 1.1.0 (2026-09-27): STAR story bank (full/60s/one-liner),
+> "Questions to ask them" block, before/after metrics tables,
+> `Learnings:` gap lines, stack-mismatch framing, weakness/failure
+> formulas, salary deflect-to-their-range, optional `## Reference
+> briefing` block.
+
+Builds the call-prep sheet the customer reads before a vendor/recruiter screen: a
 30-second pitch, one block per key JD requirement mapped to resume evidence
 with a "say it like this" line, likely screening questions with
 resume-grounded answers, and honest gap deflections. The only two sources of
@@ -63,8 +69,27 @@ resolution fails it holds — never guesses a path.
 5. **Map each requirement to resume evidence.** For every requirement, find
    the resume bullet(s) that genuinely support it. Quote or tightly
    paraphrase the bullet. Metrics are copied **verbatim** from the resume or
-   omitted — never rounded, never upgraded, never invented. If the resume
-   does not support the requirement, say so plainly (see gaps).
+   omitted — never rounded, never upgraded, never invented. When the
+   resume has before/after metrics for the impact, present them as a table
+   — it reads cleaner than bullets for quantified change:
+
+   | Metric | Before | After | Change |
+   |---|---|---|---|
+   | Dashboard query latency | 45s | 18s | −60% |
+
+   (Every cell verbatim from the resume; omit the table when the resume
+   has no before/after pair.) If the resume does not support the
+   requirement, say so plainly (see gaps). **Stack mismatch:** when the JD
+   names a tool the resume lacks but an adjacent one it has, frame it
+   honestly — "Extensive Airflow experience; ramps quickly on new
+   orchestrators" — never claim the missing tool.
+5b. **Build the STAR story bank.** For the top 5–7 JD requirements, write
+   one STAR story each in three lengths: **full** (~2 minutes spoken),
+   **60-second**, and **one-liner**. Every sentence must trace to the
+   submitted resume or the JD — no invented metrics, companies, or
+   situations. Structure each full story as Situation → Task → Action →
+   Result without labeling the parts; the 60-second version is the same
+   story compressed; the one-liner is the result plus the action.
 6. **Draft likely vendor screening questions.** The usual vendor set —
    current role and scope, years per key skill, why this move, work
    authorization/sponsorship, location and relocation, availability/start
@@ -72,6 +97,11 @@ resolution fails it holds — never guesses a path.
    (and from standing profile answers for authorization, relocation, and
    start date — the same answers `screening-answerer` uses). A question the
    resume cannot answer gets an honest deflection, not an invention.
+   **Weakness/failure formulas** for the hard ones: real weakness +
+   self-awareness + concrete improvement steps; real failure + what was
+   learned + how it changed the approach since. **Compensation:** answer
+   "negotiable" — never a number the candidate did not give; if pressed,
+   deflect to their range ("What's the budgeted range for the role?").
 7. **Write the document** to
    `goals/<campaign_id>/hidden_files/<run_id>/screenshots/<app_id>_talking_points.md`
    (create parent directories as needed), in this shape:
@@ -97,18 +127,44 @@ resolution fails it holds — never guesses a path.
    ...
 
    ## Gaps — JD asks, resume is thin
-   - **JD asks `<X>`:** the resume shows <what it actually shows or doesn't>. **Deflect:** "<honest line, e.g. adjacent strength + willingness to ramp>"
+   - **JD asks `<X>`:** the resume shows <what it actually shows or doesn't>. **Deflect:** "<honest line, e.g. adjacent strength + willingness to ramp>" <optional **Learnings:** "<what you'd do differently — the honest framing that makes the deflection credible>">
    ...
+
+   ## STAR stories (one per top requirement)
+   ### <Requirement>
+   - **Full (~2 min):** <Situation → Task → Action → Result, unlabeled, every sentence resume/JD-grounded>
+   - **60-second:** <compressed version>
+   - **One-liner:** <result + action>
+   ...
+
+   ## Questions to ask them
+   - **Hiring manager:** <role-specific questions drawn from the JD's open questions, e.g. "What does the data platform look like today and where is it headed?">
+   - **Team:** <e.g. "How is on-call handled for the pipelines team?">
+   - **Executives:** <e.g. "How does data factor into the company's next-year bets?">
+   - **Avoid:** salary questions early, anything Google-able about the company, anything the JD already answers.
 
    ## Do not claim on this call
    <bulleted list of the specific things the resume does NOT support, so nothing slips out under pressure>
+
+   ## Reference briefing (optional — only when the coordinator asks for it)
+   <One block per reference the candidate named; human-in-the-loop: never
+   list anyone who has not given permission.>
+   - **<Name>** (<relationship, e.g. "direct manager 2021–2024">):
+     **Talking points:** <2–3 things this reference observed, tied to the
+     JD's asks> · **Coach:** they will likely be asked "would you rehire?"
+     — make sure the answer is an enthusiastic yes before listing them.
+   ...
    ```
 
 8. **Record it.** Call
    `talking_points_attach({"app_id": <app_id>, "talking_points_path": <path>})`.
-   The action records the document path on the application and writes a
-   `talking_points_attached` event. If it errors, return `hold` with the
-   error named — the document on disk is still complete and correct.
+   > **Deployment note:** this action is being added to the harness-core
+   > artifact by a parallel builder job. If the action does not exist yet
+   > (unknown-action error), the skill still returns `pass` with
+   > `evidence.attach: "pending"` and a reason naming the missing action —
+   > the document on disk is complete and correct; only the ledger linkage
+   > is deferred. This is a deployment gap, not a skill bug. Retrying the
+   > attach later is the coordinator's job, not this skill's.
 9. **Log.** Append exactly one `event_log` row on exit (`run_id`, `app_id`,
    verdict, token count), even on failure.
 
@@ -127,11 +183,11 @@ resolution fails it holds — never guesses a path.
 The verdict envelope:
 
 ```json
-{"skill":"vendor-prep","version":"1.0.0","verdict":"pass|hold|reject",
+{"skill":"vendor-prep","version":"1.1.0","verdict":"pass|hold|reject",
  "score":0-100,"reasons":["..."],
  "evidence":{"talking_points_path":"goals/<campaign>/hidden_files/<run>/screenshots/<app_id>_talking_points.md",
              "jd_path":"...","jd_hash":"<12>","resume_path":"...","resume_hash":"<12>",
-             "requirements_mapped":7,"gaps":2,"attach":"ok|pending"},
+             "requirements_mapped":7,"star_stories":6,"gaps":2,"attach":"ok|pending"},
  "tokens":1234}
 ```
 
@@ -165,7 +221,11 @@ it means the call needs the gap deflections.
 - **Screening answers come from the resume or standing profile answers**
   (authorization, relocation, start date — same source as
   `screening-answerer`). Compensation: "negotiable", never a number the
-  candidate did not give.
+  candidate did not give; if pressed, deflect to their range ("What's the
+  budgeted range for the role?").
+- **References are human-in-the-loop.** Never list a reference who has not
+  given permission — asking permission first is a standing rule wherever
+  references are handled.
 - **The "Do not claim" section is mandatory.** End every document with the
   explicit list of JD-adjacent things the resume does not support.
 - **Output path is canonical** —

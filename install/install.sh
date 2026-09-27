@@ -61,6 +61,7 @@ n_skills=$(find "$KIT_DIR/skills" -maxdepth 2 -name SKILL.md | wc -l)
 [[ -f "$KIT_DIR/harness-core/drizzle/0001_initial.sql" ]] && pass "harness-core/drizzle/ migrations" || fail "drizzle migrations missing"
 [[ -f "$KIT_DIR/seed/h1b_employer_hub.csv" ]] && pass "seed/h1b_employer_hub.csv" || fail "H-1B seed missing"
 [[ -f "$KIT_DIR/seed/companies_seed.csv" ]] && pass "seed/companies_seed.csv" || fail "companies seed missing"
+[[ -f "$KIT_DIR/seed/prime_vendors.csv" ]] && pass "seed/prime_vendors.csv" || fail "prime vendors seed missing"
 
 # 3. checksum manifest ------------------------------------------------------
 echo "-- checksums --"
@@ -126,7 +127,7 @@ echo ""
 echo "== staging complete. Agent runbook (see INSTALL.md): =="
 echo " 1. Build the harness-core artifact (web_fullstack) from $KIT_DIR/harness-core/"
 echo " 2. Run drizzle migrations in filename order (harness-core/drizzle/0001..0005+)"
-echo " 3. Import seeds: h1b_import <- seed/h1b_employer_hub.csv, companies_import <- seed/companies_seed.csv"
+echo " 3. Import seeds: h1b_import <- seed/h1b_employer_hub.csv, companies_import <- seed/companies_seed.csv, prime_vendors_import <- seed/prime_vendors.csv"
 echo " 4. ONBOARDING EXCEL: customer fills templates/Client_Onboarding_Form_v2.xlsx"
 echo "    (12 sheets: About You, Work Authorization, Resumes, Experience Matrix,"
 echo "    Target Roles, Preferences, Screening Answers, Accounts & Connections,"

@@ -21,6 +21,9 @@ const discoveryPhase = z.enum(["dataset", "web_expansion", "additional_source"])
 const sourceTier = z.enum(["1", "2", "3", "unknown"]);
 const h1bMode = z.enum(["soft_lookup", "bypass_c2c"]);
 const h1bResult = z.enum(["scored", "unknown", "not_applicable"]);
+// LinkedIn optimizer (v1.2.6): profile sections the optimizer can propose rewrites for.
+const linkedinSection = z.enum(["headline", "about", "experience", "skills", "visibility"]);
+const runMode = z.enum(["scheduled", "manual"]);
 const postingRow = z.object({
   posting_id: z.string().min(1), company: z.string().min(1), role: z.string().min(1), url: z.string().min(1), source: z.string().min(1),
   jd_path: z.string().nullable().optional(), jd_hash: z.string().nullable().optional(), first_seen: z.string().datetime().optional(), last_seen: z.string().datetime().optional(),
@@ -957,18 +960,18 @@ export const Actions = {
   }),
 
   approval_enqueue: defineAction({
-    request: z.object({ approval_id: z.string().optional(), kind: z.string(), app_id: z.string().nullable().optional(), question: z.string(), options: z.array(z.string()) }), response: z.object({ approval_id: z.string() }),
-    async handler(ctx, args) { const approvalId = args.approval_id ?? id("approval"); await ctx.db<typeof schema>().insert(schema.approvals).values({ approvalId, kind: args.kind, appId: args.app_id ?? null, question: args.question, options: args.options }); ctx.invalidateQueries(); return { approval_id: approvalId }; },
+    request: z.object({ approval_id: z.string().optional(), kind: z.string(), app_id: z.string().nullable().optional(), question: z.string(), options: z.array(z.string()), section: linkedinSection.nullable().optional(), current_text: z.string().nullable().optional(), proposed_text: z.string().nullable().optional(), proposal_path: z.string().nullable().optional(), run_id: z.string().nullable().optional() }), response: z.object({ approval_id: z.string() }),
+    async handler(ctx, args) { const approvalId = args.approval_id ?? id("approval"); await ctx.db<typeof schema>().insert(schema.approvals).values({ approvalId, kind: args.kind, appId: args.app_id ?? null, question: args.question, options: args.options, section: args.section ?? null, currentText: args.current_text ?? null, proposedText: args.proposed_text ?? null, proposalPath: args.proposal_path ?? null, runId: args.run_id ?? null }); ctx.invalidateQueries(); return { approval_id: approvalId }; },
   }),
 
   approval_resolve: defineAction({
-    request: z.object({ approval_id: z.string(), answer: z.string(), judged_by: z.string() }), response: okResponse,
-    async handler(ctx, args) { const db = ctx.db<typeof schema>(); const found = (await db.select().from(schema.approvals).where(eq(schema.approvals.approvalId, args.approval_id)).limit(1))[0]; if (!found || found.resolvedAt) return { ok: false, message: found ? "Approval is already resolved." : "Approval not found." }; await db.update(schema.approvals).set({ answer: args.answer, judgedBy: args.judged_by, resolvedAt: now() }).where(eq(schema.approvals.approvalId, args.approval_id)); ctx.invalidateQueries(); return { ok: true }; },
+    request: z.object({ approval_id: z.string(), answer: z.string(), judged_by: z.string(), edited_text: z.string().min(1).optional() }), response: okResponse,
+    async handler(ctx, args) { const db = ctx.db<typeof schema>(); const found = (await db.select().from(schema.approvals).where(eq(schema.approvals.approvalId, args.approval_id)).limit(1))[0]; if (!found || found.resolvedAt) return { ok: false, message: found ? "Approval is already resolved." : "Approval not found." }; await db.update(schema.approvals).set({ answer: args.answer, judgedBy: args.judged_by, resolvedAt: now(), proposedText: args.edited_text ?? found.proposedText }).where(eq(schema.approvals.approvalId, args.approval_id)); ctx.invalidateQueries(); return { ok: true }; },
   }),
 
   run_open: defineAction({
-    request: z.object({ run_id: z.string().optional(), campaign_id: z.string(), kit_version: z.string().nullable().optional(), compiled_config: jsonValue.optional(), live_config: jsonValue.optional() }), response: z.object({ run_id: z.string() }),
-    async handler(ctx, args) { const runId = args.run_id ?? id("run"); await ctx.db<typeof schema>().insert(schema.runs).values({ runId, campaignId: args.campaign_id, kitVersion: args.kit_version ?? null, started: now(), status: "running", compiledConfig: args.compiled_config ?? {}, liveConfig: args.live_config ?? {} }); ctx.invalidateQueries(); return { run_id: runId }; },
+    request: z.object({ run_id: z.string().optional(), campaign_id: z.string(), kit_version: z.string().nullable().optional(), compiled_config: jsonValue.optional(), live_config: jsonValue.optional(), mode: runMode.optional() }), response: z.object({ run_id: z.string() }),
+    async handler(ctx, args) { const runId = args.run_id ?? id("run"); await ctx.db<typeof schema>().insert(schema.runs).values({ runId, campaignId: args.campaign_id, kitVersion: args.kit_version ?? null, started: now(), status: "running", mode: args.mode ?? "scheduled", compiledConfig: args.compiled_config ?? {}, liveConfig: args.live_config ?? {} }); ctx.invalidateQueries(); return { run_id: runId }; },
   }),
 
   run_close: defineAction({
@@ -1015,7 +1018,7 @@ export const Actions = {
             current_stage: eventRows[0]?.type ?? (run.status === "running" ? "starting" : run.status),
           },
           events: eventRows.map((event) => ({ id: event.id, app_id: event.appId, type: event.type, payload: event.payload, at: event.at.toISOString() })),
-          approvals: approvalRows.map((approval) => ({ approval_id: approval.approvalId, kind: approval.kind, app_id: approval.appId, question: approval.question, options: approval.options, created_at: approval.createdAt.toISOString() })),
+          approvals: approvalRows.map((approval) => ({ approval_id: approval.approvalId, kind: approval.kind, app_id: approval.appId, question: approval.question, options: approval.options, section: approval.section, current_text: approval.currentText, proposed_text: approval.proposedText, proposal_path: approval.proposalPath, run_id: approval.runId, created_at: approval.createdAt.toISOString() })),
           applications: appRows.map((app) => ({ app_id: app.appId, posting_id: app.postingId, state: app.state, status_reason: app.statusReason, blocker: app.blocker, outcome: app.outcome, talking_points_path: app.talkingPointsPath, screenshot_path: app.screenshotPath, confirmation: app.confirmation, updated_at: app.updatedAt.toISOString() })),
           posting_verdicts: latestPostingVerdicts.map((row) => ({ posting_id: row.postingId, company: row.company, role: row.role, stage: row.stage, verdict: row.verdict, reason: row.reason, at: row.at.toISOString() })),
         },
@@ -1530,6 +1533,7 @@ export const Actions = {
           run_id: r.runId,
           campaign_id: r.campaignId,
           kit_version: r.kitVersion,
+          mode: r.mode,
           started: r.started.toISOString(),
           ended: iso(r.ended),
           status: r.status,
@@ -1570,7 +1574,7 @@ export const Actions = {
       }
       if (args.view === "overview") {
         const counts = await appCounts(); const recentRuns = await db.select().from(schema.runs).where(gte(schema.runs.started, cutoff24)).orderBy(desc(schema.runs.started)); const pending = await db.select().from(schema.approvals).where(isNull(schema.approvals.resolvedAt)).orderBy(asc(schema.approvals.createdAt)).limit(20); const recentEvents = await db.select({ count: sql<number>`count(*)` }).from(schema.events).where(gte(schema.events.at, cutoff24));
-        return { view: args.view, generated_at: generatedAt.toISOString(), data: { counts, runs_24h: recentRuns.length, healthy_runs_24h: recentRuns.filter((r) => r.status === "completed").length, events_24h: countNumber(recentEvents[0]?.count), approvals: pending.map((a) => ({ approval_id: a.approvalId, kind: a.kind, app_id: a.appId, question: a.question, options: a.options, created_at: a.createdAt.toISOString() })) } };
+        return { view: args.view, generated_at: generatedAt.toISOString(), data: { counts, runs_24h: recentRuns.length, healthy_runs_24h: recentRuns.filter((r) => r.status === "completed").length, events_24h: countNumber(recentEvents[0]?.count), approvals: pending.map((a) => ({ approval_id: a.approvalId, kind: a.kind, app_id: a.appId, question: a.question, options: a.options, section: a.section, current_text: a.currentText, proposed_text: a.proposedText, proposal_path: a.proposalPath, run_id: a.runId, created_at: a.createdAt.toISOString() })) } };
       }
       const query = (args.query ?? "").trim().toLowerCase();
       const route = query.match(/resume|variant/) ? "resumes" : query.match(/reply|thread|message/) ? "replies" : query.match(/token|cost/) ? "tokens" : query.match(/block|stuck/) ? "blockers" : query.match(/schedule|cron|cadence/) ? "schedules" : query.match(/health|doctor|drift|stale|disk/) ? "health" : query.match(/run|campaign/) ? "runs" : query.match(/application|applied|submit|reject|park/) ? "applications" : "unknown";
@@ -1798,6 +1802,56 @@ export const Actions = {
         db.insert(schema.tokenUsage).values({ runId: args.run_id, campaignId: args.campaign_id, date: args.date, inputTokens: args.input_tokens, outputTokens: args.output_tokens, totalTokens: args.total_tokens, stages: args.stages }).onConflictDoUpdate({ target: schema.tokenUsage.runId, set: { campaignId: args.campaign_id, date: args.date, inputTokens: args.input_tokens, outputTokens: args.output_tokens, totalTokens: args.total_tokens, stages: args.stages } }),
         db.update(schema.runs).set({ tokens: args.stages, tokensInput: args.input_tokens, tokensOutput: args.output_tokens, tokensTotal: args.total_tokens, tokensReported: args.usage_reported }).where(eq(schema.runs.runId, args.run_id)),
       ]);
+      ctx.invalidateQueries();
+      return { ok: true };
+    },
+  }),
+
+  // LinkedIn optimizer (v1.2.6): dashboard-triggered manual run. Creates the
+  // run row (mode='manual') and logs the start event; the operator's agent
+  // then runs the linkedin-optimizer skill's audit → propose phases against
+  // the returned run_id. Refuses to stack a second run while one is active —
+  // two workers must never edit the same live profile at once.
+  linkedin_optimize_start: defineAction({
+    request: emptyRequest, response: z.object({ run_id: z.string() }),
+    async handler(ctx) {
+      const db = ctx.db<typeof schema>();
+      const active = (await db.select({ runId: schema.runs.runId }).from(schema.runs).where(and(eq(schema.runs.campaignId, "linkedin_optimize"), eq(schema.runs.status, "running"))).limit(1))[0];
+      if (active) return { run_id: active.runId };
+      const runId = id("run");
+      await db.insert(schema.runs).values({ runId, campaignId: "linkedin_optimize", started: now(), status: "running", mode: "manual", counts: {}, compiledConfig: {}, liveConfig: {} });
+      await db.insert(schema.events).values({ runId, type: "linkedin_optimize_started", payload: { campaign_id: "linkedin_optimize", mode: "manual" } });
+      ctx.invalidateQueries();
+      return { run_id: runId };
+    },
+  }),
+
+  // LinkedIn optimizer: the worker calls this when audit → propose finishes
+  // (or fails). verdict=pass means per-section approvals were enqueued and the
+  // run now waits on the customer; any other verdict closes the run.
+  linkedin_optimize_proposal_complete: defineAction({
+    request: z.object({ run_id: z.string().min(1), verdict: z.enum(["pass", "reject", "hold"]), reason: z.string().nullable().optional() }), response: okResponse,
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const run = (await db.select().from(schema.runs).where(eq(schema.runs.runId, args.run_id)).limit(1))[0];
+      if (!run) return { ok: false, message: "Run not found." };
+      await db.insert(schema.events).values({ runId: args.run_id, type: "linkedin_optimize_proposal_complete", payload: { verdict: args.verdict, reason: args.reason ?? null } });
+      if (args.verdict !== "pass") await db.update(schema.runs).set({ ended: now(), status: args.verdict === "hold" ? "hold" : "rejected", blocker: args.reason ?? null }).where(eq(schema.runs.runId, args.run_id));
+      ctx.invalidateQueries();
+      return { ok: true };
+    },
+  }),
+
+  // LinkedIn optimizer: the worker calls this after applying one approved
+  // section (or recording why it could not). before_hash/after_hash are the
+  // profile-section content hashes so every edit is verifiable.
+  linkedin_optimize_apply_complete: defineAction({
+    request: z.object({ run_id: z.string().min(1), approval_id: z.string().min(1), section: linkedinSection, verdict: z.enum(["pass", "reject", "hold"]), before_hash: z.string().nullable().optional(), after_hash: z.string().nullable().optional(), reason: z.string().nullable().optional() }), response: okResponse,
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const run = (await db.select().from(schema.runs).where(eq(schema.runs.runId, args.run_id)).limit(1))[0];
+      if (!run) return { ok: false, message: "Run not found." };
+      await db.insert(schema.events).values({ runId: args.run_id, type: "linkedin_optimize_apply_complete", payload: { approval_id: args.approval_id, section: args.section, verdict: args.verdict, before_hash: args.before_hash ?? null, after_hash: args.after_hash ?? null, reason: args.reason ?? null } });
       ctx.invalidateQueries();
       return { ok: true };
     },
