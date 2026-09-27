@@ -20,7 +20,7 @@ Acknowledge you have read it before continuing.
 - *Managed service:* the maintainer provisions the kit into the customer's
   environment. Skip the clone; start at the verify step.
 - *Self-host install:* clone with the one-time deploy key the maintainer
-  provides — `git clone --branch v1.2.3 <url-with-one-time-key>
+  provides — `git clone --branch v1.2.4 <url-with-one-time-key>
   ~/workspace/harness-kit`. `--branch` accepts a tag, so this pins exactly
   v1.2.0 (tags are the pull mechanism; a GitHub Release is also published
   per RELEASING.md).
