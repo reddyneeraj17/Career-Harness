@@ -4,6 +4,21 @@ All notable changes to the Job-Apply Harness kit are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.2.7] — 2026-09-27
+
+### Fixed
+- **Upgrades now refresh reference seeds.** `install/upgrade.sh` gained a
+  seed-refresh agent hook: after migrations, the agent uploads each seed CSV
+  from the new kit (`companies_seed.csv`, `h1b_employer_hub.csv`,
+  `prime_vendors.csv`) to a fetchable URL and calls the matching import
+  action (`companies_import`, `h1b_import`, `prime_vendors_import`) with
+  `{"csv_url": ...}`. Imports are idempotent upserts, so re-running them is
+  safe. Previously an upgrade left the customer's database on the old seed
+  data with no path to the refreshed datasets.
+- `docs/UPGRADE_PLAYBOOK.md`: new step 4 "Refresh reference seeds" (after
+  migrations, before the dashboard rebuild) plus a seed row-count item in
+  the sync verification checklist; later steps renumbered.
+
 ## [1.2.6] — 2026-09-27
 
 ### Added

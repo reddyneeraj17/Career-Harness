@@ -10,14 +10,16 @@
 #
 # Steps:
 #   1. compare installed VERSION against target
-#   2. run pending drizzle migrations in filename order (hook for the agent)
-#   3. refresh skills/templates from the kit (idempotent copy)
-#   4. rebuild + redeploy the harness-core dashboard artifact (hook)
-#   5. recompile schedules from the customer's profile.yaml (hook)
-#   6. run the doctor (hook)
+#   2. refresh skills/templates from the kit (idempotent copy)
+#   3. run pending drizzle migrations in filename order (hook for the agent)
+#   4. refresh reference seeds via the import actions (hook for the agent;
+#      idempotent upserts, safe to re-run)
+#   5. rebuild + redeploy the harness-core dashboard artifact (hook)
+#   6. recompile schedules from the customer's profile.yaml (hook)
+#   7. run the doctor (hook)
 #
-# Steps 2/4/5/6 touch the live artifact and DB, so this script prints the exact
-# agent actions instead of performing them itself.
+# Steps 3/4/5/6/7 touch the live artifact and DB, so this script prints the
+# exact agent actions instead of performing them itself.
 
 set -euo pipefail
 
@@ -63,22 +65,34 @@ echo "  for each NEW file in $KIT_DIR/harness-core/drizzle/*.sql"
 echo "  (filename order) that is not yet applied: apply it via the"
 echo "  artifact's migration path, then verify with snapshot()."
 
-# 4. rebuild the dashboard (agent hook) ----------------------------------------
+# 4. refresh reference seeds (agent hook) ---------------------------------------
+echo "-- reference seeds (run by the agent) --"
+echo "  for each seed CSV in $KIT_DIR/seed/, upload it to a fetchable URL"
+echo "  and call the matching import action with {\"csv_url\": ...}:"
+echo "    companies_import     <- seed/companies_seed.csv"
+echo "    h1b_import           <- seed/h1b_employer_hub.csv"
+echo "    prime_vendors_import <- seed/prime_vendors.csv"
+echo "  imports are idempotent upserts (insert new, update changed, no dupes),"
+echo "  so re-running them over existing data is safe. Run them AFTER the"
+echo "  migrations above (the tables must exist), then verify row counts"
+echo "  with snapshot()."
+
+# 5. rebuild the dashboard (agent hook) ----------------------------------------
 echo "-- dashboard rebuild (run by the agent) --"
 echo "  rebuild the harness-core artifact from $KIT_DIR/harness-core/"
 echo "  source (client + server) and redeploy it over the existing app."
 echo "  This is what makes new UI and new actions live; the DB is untouched."
 
-# 5. recompile (agent hook) ----------------------------------------------------
+# 6. recompile (agent hook) ----------------------------------------------------
 echo "-- recompile (run by the agent) --"
 echo "  run the compile-schedules skill against the customer's"
 echo "  ~/workspace/profile.yaml (validated by profile.schema.yaml)."
 
-# 6. doctor (agent hook) --------------------------------------------------------
+# 7. doctor (agent hook) --------------------------------------------------------
 echo "-- doctor (run by the agent) --"
 echo "  run the harness-doctor skill; require status green before closing."
 
 echo "$TARGET" > "$HOME/workspace/harness-kit/VERSION.installed"
 echo "== upgrade marker written: $TARGET =="
-echo "NOTE: steps 3-6 above must be executed by the agent before the upgrade"
+echo "NOTE: steps 3-7 above must be executed by the agent before the upgrade"
 echo "is considered complete. See docs/UPGRADE_PLAYBOOK.md."
