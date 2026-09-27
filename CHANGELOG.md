@@ -4,6 +4,23 @@ All notable changes to the Job-Apply Harness kit are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.2.4] — 2026-09-26
+
+### Added
+- **Run-trace UI on the Runs tab**: each run now has an "Open live view"
+  side panel showing the live stage/status strip, blocker, state counts,
+  "Follow this run" watch controls (Main chat updates, Browser captures),
+  open approvals, applications, posting verdicts, a 15-second-refreshing
+  activity feed, and browser evidence. New `run_detail` and `run_watch_set`
+  actions back it; the `runs` table gains `watch_chat` and
+  `capture_browser` columns (migration 0008), and `event_log` returns both
+  so workers receive per-run watch preferences. The browser-watch schedule
+  forwards screenshots to chat for runs with watching enabled.
+- **Application ledger upgrades**: date-range filtering (reuses the
+  existing date control), expanded search across company/role/ID/campaign/
+  reason, KPIs computed from the filtered rows, and the status reason shown
+  as an evidence cell.
+
 ## [1.2.3] — 2026-09-26
 
 ### Fixed
