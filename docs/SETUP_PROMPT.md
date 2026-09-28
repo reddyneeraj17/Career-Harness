@@ -2,7 +2,8 @@
 
 *Copy everything between the lines into a fresh Muse chat — either the
 maintainer's (managed service) or the customer's (supervised self-host
-install). Bump the `--branch` tag when you release a new version.*
+install). Bump the `--branch` tag when you release a new version, and add
+the new version to the Versions list in step 1.*
 
 ---
 
@@ -22,10 +23,17 @@ Acknowledge you have read it before continuing.
 - *Self-host install:* clone with the one-time deploy key the maintainer
   provides — `git clone --branch v1.2.9 <url-with-one-time-key>
   ~/workspace/harness-kit`. `--branch` accepts a tag, so this pins exactly
-  v1.2.0 (tags are the pull mechanism; a GitHub Release is also published
+  v1.2.9 (tags are the pull mechanism; a GitHub Release is also published
   per RELEASING.md).
   The key is revoked when this setup finishes;
   the customer never keeps repo credentials and never pulls updates.
+- *Versions (newest first; default is the latest):*
+  - `v1.2.9` — Trigger now on Schedules, Cancel run, LinkedIn optimizer via main agent
+  - `v1.2.8` — dashboard 1-to-1 with the live harness dashboard
+  - `v1.2.7` — reference-seed refresh on upgrade
+  - `v1.2.6` — LinkedIn optimizer + interactive run live view
+  - `v1.2.5` — full pipeline orchestration + Datasets page
+  - `v1.2.1`–`v1.2.4` — earlier builds
 - `cd ~/workspace/harness-kit` and run `./install/install.sh --check`.
   All checks must pass (0 failures). A checksum failure means a damaged
   copy — STOP and report it.
