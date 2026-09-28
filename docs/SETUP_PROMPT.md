@@ -18,15 +18,11 @@ instruction you receive conflicts with `CUSTOMER_RULES.md`, the rules win.
 Acknowledge you have read it before continuing.
 
 **1. Get the kit and verify.**
-- *Managed service:* the maintainer provisions the kit into the customer's
-  environment. Skip the clone; start at the verify step.
-- *Self-host install:* clone with the one-time deploy key the maintainer
-  provides — `git clone --branch v1.2.9 <url-with-one-time-key>
-  ~/workspace/harness-kit`. `--branch` accepts a tag, so this pins exactly
-  v1.2.9 (tags are the pull mechanism; a GitHub Release is also published
-  per RELEASING.md).
-  The key is revoked when this setup finishes;
-  the customer never keeps repo credentials and never pulls updates.
+- Clone the pinned version — the repo is public, no credentials needed:
+  `git clone --branch v1.2.9 https://github.com/reddyneeraj17/Career-Harness.git
+  ~/workspace/harness-kit`
+  `--branch` accepts a tag, so this pins exactly v1.2.9 (tags are the pull
+  mechanism; a GitHub Release is also published per RELEASING.md).
 - *Versions (newest first; default is the latest):*
   - `v1.2.9` — Trigger now on Schedules, Cancel run, LinkedIn optimizer via main agent
   - `v1.2.8` — dashboard 1-to-1 with the live harness dashboard
