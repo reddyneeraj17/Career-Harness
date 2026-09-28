@@ -4,6 +4,32 @@ All notable changes to the Job-Apply Harness kit are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.2.8] — 2026-09-27
+
+### Changed
+- **Dashboard is now 1-to-1 with the live harness dashboard.** The kit's
+  dashboard client (`App.tsx`, `theme.css`) is byte-identical to the
+  operator's local dashboard: the same theme, the same Applications page
+  with the always-visible Submission-sources provenance board, the same
+  Replies page with the held-draft review dialog, the same Datasets page
+  with per-dataset filters and pagination, the same LinkedIn approval
+  cards with diff-and-edit in both Overview and run detail.
+- Server-side support for the unified client (all additive, no migrations):
+  `snapshot` applications view now also emits `provenance_summary`
+  (`submitted_total` + `by_source`/`by_tier`/`by_lane`/`by_h1b_result`/`by_discovery_phase`
+  with `not_recorded` for missing values); `approval_resolve` normalizes
+  LinkedIn section answers (`Approve`/`Discard` → canonical
+  `approved`/`discarded` the apply worker looks for) and rejects empty
+  proposed text on approve; `dataset_browse` companies search now covers
+  industry as the placeholder promises; `min_lca: 0` is honored instead of
+  silently dropped; the vendors tier filter now matches `"1"`/`"2"`/`"3"`
+  against stored `"Tier 1"`-style values.
+
+### Fixed
+- Replies activity-ledger column overlap: the Held-decision controls no
+  longer collide with the Rule column (superseded by the unified
+  dialog-based held-reply flow, where Decision renders last).
+
 ## [1.2.7] — 2026-09-27
 
 ### Fixed

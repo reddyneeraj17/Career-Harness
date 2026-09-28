@@ -3042,7 +3042,7 @@ function initializeContext(params) {
     external: params?.external ?? undefined
   };
 }
-function process(schema, ctx, _params = { path: [], schemaPath: [] }) {
+function process2(schema, ctx, _params = { path: [], schemaPath: [] }) {
   var _a;
   const def = schema._zod.def;
   const seen = ctx.seen.get(schema);
@@ -3079,7 +3079,7 @@ function process(schema, ctx, _params = { path: [], schemaPath: [] }) {
     if (parent) {
       if (!result.ref)
         result.ref = parent;
-      process(parent, ctx, params);
+      process2(parent, ctx, params);
       ctx.seen.get(parent).isParent = true;
     }
   }
@@ -3362,14 +3362,14 @@ function isTransforming(_schema, _ctx) {
 }
 var createToJSONSchemaMethod = (schema, processors = {}) => (params) => {
   const ctx = initializeContext({ ...params, processors });
-  process(schema, ctx);
+  process2(schema, ctx);
   extractDefs(ctx, schema);
   return finalize(ctx, schema);
 };
 var createStandardJSONSchemaMethod = (schema, io, processors = {}) => (params) => {
   const { libraryOptions, target } = params ?? {};
   const ctx = initializeContext({ ...libraryOptions ?? {}, target, io, processors });
-  process(schema, ctx);
+  process2(schema, ctx);
   extractDefs(ctx, schema);
   return finalize(ctx, schema);
 };
@@ -3528,7 +3528,7 @@ var arrayProcessor = (schema, ctx, _json, params) => {
   if (typeof maximum === "number")
     json.maxItems = maximum;
   json.type = "array";
-  json.items = process(def.element, ctx, {
+  json.items = process2(def.element, ctx, {
     ...params,
     path: [...params.path, "items"]
   });
@@ -3540,7 +3540,7 @@ var objectProcessor = (schema, ctx, _json, params) => {
   json.properties = {};
   const shape = def.shape;
   for (const key in shape) {
-    json.properties[key] = process(shape[key], ctx, {
+    json.properties[key] = process2(shape[key], ctx, {
       ...params,
       path: [...params.path, "properties", key]
     });
@@ -3563,7 +3563,7 @@ var objectProcessor = (schema, ctx, _json, params) => {
     if (ctx.io === "output")
       json.additionalProperties = false;
   } else if (def.catchall) {
-    json.additionalProperties = process(def.catchall, ctx, {
+    json.additionalProperties = process2(def.catchall, ctx, {
       ...params,
       path: [...params.path, "additionalProperties"]
     });
@@ -3572,7 +3572,7 @@ var objectProcessor = (schema, ctx, _json, params) => {
 var unionProcessor = (schema, ctx, json, params) => {
   const def = schema._zod.def;
   const isExclusive = def.inclusive === false;
-  const options = def.options.map((x, i) => process(x, ctx, {
+  const options = def.options.map((x, i) => process2(x, ctx, {
     ...params,
     path: [...params.path, isExclusive ? "oneOf" : "anyOf", i]
   }));
@@ -3584,11 +3584,11 @@ var unionProcessor = (schema, ctx, json, params) => {
 };
 var intersectionProcessor = (schema, ctx, json, params) => {
   const def = schema._zod.def;
-  const a = process(def.left, ctx, {
+  const a = process2(def.left, ctx, {
     ...params,
     path: [...params.path, "allOf", 0]
   });
-  const b = process(def.right, ctx, {
+  const b = process2(def.right, ctx, {
     ...params,
     path: [...params.path, "allOf", 1]
   });
@@ -3607,7 +3607,7 @@ var recordProcessor = (schema, ctx, _json, params) => {
   const keyBag = keyType._zod.bag;
   const patterns = keyBag?.patterns;
   if (def.mode === "loose" && patterns && patterns.size > 0) {
-    const valueSchema = process(def.valueType, ctx, {
+    const valueSchema = process2(def.valueType, ctx, {
       ...params,
       path: [...params.path, "patternProperties", "*"]
     });
@@ -3617,12 +3617,12 @@ var recordProcessor = (schema, ctx, _json, params) => {
     }
   } else {
     if (ctx.target === "draft-07" || ctx.target === "draft-2020-12") {
-      json.propertyNames = process(def.keyType, ctx, {
+      json.propertyNames = process2(def.keyType, ctx, {
         ...params,
         path: [...params.path, "propertyNames"]
       });
     }
-    json.additionalProperties = process(def.valueType, ctx, {
+    json.additionalProperties = process2(def.valueType, ctx, {
       ...params,
       path: [...params.path, "additionalProperties"]
     });
@@ -3637,7 +3637,7 @@ var recordProcessor = (schema, ctx, _json, params) => {
 };
 var nullableProcessor = (schema, ctx, json, params) => {
   const def = schema._zod.def;
-  const inner = process(def.innerType, ctx, params);
+  const inner = process2(def.innerType, ctx, params);
   const seen = ctx.seen.get(schema);
   if (ctx.target === "openapi-3.0") {
     seen.ref = def.innerType;
@@ -3648,20 +3648,20 @@ var nullableProcessor = (schema, ctx, json, params) => {
 };
 var nonoptionalProcessor = (schema, ctx, _json, params) => {
   const def = schema._zod.def;
-  process(def.innerType, ctx, params);
+  process2(def.innerType, ctx, params);
   const seen = ctx.seen.get(schema);
   seen.ref = def.innerType;
 };
 var defaultProcessor = (schema, ctx, json, params) => {
   const def = schema._zod.def;
-  process(def.innerType, ctx, params);
+  process2(def.innerType, ctx, params);
   const seen = ctx.seen.get(schema);
   seen.ref = def.innerType;
   json.default = JSON.parse(JSON.stringify(def.defaultValue));
 };
 var prefaultProcessor = (schema, ctx, json, params) => {
   const def = schema._zod.def;
-  process(def.innerType, ctx, params);
+  process2(def.innerType, ctx, params);
   const seen = ctx.seen.get(schema);
   seen.ref = def.innerType;
   if (ctx.io === "input")
@@ -3669,7 +3669,7 @@ var prefaultProcessor = (schema, ctx, json, params) => {
 };
 var catchProcessor = (schema, ctx, json, params) => {
   const def = schema._zod.def;
-  process(def.innerType, ctx, params);
+  process2(def.innerType, ctx, params);
   const seen = ctx.seen.get(schema);
   seen.ref = def.innerType;
   let catchValue;
@@ -3684,20 +3684,20 @@ var pipeProcessor = (schema, ctx, _json, params) => {
   const def = schema._zod.def;
   const inIsTransform = def.in._zod.traits.has("$ZodTransform");
   const innerType = ctx.io === "input" ? inIsTransform ? def.out : def.in : def.out;
-  process(innerType, ctx, params);
+  process2(innerType, ctx, params);
   const seen = ctx.seen.get(schema);
   seen.ref = innerType;
 };
 var readonlyProcessor = (schema, ctx, json, params) => {
   const def = schema._zod.def;
-  process(def.innerType, ctx, params);
+  process2(def.innerType, ctx, params);
   const seen = ctx.seen.get(schema);
   seen.ref = def.innerType;
   json.readOnly = true;
 };
 var optionalProcessor = (schema, ctx, _json, params) => {
   const def = schema._zod.def;
-  process(def.innerType, ctx, params);
+  process2(def.innerType, ctx, params);
   const seen = ctx.seen.get(schema);
   seen.ref = def.innerType;
 };
@@ -4637,12 +4637,12 @@ var defineAction = createDefineAction();
 // .generated/privileged.contract.ts
 var privileged = definePrivilegedContracts({
   readApplicationEvidence: {
-    request: object({ appId: string2().regex(/^[A-Za-z0-9_-]+$/), campaignId: string2().regex(/^[A-Za-z0-9_-]+$/), runId: string2().regex(/^[A-Za-z0-9_-]+$/), kind: _enum(["resume", "screenshot", "confirmation"]), filename: string2().regex(/^[A-Za-z0-9][A-Za-z0-9._ -]*$/) }),
+    request: object({ appId: string2().regex(/^[A-Za-z0-9_-]+$/), campaignId: string2().regex(/^[A-Za-z0-9_-]+$/), runId: string2().regex(/^[A-Za-z0-9_-]+$/), kind: _enum(["resume", "screenshot", "confirmation", "prep"]), filename: string2().regex(/^[A-Za-z0-9][A-Za-z0-9._ -]*$/) }),
     response: object({ filename: string2(), bytesBase64: string2(), contentType: _enum(["application/pdf", "image/png", "text/plain"]) }),
     timeoutMs: 15000
   },
   applicationEvidenceExists: {
-    request: object({ appId: string2().regex(/^[A-Za-z0-9_-]+$/), campaignId: string2().regex(/^[A-Za-z0-9_-]+$/), runId: string2().regex(/^[A-Za-z0-9_-]+$/), kind: _enum(["resume", "screenshot", "confirmation"]), filename: string2().regex(/^[A-Za-z0-9][A-Za-z0-9._ -]*$/) }),
+    request: object({ appId: string2().regex(/^[A-Za-z0-9_-]+$/), campaignId: string2().regex(/^[A-Za-z0-9_-]+$/), runId: string2().regex(/^[A-Za-z0-9_-]+$/), kind: _enum(["resume", "screenshot", "confirmation", "prep"]), filename: string2().regex(/^[A-Za-z0-9][A-Za-z0-9._ -]*$/) }),
     response: object({ exists: boolean2() }),
     timeoutMs: 5000
   },
@@ -5361,6 +5361,9 @@ function desc(column) {
   return sql`${column} desc`;
 }
 
+// src/actions.ts
+import { existsSync, readFileSync, writeFileSync } from "fs";
+
 // ../node_modules/drizzle-orm/sqlite-core/foreign-keys.js
 class ForeignKeyBuilder {
   static [entityKind] = "SQLiteForeignKeyBuilder";
@@ -5933,6 +5936,9 @@ class Index {
     this.config = { ...config, table };
   }
 }
+function index(name) {
+  return new IndexBuilderOn(name, false);
+}
 function uniqueIndex(name) {
   return new IndexBuilderOn(name, true);
 }
@@ -5985,8 +5991,16 @@ var postings = sqliteTable("postings", {
   jdPath: text("jd_path"),
   jdHash: text("jd_hash"),
   firstSeen: integer2("first_seen", { mode: "timestamp_ms" }).notNull(),
-  lastSeen: integer2("last_seen", { mode: "timestamp_ms" }).notNull()
-}, (t) => [uniqueIndex("postings_company_role_unique").on(t.companyNorm, t.roleNorm)]);
+  lastSeen: integer2("last_seen", { mode: "timestamp_ms" }).notNull(),
+  sourceClass: text("source_class"),
+  sourceName: text("source_name"),
+  discoveryPhase: text("discovery_phase"),
+  sourceTier: text("source_tier").default("unknown"),
+  employmentTypesOffered: text("employment_types_offered", { mode: "json" }).notNull().default([]),
+  selectedLane: text("selected_lane"),
+  h1bMode: text("h1b_mode"),
+  h1bResult: text("h1b_result")
+}, (t) => [index("postings_company_role_idx").on(t.companyNorm, t.roleNorm)]);
 var applications = sqliteTable("applications", {
   appId: text("app_id").primaryKey(),
   postingId: text("posting_id").notNull(),
@@ -6005,11 +6019,13 @@ var applications = sqliteTable("applications", {
   evidencePath: text("evidence_path"),
   blocker: text("blocker"),
   outcome: text("outcome"),
+  statusReason: text("status_reason"),
+  talkingPointsPath: text("talking_points_path"),
   createdAt: integer2("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
   updatedAt: integer2("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
   submittedAt: integer2("submitted_at", { mode: "timestamp_ms" }),
   kitVersion: text("kit_version")
-}, (t) => [uniqueIndex("applications_company_role_unique").on(t.companyNorm, t.roleNorm)]);
+}, (t) => [uniqueIndex("applications_posting_unique").on(t.postingId)]);
 var reviews = sqliteTable("reviews", {
   id: integer2("id").primaryKey({ autoIncrement: true }),
   jdHash: text("jd_hash").notNull(),
@@ -6026,6 +6042,7 @@ var runs = sqliteTable("runs", {
   started: integer2("started", { mode: "timestamp_ms" }).notNull(),
   ended: integer2("ended", { mode: "timestamp_ms" }),
   status: text("status").notNull(),
+  mode: text("mode").notNull().default("scheduled"),
   counts: text("counts", { mode: "json" }).notNull().default({}),
   tokens: text("tokens", { mode: "json" }).notNull().default({}),
   tokensInput: integer2("tokens_input").notNull().default(0),
@@ -6033,6 +6050,8 @@ var runs = sqliteTable("runs", {
   tokensTotal: integer2("tokens_total").notNull().default(0),
   tokensReported: integer2("tokens_reported", { mode: "boolean" }).notNull().default(false),
   needsMe: integer2("needs_me", { mode: "boolean" }).notNull().default(false),
+  watchChat: integer2("watch_chat", { mode: "boolean" }).notNull().default(false),
+  captureBrowser: integer2("capture_browser", { mode: "boolean" }).notNull().default(false),
   compiledConfig: text("compiled_config", { mode: "json" }).notNull().default({}),
   liveConfig: text("live_config", { mode: "json" }).notNull().default({}),
   blocker: text("blocker")
@@ -6045,6 +6064,15 @@ var events = sqliteTable("events", {
   payload: text("payload", { mode: "json" }).notNull().default({}),
   at: integer2("at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
 });
+var postingVerdicts = sqliteTable("posting_verdicts", {
+  id: integer2("id").primaryKey({ autoIncrement: true }),
+  postingId: text("posting_id").notNull(),
+  runId: text("run_id"),
+  stage: text("stage").notNull(),
+  verdict: text("verdict").notNull(),
+  reason: text("reason").notNull(),
+  at: integer2("at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
 var approvals = sqliteTable("approvals", {
   approvalId: text("approval_id").primaryKey(),
   kind: text("kind").notNull(),
@@ -6054,7 +6082,12 @@ var approvals = sqliteTable("approvals", {
   judgedBy: text("judged_by"),
   createdAt: integer2("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
   resolvedAt: integer2("resolved_at", { mode: "timestamp_ms" }),
-  answer: text("answer")
+  answer: text("answer"),
+  section: text("section"),
+  currentText: text("current_text"),
+  proposedText: text("proposed_text"),
+  proposalPath: text("proposal_path"),
+  runId: text("run_id")
 });
 var h1bSponsors = sqliteTable("h1b_sponsors", {
   companyNorm: text("company_norm").primaryKey(),
@@ -6072,6 +6105,17 @@ var companies = sqliteTable("companies", {
   parkCount: integer2("park_count").notNull().default(0),
   skipFlag: integer2("skip_flag", { mode: "boolean" }).notNull().default(false),
   skipReason: text("skip_reason")
+});
+var primeVendors = sqliteTable("prime_vendors", {
+  vendorNorm: text("vendor_norm").primaryKey(),
+  vendorName: text("vendor_name").notNull(),
+  portalUrl: text("portal_url"),
+  tier: text("tier"),
+  category: text("category"),
+  specialties: text("specialties"),
+  engagementTypes: text("engagement_types"),
+  h1bNote: text("h1b_note"),
+  lastRefreshed: integer2("last_refreshed", { mode: "timestamp_ms" })
 });
 var contacts = sqliteTable("contacts", {
   contactId: text("contact_id").primaryKey(),
@@ -6100,7 +6144,9 @@ var replies = sqliteTable("replies", {
   runId: text("run_id"),
   approvalId: text("approval_id"),
   attachmentName: text("attachment_name"),
-  at: integer2("at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+  at: integer2("at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  heldResolution: text("held_resolution", { enum: ["approved", "discarded"] }),
+  heldResolvedAt: integer2("held_resolved_at", { mode: "timestamp_ms" })
 });
 var tokenUsage = sqliteTable("token_usage", {
   runId: text("run_id").primaryKey(),
@@ -6133,6 +6179,13 @@ var countNumber = (value) => Number(value ?? 0);
 var chicagoDay = (date = new Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
 var jsonObject = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
 var jsonArray = (value) => Array.isArray(value) ? value : [];
+var sourceClass = _enum(["company_portal", "vendor_portal", "linkedin", "job_board", "open_web"]);
+var discoveryPhase = _enum(["dataset", "web_expansion", "additional_source"]);
+var sourceTier = _enum(["1", "2", "3", "unknown"]);
+var h1bMode = _enum(["soft_lookup", "bypass_c2c"]);
+var h1bResult = _enum(["scored", "unknown", "not_applicable"]);
+var linkedinSection = _enum(["headline", "about", "experience", "skills", "visibility"]);
+var runMode = _enum(["scheduled", "manual"]);
 var postingRow = object({
   posting_id: string2().min(1),
   company: string2().min(1),
@@ -6142,7 +6195,15 @@ var postingRow = object({
   jd_path: string2().nullable().optional(),
   jd_hash: string2().nullable().optional(),
   first_seen: string2().datetime().optional(),
-  last_seen: string2().datetime().optional()
+  last_seen: string2().datetime().optional(),
+  source_class: sourceClass.nullable().optional(),
+  source_name: string2().nullable().optional(),
+  discovery_phase: discoveryPhase.nullable().optional(),
+  source_tier: sourceTier.nullable().optional(),
+  employment_types_offered: array(string2()).nullable().optional(),
+  selected_lane: _enum(["full_time", "part_time", "w2_contract", "c2c_contract", "internship"]).nullable().optional(),
+  h1b_mode: h1bMode.nullable().optional(),
+  h1b_result: h1bResult.nullable().optional()
 });
 var profilePayload = object({
   identity: jsonValue,
@@ -6691,6 +6752,17 @@ function recordsFromCsv(csv) {
   const headers = (rows[0] ?? []).map((x) => norm(x).replaceAll(" ", "_"));
   return rows.slice(1).map((row) => Object.fromEntries(headers.map((h, i) => [h, row[i] ?? ""])));
 }
+async function csvTextFromArgs(args) {
+  if (args.csv)
+    return args.csv;
+  if (args.csv_url) {
+    const res = await fetch(args.csv_url);
+    if (!res.ok)
+      throw new Error(`CSV download failed: HTTP ${res.status}`);
+    return await res.text();
+  }
+  throw new Error("Provide csv or csv_url.");
+}
 var safeResumeFilenamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]*\.pdf$/i;
 var safeResumeVariantPattern = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 var resumeUploadResponse = union([
@@ -6729,6 +6801,18 @@ function profileYearsMatrix(row) {
       return candidate;
   }
   return {};
+}
+var workspaceHome = () => `${process.env.HOME ?? "/home/hatch"}/workspace`;
+function draftAbsolutePath(stored) {
+  const normalized = stored.replaceAll("\\", "/");
+  if (normalized.includes(".."))
+    return null;
+  const abs = normalized.startsWith("/") ? normalized : `${workspaceHome()}/${normalized.replace(/^workspace\//, "")}`;
+  return abs === workspaceHome() || abs.startsWith(`${workspaceHome()}/`) ? abs : null;
+}
+function workspaceRelativeDir(abs) {
+  const prefix = `${workspaceHome()}/`;
+  return abs.startsWith(prefix) ? abs.slice(prefix.length) : abs;
 }
 var Actions = {
   profile_get: defineAction({
@@ -6811,17 +6895,49 @@ var Actions = {
     async handler(ctx, args) {
       const db = ctx.db();
       const newIds = [];
+      const TERMINAL = ["submitted", "confirmed", "blocked", "rejected"];
+      const provenanceInsert = (row) => ({
+        sourceClass: row.source_class ?? null,
+        sourceName: row.source_name ?? row.source,
+        discoveryPhase: row.discovery_phase ?? null,
+        sourceTier: row.source_tier ?? "unknown",
+        employmentTypesOffered: row.employment_types_offered ?? [],
+        selectedLane: row.selected_lane ?? null,
+        h1bMode: row.h1b_mode ?? null,
+        h1bResult: row.h1b_result ?? null
+      });
+      const provenancePatch = (row) => Object.fromEntries([
+        ["sourceClass", row.source_class],
+        ["sourceName", row.source_name],
+        ["discoveryPhase", row.discovery_phase],
+        ["sourceTier", row.source_tier],
+        ["employmentTypesOffered", row.employment_types_offered],
+        ["selectedLane", row.selected_lane],
+        ["h1bMode", row.h1b_mode],
+        ["h1bResult", row.h1b_result]
+      ].filter(([, v]) => v !== undefined && v !== null).map(([k, v]) => [k, v]));
       for (const row of args.rows) {
         const companyNorm = norm(row.company);
         const roleNorm = norm(row.role);
-        const existing = (await db.select({ id: postings.postingId }).from(postings).where(or(eq(postings.postingId, row.posting_id), and(eq(postings.companyNorm, companyNorm), eq(postings.roleNorm, roleNorm)))).limit(1))[0];
         const lastSeen = row.last_seen ? new Date(row.last_seen) : now();
-        if (existing) {
-          await db.update(postings).set({ company: row.company, role: row.role, url: row.url, source: row.source, jdPath: row.jd_path ?? null, jdHash: row.jd_hash ?? null, lastSeen }).where(eq(postings.postingId, existing.id));
-        } else {
-          await db.insert(postings).values({ postingId: row.posting_id, company: row.company, companyNorm, role: row.role, roleNorm, url: row.url, source: row.source, jdPath: row.jd_path ?? null, jdHash: row.jd_hash ?? null, firstSeen: row.first_seen ? new Date(row.first_seen) : lastSeen, lastSeen });
-          newIds.push(row.posting_id);
+        const byId = (await db.select({ id: postings.postingId }).from(postings).where(eq(postings.postingId, row.posting_id)).limit(1))[0];
+        if (byId) {
+          await db.update(postings).set({ company: row.company, role: row.role, url: row.url, source: row.source, jdPath: row.jd_path ?? null, jdHash: row.jd_hash ?? null, lastSeen, ...provenancePatch(row) }).where(eq(postings.postingId, byId.id));
+          continue;
         }
+        const byRole = (await db.select({ id: postings.postingId }).from(postings).where(and(eq(postings.companyNorm, companyNorm), eq(postings.roleNorm, roleNorm))).limit(1))[0];
+        if (byRole) {
+          const app = (await db.select({ state: applications.state }).from(applications).where(eq(applications.postingId, byRole.id)).limit(1))[0];
+          if (app && TERMINAL.includes(app.state)) {
+            await db.insert(postings).values({ postingId: row.posting_id, company: row.company, companyNorm, role: row.role, roleNorm, url: row.url, source: row.source, jdPath: row.jd_path ?? null, jdHash: row.jd_hash ?? null, firstSeen: lastSeen, lastSeen, ...provenanceInsert(row) });
+            newIds.push(row.posting_id);
+          } else {
+            await db.update(postings).set({ company: row.company, role: row.role, url: row.url, source: row.source, jdPath: row.jd_path ?? null, jdHash: row.jd_hash ?? null, lastSeen, ...provenancePatch(row) }).where(eq(postings.postingId, byRole.id));
+          }
+          continue;
+        }
+        await db.insert(postings).values({ postingId: row.posting_id, company: row.company, companyNorm, role: row.role, roleNorm, url: row.url, source: row.source, jdPath: row.jd_path ?? null, jdHash: row.jd_hash ?? null, firstSeen: row.first_seen ? new Date(row.first_seen) : lastSeen, lastSeen, ...provenanceInsert(row) });
+        newIds.push(row.posting_id);
       }
       if (args.rows.length)
         ctx.invalidateQueries();
@@ -6843,14 +6959,14 @@ var Actions = {
         SELECT ${appId}, p.posting_id, p.company_norm, p.role_norm, 'discovered', c.campaign_id, ${openRun.runId}, ${created}, ${created}, ${openRun.kitVersion}
         FROM postings p JOIN campaigns c ON c.campaign_id = ${args.campaign_id}
         WHERE p.posting_id = ${args.posting_id}
-          AND NOT EXISTS (SELECT 1 FROM applications a WHERE a.company_norm=p.company_norm AND a.role_norm=p.role_norm)
+          AND NOT EXISTS (SELECT 1 FROM applications a WHERE a.posting_id=p.posting_id)
           AND (SELECT COUNT(*) FROM applications a WHERE a.run_id=${openRun.runId}) < c.cap_per_run
           AND (SELECT COUNT(*) FROM applications a WHERE a.campaign_id=c.campaign_id AND strftime('%Y-%m-%d', a.created_at/1000, 'unixepoch', '-5 hours')=${day}) < c.cap_per_day
         ON CONFLICT DO NOTHING`);
       const inserted = (await db.select({ appId: applications.appId }).from(applications).where(eq(applications.appId, appId)).limit(1))[0];
       if (!inserted) {
-        const duplicate = (await db.select({ id: applications.appId }).from(applications).innerJoin(postings, and(eq(applications.companyNorm, postings.companyNorm), eq(applications.roleNorm, postings.roleNorm))).where(eq(postings.postingId, args.posting_id)).limit(1))[0];
-        return { ok: false, reason: duplicate ? "Duplicate company and role." : "Campaign cap reached, or posting/campaign is unavailable." };
+        const duplicate = (await db.select({ id: applications.appId }).from(applications).where(eq(applications.postingId, args.posting_id)).limit(1))[0];
+        return { ok: false, reason: duplicate ? "Duplicate posting \u2014 an application already exists for this posting." : "Campaign cap reached, or posting/campaign is unavailable." };
       }
       await db.insert(events).values({ runId: openRun.runId, appId, type: "application_claimed", payload: { posting_id: args.posting_id, campaign_id: args.campaign_id } });
       ctx.invalidateQueries();
@@ -6904,7 +7020,7 @@ var Actions = {
     }
   }),
   app_transition: defineAction({
-    request: object({ app_id: string2(), from: string2(), to: string2(), evidence: string2().nullable(), intent_id: string2().nullable().optional() }),
+    request: object({ app_id: string2(), from: string2(), to: string2(), evidence: string2().nullable(), intent_id: string2().nullable().optional(), reason: string2().trim().min(1).max(280).nullable().optional() }),
     response: okResponse,
     async handler(ctx, args) {
       const allowed = LEGAL[args.from] ?? [];
@@ -6941,11 +7057,76 @@ var Actions = {
           screenshotPath: evidence ? evidence.screenshot_path ?? null : row.screenshotPath,
           confirmation: evidence?.confirmation ?? row.confirmation,
           confirmationPath,
+          statusReason: args.reason ?? row.statusReason,
           updatedAt: changed,
           submittedAt: args.to === "submitted" ? changed : row.submittedAt
         }).where(and(eq(applications.appId, args.app_id), eq(applications.state, args.from))),
-        db.insert(events).values({ runId: row.runId, appId: row.appId, type: "state_transition", payload: { from: args.from, to: args.to, evidence: args.evidence, intent_id: args.intent_id ?? null }, at: changed })
+        db.insert(events).values({ runId: row.runId, appId: row.appId, type: "state_transition", payload: { from: args.from, to: args.to, reason: args.reason ?? null, evidence: args.evidence, intent_id: args.intent_id ?? null }, at: changed })
       ]);
+      ctx.invalidateQueries();
+      return { ok: true };
+    }
+  }),
+  app_resume: defineAction({
+    request: object({ app_id: string2().min(1), note: string2().min(1).max(2000).optional() }),
+    response: object({ ok: boolean2(), message: string2().optional() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const app = (await db.select().from(applications).where(eq(applications.appId, args.app_id)).limit(1))[0];
+      if (!app)
+        return { ok: false, message: "Application not found." };
+      if (app.state !== "parked" && app.state !== "needs_me")
+        return { ok: false, message: `Application is ${app.state}; only parked or needs-me applications can be resumed.` };
+      if (app.state === "needs_me") {
+        const open = (await db.select().from(approvals).where(and(eq(approvals.appId, app.appId), isNull(approvals.resolvedAt))).orderBy(asc(approvals.createdAt)).limit(1))[0];
+        if (open)
+          return { ok: false, message: `Resolve approval \u201C${open.question}\u201D (${open.approvalId}) on the Overview tab before resuming.` };
+      }
+      const changed = now();
+      const reason = args.note ? `Resumed by user: ${args.note}` : "Resumed by user";
+      await db.batch([
+        db.update(applications).set({ state: "reviewed", statusReason: reason, updatedAt: changed }).where(eq(applications.appId, app.appId)),
+        db.insert(events).values({ runId: app.runId, appId: app.appId, type: "application_resumed", payload: { from: app.state, note: args.note ?? null }, at: changed })
+      ]);
+      ctx.invalidateQueries();
+      return { ok: true };
+    }
+  }),
+  posting_verdict: defineAction({
+    request: object({
+      posting_id: string2().min(1),
+      run_id: string2().min(1).nullable().optional(),
+      stage: _enum(["scout", "screen"]),
+      verdict: _enum(["passed", "held", "rejected"]),
+      reason: string2().trim().min(1).max(280)
+    }),
+    response: okResponse,
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const at = now();
+      await db.insert(postingVerdicts).values({
+        postingId: args.posting_id,
+        runId: args.run_id ?? null,
+        stage: args.stage,
+        verdict: args.verdict,
+        reason: args.reason,
+        at
+      });
+      await db.insert(events).values({ runId: args.run_id ?? null, appId: null, type: "posting_verdict", payload: { posting_id: args.posting_id, stage: args.stage, verdict: args.verdict, reason: args.reason }, at });
+      ctx.invalidateQueries();
+      return { ok: true };
+    }
+  }),
+  talking_points_attach: defineAction({
+    request: object({ app_id: string2().min(1), talking_points_path: string2().trim().min(1) }),
+    response: okResponse,
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const row = (await db.select({ appId: applications.appId }).from(applications).where(eq(applications.appId, args.app_id)).limit(1))[0];
+      if (!row)
+        return { ok: false, message: "Application not found." };
+      await db.update(applications).set({ talkingPointsPath: args.talking_points_path, updatedAt: now() }).where(eq(applications.appId, args.app_id));
+      await db.insert(events).values({ appId: args.app_id, type: "talking_points_attached", payload: { talking_points_path: args.talking_points_path }, at: now() });
       ctx.invalidateQueries();
       return { ok: true };
     }
@@ -7116,34 +7297,46 @@ var Actions = {
     }
   }),
   approval_enqueue: defineAction({
-    request: object({ approval_id: string2().optional(), kind: string2(), app_id: string2().nullable().optional(), question: string2(), options: array(string2()) }),
+    request: object({ approval_id: string2().optional(), kind: string2(), app_id: string2().nullable().optional(), question: string2(), options: array(string2()), section: linkedinSection.nullable().optional(), current_text: string2().nullable().optional(), proposed_text: string2().nullable().optional(), proposal_path: string2().nullable().optional(), run_id: string2().nullable().optional() }),
     response: object({ approval_id: string2() }),
     async handler(ctx, args) {
       const approvalId = args.approval_id ?? id("approval");
-      await ctx.db().insert(approvals).values({ approvalId, kind: args.kind, appId: args.app_id ?? null, question: args.question, options: args.options });
+      await ctx.db().insert(approvals).values({ approvalId, kind: args.kind, appId: args.app_id ?? null, question: args.question, options: args.options, section: args.section ?? null, currentText: args.current_text ?? null, proposedText: args.proposed_text ?? null, proposalPath: args.proposal_path ?? null, runId: args.run_id ?? null });
       ctx.invalidateQueries();
       return { approval_id: approvalId };
     }
   }),
   approval_resolve: defineAction({
-    request: object({ approval_id: string2(), answer: string2(), judged_by: string2() }),
+    request: object({ approval_id: string2(), answer: string2(), judged_by: string2(), edited_text: string2().trim().min(1).optional() }),
     response: okResponse,
     async handler(ctx, args) {
       const db = ctx.db();
       const found = (await db.select().from(approvals).where(eq(approvals.approvalId, args.approval_id)).limit(1))[0];
       if (!found || found.resolvedAt)
         return { ok: false, message: found ? "Approval is already resolved." : "Approval not found." };
-      await db.update(approvals).set({ answer: args.answer, judgedBy: args.judged_by, resolvedAt: now() }).where(eq(approvals.approvalId, args.approval_id));
+      if (found.kind === "linkedin_section") {
+        const decision = args.answer.trim().toLowerCase();
+        if (decision !== "approve" && decision !== "approved" && decision !== "discard" && decision !== "discarded")
+          return { ok: false, message: "Choose Approve or Discard." };
+        const approved = decision === "approve" || decision === "approved";
+        const proposedText = args.edited_text?.trim() || found.proposedText?.trim() || "";
+        if (approved && !proposedText)
+          return { ok: false, message: "The proposed text is empty and cannot be applied." };
+        await db.update(approvals).set({ answer: approved ? "approved" : "discarded", judgedBy: args.judged_by, resolvedAt: now(), proposedText: approved ? proposedText : found.proposedText }).where(eq(approvals.approvalId, args.approval_id));
+        ctx.invalidateQueries();
+        return { ok: true };
+      }
+      await db.update(approvals).set({ answer: args.answer, judgedBy: args.judged_by, resolvedAt: now(), proposedText: args.edited_text ?? found.proposedText }).where(eq(approvals.approvalId, args.approval_id));
       ctx.invalidateQueries();
       return { ok: true };
     }
   }),
   run_open: defineAction({
-    request: object({ run_id: string2().optional(), campaign_id: string2(), kit_version: string2().nullable().optional(), compiled_config: jsonValue.optional(), live_config: jsonValue.optional() }),
+    request: object({ run_id: string2().optional(), campaign_id: string2(), kit_version: string2().nullable().optional(), compiled_config: jsonValue.optional(), live_config: jsonValue.optional(), mode: runMode.optional() }),
     response: object({ run_id: string2() }),
     async handler(ctx, args) {
       const runId = args.run_id ?? id("run");
-      await ctx.db().insert(runs).values({ runId, campaignId: args.campaign_id, kitVersion: args.kit_version ?? null, started: now(), status: "running", compiledConfig: args.compiled_config ?? {}, liveConfig: args.live_config ?? {} });
+      await ctx.db().insert(runs).values({ runId, campaignId: args.campaign_id, kitVersion: args.kit_version ?? null, started: now(), status: "running", mode: args.mode ?? "scheduled", compiledConfig: args.compiled_config ?? {}, liveConfig: args.live_config ?? {} });
       ctx.invalidateQueries();
       return { run_id: runId };
     }
@@ -7161,16 +7354,96 @@ var Actions = {
       return { ok: true };
     }
   }),
+  run_detail: defineAction({
+    request: object({ run_id: string2().min(1) }),
+    response: object({ found: boolean2(), generated_at: string2(), data: unknown().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const run = (await db.select().from(runs).where(eq(runs.runId, args.run_id)).limit(1))[0];
+      if (!run)
+        return { found: false, generated_at: now().toISOString(), data: null };
+      const eventRows = await db.select().from(events).where(eq(events.runId, args.run_id)).orderBy(desc(events.at), desc(events.id)).limit(250);
+      const appRows = await db.select().from(applications).where(eq(applications.runId, args.run_id)).orderBy(desc(applications.updatedAt));
+      const verdictRows = await db.select({
+        postingId: postingVerdicts.postingId,
+        stage: postingVerdicts.stage,
+        verdict: postingVerdicts.verdict,
+        reason: postingVerdicts.reason,
+        at: postingVerdicts.at,
+        company: postings.company,
+        role: postings.role
+      }).from(postingVerdicts).leftJoin(postings, eq(postingVerdicts.postingId, postings.postingId)).where(eq(postingVerdicts.runId, args.run_id)).orderBy(desc(postingVerdicts.at));
+      const seenPostings = new Set;
+      const latestPostingVerdicts = verdictRows.filter((row) => {
+        if (seenPostings.has(row.postingId))
+          return false;
+        seenPostings.add(row.postingId);
+        return true;
+      });
+      const appIds = appRows.map((row) => row.appId);
+      const approvalRows = appIds.length > 0 ? await db.select().from(approvals).where(and(inArray(approvals.appId, appIds), isNull(approvals.resolvedAt))).orderBy(asc(approvals.createdAt)) : [];
+      const stateCounts = Object.fromEntries(Object.entries(appRows.reduce((counts, row) => {
+        counts[row.state] = (counts[row.state] ?? 0) + 1;
+        return counts;
+      }, {})).sort(([left], [right]) => left.localeCompare(right)));
+      return {
+        found: true,
+        generated_at: now().toISOString(),
+        data: {
+          run: {
+            run_id: run.runId,
+            campaign_id: run.campaignId,
+            kit_version: run.kitVersion,
+            started: run.started.toISOString(),
+            ended: iso(run.ended),
+            status: run.status,
+            counts: run.counts,
+            current_state_counts: stateCounts,
+            needs_me: run.needsMe,
+            blocker: run.blocker,
+            watch_chat: run.watchChat,
+            capture_browser: run.captureBrowser,
+            current_stage: eventRows[0]?.type ?? (run.status === "running" ? "starting" : run.status)
+          },
+          events: eventRows.map((event) => ({ id: event.id, app_id: event.appId, type: event.type, payload: event.payload, at: event.at.toISOString() })),
+          approvals: approvalRows.map((approval) => ({ approval_id: approval.approvalId, kind: approval.kind, app_id: approval.appId, question: approval.question, options: approval.options, section: approval.section, current_text: approval.currentText, proposed_text: approval.proposedText, proposal_path: approval.proposalPath, run_id: approval.runId, created_at: approval.createdAt.toISOString() })),
+          applications: appRows.map((app) => ({ app_id: app.appId, posting_id: app.postingId, state: app.state, status_reason: app.statusReason, blocker: app.blocker, outcome: app.outcome, talking_points_path: app.talkingPointsPath, screenshot_path: app.screenshotPath, confirmation: app.confirmation, updated_at: app.updatedAt.toISOString() })),
+          posting_verdicts: latestPostingVerdicts.map((row) => ({ posting_id: row.postingId, company: row.company, role: row.role, stage: row.stage, verdict: row.verdict, reason: row.reason, at: row.at.toISOString() }))
+        }
+      };
+    }
+  }),
+  run_watch_set: defineAction({
+    request: object({ run_id: string2().min(1), watch_chat: boolean2().optional(), capture_browser: boolean2().optional() }).superRefine((value, ctx) => {
+      if (value.watch_chat === undefined && value.capture_browser === undefined)
+        ctx.addIssue({ code: ZodIssueCode.custom, message: "Choose at least one watch setting." });
+    }),
+    response: object({ ok: boolean2(), message: string2(), watch_chat: boolean2(), capture_browser: boolean2() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const run = (await db.select().from(runs).where(eq(runs.runId, args.run_id)).limit(1))[0];
+      if (!run)
+        return { ok: false, message: "Run not found.", watch_chat: false, capture_browser: false };
+      const watchChat = args.watch_chat ?? run.watchChat;
+      const captureBrowser = args.capture_browser ?? run.captureBrowser;
+      await db.update(runs).set({ watchChat, captureBrowser }).where(eq(runs.runId, args.run_id));
+      await db.insert(events).values({ runId: args.run_id, type: "watch_settings_changed", payload: { watch_chat: watchChat, capture_browser: captureBrowser }, at: now() });
+      ctx.invalidateQueries();
+      return { ok: true, message: run.status === "running" ? "Watch settings saved for this run." : "Watch settings saved. This run is no longer active.", watch_chat: watchChat, capture_browser: captureBrowser };
+    }
+  }),
   event_log: defineAction({
     request: object({ run_id: string2().nullable().optional(), app_id: string2().nullable().optional(), type: string2(), payload: jsonValue.optional(), at: string2().datetime().optional() }),
-    response: object({ id: number2() }),
+    response: object({ id: number2(), watch_chat: boolean2(), capture_browser: boolean2() }),
     async handler(ctx, args) {
-      const result = await ctx.db().insert(events).values({ runId: args.run_id ?? null, appId: args.app_id ?? null, type: args.type, payload: args.payload ?? {}, at: args.at ? new Date(args.at) : now() }).returning({ id: events.id });
+      const db = ctx.db();
+      const result = await db.insert(events).values({ runId: args.run_id ?? null, appId: args.app_id ?? null, type: args.type, payload: args.payload ?? {}, at: args.at ? new Date(args.at) : now() }).returning({ id: events.id });
       const inserted = result[0];
       if (!inserted)
         throw new Error("Event could not be logged.");
+      const run = args.run_id ? (await db.select({ watchChat: runs.watchChat, captureBrowser: runs.captureBrowser }).from(runs).where(eq(runs.runId, args.run_id)).limit(1))[0] : undefined;
       ctx.invalidateQueries();
-      return { id: inserted.id };
+      return { id: inserted.id, watch_chat: run?.watchChat ?? false, capture_browser: run?.captureBrowser ?? false };
     }
   }),
   test_data_purge: defineAction({
@@ -7532,6 +7805,11 @@ var Actions = {
           return [app.appId, result.exists];
         }));
         const screenshotExists = new Map(screenshotChecks);
+        const prepChecks = await Promise.all(apps.filter((app) => app.talkingPointsPath && app.runId).map(async (app) => {
+          const result = await ctx.executePrivileged(privileged.applicationEvidenceExists, { appId: app.appId, campaignId: app.campaignId, runId: app.runId ?? "", kind: "prep", filename: pathFilename(app.talkingPointsPath ?? "") });
+          return [app.appId, result.exists];
+        }));
+        const prepExists = new Map(prepChecks);
         const ledger = apps.map((a) => {
           const p = postMap.get(a.postingId);
           return {
@@ -7554,10 +7832,52 @@ var Actions = {
             outcome: a.outcome,
             created_at: a.createdAt.toISOString(),
             updated_at: a.updatedAt.toISOString(),
-            submitted_at: iso(a.submittedAt)
+            submitted_at: iso(a.submittedAt),
+            reason: a.statusReason,
+            talking_points_path: a.talkingPointsPath,
+            prep_exists: a.talkingPointsPath ? prepExists.get(a.appId) === true : false,
+            source_class: p?.sourceClass ?? null,
+            source_name: p?.sourceName ?? null,
+            discovery_phase: p?.discoveryPhase ?? null,
+            source_tier: p?.sourceTier ?? null,
+            employment_types_offered: p?.employmentTypesOffered ?? [],
+            selected_lane: p?.selectedLane ?? null,
+            h1b_mode: p?.h1bMode ?? null,
+            h1b_result: p?.h1bResult ?? null
           };
         });
-        return { view: args.view, generated_at: generatedAt.toISOString(), data: { counts, ledger, resumes } };
+        const submittedProvenance = apps.filter((a) => a.state === "submitted");
+        const facet = (pick) => {
+          const m = new Map;
+          for (const a of submittedProvenance) {
+            const key = pick(postMap.get(a.postingId)) ?? "unknown";
+            m.set(key, (m.get(key) ?? 0) + 1);
+          }
+          return Object.fromEntries(m);
+        };
+        const submitted_breakdowns = {
+          by_source_class: facet((p) => p?.sourceClass ?? null),
+          by_source_name: facet((p) => p?.sourceName ?? null),
+          by_discovery_phase: facet((p) => p?.discoveryPhase ?? null),
+          by_source_tier: facet((p) => p?.sourceTier ?? null),
+          by_lane: facet((p) => p?.selectedLane ?? null),
+          by_h1b_result: facet((p) => p?.h1bResult ?? null)
+        };
+        const tally = (values) => Object.fromEntries(Array.from(values.reduce((result, value) => {
+          const key = value ?? "not_recorded";
+          result.set(key, (result.get(key) ?? 0) + 1);
+          return result;
+        }, new Map)).sort(([left], [right]) => left.localeCompare(right)));
+        const provenanceValues = submittedProvenance.map((a) => postMap.get(a.postingId));
+        const provenance_summary = {
+          submitted_total: submittedProvenance.length,
+          by_source: tally(provenanceValues.map((p) => p?.sourceClass ?? null)),
+          by_tier: tally(provenanceValues.map((p) => p?.sourceTier ?? null)),
+          by_lane: tally(provenanceValues.map((p) => p?.selectedLane ?? null)),
+          by_h1b_result: tally(provenanceValues.map((p) => p?.h1bResult ?? null)),
+          by_discovery_phase: tally(provenanceValues.map((p) => p?.discoveryPhase ?? null))
+        };
+        return { view: args.view, generated_at: generatedAt.toISOString(), data: { counts, ledger, resumes, submitted_breakdowns, provenance_summary } };
       }
       if (args.view === "runs") {
         const runRows = await db.select().from(runs).orderBy(desc(runs.started)).limit(200);
@@ -7565,6 +7885,7 @@ var Actions = {
           run_id: r.runId,
           campaign_id: r.campaignId,
           kit_version: r.kitVersion,
+          mode: r.mode,
           started: r.started.toISOString(),
           ended: iso(r.ended),
           status: r.status,
@@ -7576,12 +7897,23 @@ var Actions = {
           tokens_reported: r.tokensReported,
           needs_me: r.needsMe,
           blocker: r.blocker,
+          watch_chat: r.watchChat,
+          capture_browser: r.captureBrowser,
           drift: JSON.stringify(r.compiledConfig) === JSON.stringify(r.liveConfig) ? "in_sync" : "drift",
           compiled_config: r.compiledConfig,
           live_config: r.liveConfig
         }));
         const totalTokens = runRows.reduce((sum, r) => r.tokensReported ? sum + r.tokensTotal : sum, 0);
-        return { view: args.view, generated_at: generatedAt.toISOString(), data: { hero: runRows.length, running: runRows.filter((r) => r.status === "running").length, blocked: runRows.filter((r) => Boolean(r.blocker)).length, needs_me: runRows.filter((r) => r.needsMe).length, total_tokens: totalTokens, rows } };
+        const runIds = runRows.map((r) => r.runId);
+        const verdictRows = runIds.length ? await db.select().from(postingVerdicts).where(inArray(postingVerdicts.runId, runIds)).orderBy(desc(postingVerdicts.at)).limit(2000) : [];
+        const verdictsByRun = new Map;
+        for (const v of verdictRows) {
+          const list = verdictsByRun.get(v.runId ?? "") ?? [];
+          list.push({ posting_id: v.postingId, stage: v.stage, verdict: v.verdict, reason: v.reason, at: v.at.toISOString() });
+          verdictsByRun.set(v.runId ?? "", list);
+        }
+        const rowsWithVerdicts = rows.map((r) => ({ ...r, verdicts: verdictsByRun.get(r.run_id) ?? [] }));
+        return { view: args.view, generated_at: generatedAt.toISOString(), data: { hero: runRows.length, running: runRows.filter((r) => r.status === "running").length, blocked: runRows.filter((r) => Boolean(r.blocker)).length, needs_me: runRows.filter((r) => r.needsMe).length, total_tokens: totalTokens, rows: rowsWithVerdicts } };
       }
       if (args.view === "replies") {
         const threads = await db.select().from(conversations).orderBy(desc(conversations.updatedAt)).limit(300);
@@ -7611,7 +7943,7 @@ var Actions = {
         const recentRuns = await db.select().from(runs).where(gte(runs.started, cutoff24)).orderBy(desc(runs.started));
         const pending = await db.select().from(approvals).where(isNull(approvals.resolvedAt)).orderBy(asc(approvals.createdAt)).limit(20);
         const recentEvents = await db.select({ count: sql`count(*)` }).from(events).where(gte(events.at, cutoff24));
-        return { view: args.view, generated_at: generatedAt.toISOString(), data: { counts, runs_24h: recentRuns.length, healthy_runs_24h: recentRuns.filter((r) => r.status === "completed").length, events_24h: countNumber(recentEvents[0]?.count), approvals: pending.map((a) => ({ approval_id: a.approvalId, kind: a.kind, app_id: a.appId, question: a.question, options: a.options, created_at: a.createdAt.toISOString() })) } };
+        return { view: args.view, generated_at: generatedAt.toISOString(), data: { counts, runs_24h: recentRuns.length, healthy_runs_24h: recentRuns.filter((r) => r.status === "completed").length, events_24h: countNumber(recentEvents[0]?.count), approvals: pending.map((a) => ({ approval_id: a.approvalId, kind: a.kind, app_id: a.appId, question: a.question, options: a.options, section: a.section, current_text: a.currentText, proposed_text: a.proposedText, proposal_path: a.proposalPath, run_id: a.runId, created_at: a.createdAt.toISOString() })) } };
       }
       const query = (args.query ?? "").trim().toLowerCase();
       const route = query.match(/resume|variant/) ? "resumes" : query.match(/reply|thread|message/) ? "replies" : query.match(/token|cost/) ? "tokens" : query.match(/block|stuck/) ? "blockers" : query.match(/schedule|cron|cadence/) ? "schedules" : query.match(/health|doctor|drift|stale|disk/) ? "health" : query.match(/run|campaign/) ? "runs" : query.match(/application|applied|submit|reject|park/) ? "applications" : "unknown";
@@ -7681,6 +8013,60 @@ var Actions = {
       return { ok: true, reply_id: replyId };
     }
   }),
+  held_reply_draft: defineAction({
+    request: object({ reply_id: string2().min(1) }),
+    response: object({ ok: boolean2(), draft_text: string2().optional(), draft_path: string2().nullable().optional(), message: string2().optional() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const reply = (await db.select().from(replies).where(eq(replies.replyId, args.reply_id)).limit(1))[0];
+      if (!reply)
+        return { ok: false, message: "Reply not found." };
+      if (reply.action !== "held")
+        return { ok: false, message: "Only held replies have drafts." };
+      if (!reply.draftPath)
+        return { ok: false, message: "No draft file is attached to this held reply." };
+      const abs = draftAbsolutePath(reply.draftPath);
+      if (!abs || !existsSync(abs))
+        return { ok: false, message: "No draft file is attached to this held reply." };
+      return { ok: true, draft_text: readFileSync(abs, "utf8"), draft_path: reply.draftPath };
+    }
+  }),
+  held_reply_resolve: defineAction({
+    request: object({ reply_id: string2().min(1), decision: _enum(["approved", "discarded"]), edited_text: string2().min(1).max(200000).optional() }),
+    response: object({ ok: boolean2(), message: string2().optional() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const reply = (await db.select().from(replies).where(eq(replies.replyId, args.reply_id)).limit(1))[0];
+      if (!reply)
+        return { ok: false, message: "Reply not found." };
+      if (reply.action !== "held")
+        return { ok: false, message: "Only held replies can be resolved." };
+      if (reply.heldResolution)
+        return { ok: false, message: `This held reply was already ${reply.heldResolution}.` };
+      let draftPath = reply.draftPath;
+      if (args.edited_text !== undefined) {
+        if (!reply.draftPath)
+          return { ok: false, message: "The held reply has no draft file to edit." };
+        const abs = draftAbsolutePath(reply.draftPath);
+        if (!abs)
+          return { ok: false, message: "The held reply's draft path is invalid." };
+        const slash = abs.lastIndexOf("/");
+        const dir = abs.slice(0, slash);
+        const base = abs.slice(slash + 1);
+        const stamp = Date.now();
+        const nextBase = base.includes(".") ? base.replace(/(\.[^.]+)$/, `.edited-${stamp}$1`) : `${base}.edited-${stamp}`;
+        writeFileSync(`${dir}/${nextBase}`, args.edited_text, "utf8");
+        draftPath = `${workspaceRelativeDir(abs)}/${nextBase}`;
+      }
+      const resolvedAt = now();
+      await db.batch([
+        db.update(replies).set({ heldResolution: args.decision, heldResolvedAt: resolvedAt, draftPath }).where(eq(replies.replyId, reply.replyId)),
+        db.insert(events).values({ runId: reply.runId, appId: null, type: "held_reply_resolved", payload: { reply_id: reply.replyId, decision: args.decision, edited: args.edited_text !== undefined }, at: resolvedAt })
+      ]);
+      ctx.invalidateQueries();
+      return { ok: true };
+    }
+  }),
   spillover_replay: defineAction({
     request: object({ run_id: string2() }),
     response: object({ replayed: boolean2(), count: number2() }),
@@ -7697,7 +8083,7 @@ var Actions = {
   }),
   file_open: defineAction({
     request: union([
-      object({ app_id: string2().min(1), kind: _enum(["resume", "screenshot", "confirmation"]) }),
+      object({ app_id: string2().min(1), kind: _enum(["resume", "screenshot", "confirmation", "prep"]) }),
       object({ variant_id: string2().min(1) })
     ]),
     response: object({ filename: string2(), file_url: string2(), content_type: _enum(["application/pdf", "image/png", "text/plain"]), preview_pages: array(object({ page: number2().int().positive(), file_url: string2() })), preview_truncated: boolean2() }),
@@ -7713,8 +8099,8 @@ var Actions = {
         const result = await ctx.executePrivileged(privileged.readRegisteredResume, { filename, location });
         return publishFileWithPreview(ctx, result);
       }
-      const row = (await db.select({ appId: applications.appId, campaignId: applications.campaignId, runId: applications.runId, variantId: applications.variantId, resumePath: applications.resumePath, resumeHash: applications.resumeHash, screenshotPath: applications.screenshotPath, confirmationPath: applications.confirmationPath }).from(applications).where(eq(applications.appId, args.app_id)).limit(1))[0];
-      const path = row ? args.kind === "resume" ? row.resumePath : args.kind === "screenshot" ? row.screenshotPath : row.confirmationPath : null;
+      const row = (await db.select({ appId: applications.appId, campaignId: applications.campaignId, runId: applications.runId, variantId: applications.variantId, resumePath: applications.resumePath, resumeHash: applications.resumeHash, screenshotPath: applications.screenshotPath, confirmationPath: applications.confirmationPath, talkingPointsPath: applications.talkingPointsPath }).from(applications).where(eq(applications.appId, args.app_id)).limit(1))[0];
+      const path = row ? args.kind === "resume" ? row.resumePath : args.kind === "screenshot" ? row.screenshotPath : args.kind === "prep" ? row.talkingPointsPath : row.confirmationPath : null;
       if (!row || !path)
         throw new Error("The requested file is not attached to this application.");
       if (args.kind === "resume") {
@@ -7763,11 +8149,11 @@ var Actions = {
     }
   }),
   h1b_import: defineAction({
-    request: object({ csv: string2().min(1) }),
+    request: object({ csv: string2().min(1).optional(), csv_url: string2().url().optional() }).refine((v) => v.csv || v.csv_url, { message: "Provide csv or csv_url." }),
     response: object({ imported: number2(), skipped: number2() }),
     async handler(ctx, args) {
       const db = ctx.db();
-      const records = recordsFromCsv(args.csv);
+      const records = recordsFromCsv(await csvTextFromArgs(args));
       let imported = 0;
       let skipped = 0;
       for (const r of records) {
@@ -7793,11 +8179,11 @@ var Actions = {
     }
   }),
   companies_import: defineAction({
-    request: object({ csv: string2().min(1) }),
+    request: object({ csv: string2().min(1).optional(), csv_url: string2().url().optional() }).refine((v) => v.csv || v.csv_url, { message: "Provide csv or csv_url." }),
     response: object({ imported: number2(), skipped: number2() }),
     async handler(ctx, args) {
       const db = ctx.db();
-      const records = recordsFromCsv(args.csv);
+      const records = recordsFromCsv(await csvTextFromArgs(args));
       let imported = 0;
       let skipped = 0;
       for (const r of records) {
@@ -7814,6 +8200,108 @@ var Actions = {
       return { imported, skipped };
     }
   }),
+  prime_vendors_import: defineAction({
+    request: object({ csv: string2().min(1).optional(), csv_url: string2().url().optional() }).refine((v) => v.csv || v.csv_url, { message: "Provide csv or csv_url." }),
+    response: object({ imported: number2(), skipped: number2() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const records = recordsFromCsv(await csvTextFromArgs(args));
+      let imported = 0;
+      let skipped = 0;
+      for (const r of records) {
+        const name = r.vendor_name || r.vendor || r.name;
+        if (!name) {
+          skipped += 1;
+          continue;
+        }
+        const values = {
+          vendorNorm: norm(name),
+          vendorName: name,
+          portalUrl: r.portal_url || null,
+          tier: r.tier || null,
+          category: r.category || null,
+          specialties: r.specialties || null,
+          engagementTypes: r.engagement_types || null,
+          h1bNote: r.h1b_note || null,
+          lastRefreshed: r.last_refreshed ? new Date(r.last_refreshed) : now()
+        };
+        const { vendorNorm: _pk, ...rest } = values;
+        await db.insert(primeVendors).values(values).onConflictDoUpdate({ target: primeVendors.vendorNorm, set: rest });
+        imported += 1;
+      }
+      if (imported)
+        ctx.invalidateQueries();
+      return { imported, skipped };
+    }
+  }),
+  dataset_browse: defineAction({
+    request: object({
+      dataset: _enum(["companies", "h1b_sponsors", "prime_vendors"]),
+      search: string2().optional(),
+      tier: string2().optional(),
+      min_lca: number2().int().min(0).optional(),
+      page: number2().int().min(1).default(1),
+      page_size: number2().int().min(1).max(500).default(100)
+    }),
+    response: object({ dataset: string2(), page: number2(), page_size: number2(), total: number2(), rows: array(unknown()) }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const q = (args.search ?? "").trim().toLowerCase();
+      const like = (col) => sql`${col} LIKE ${`%${q.replace(/[%_]/g, "")}%`}`;
+      const offset = (args.page - 1) * args.page_size;
+      if (args.dataset === "companies") {
+        const conds = [];
+        if (q) {
+          const searchCond = or(like(companies.companyNorm), like(companies.industry));
+          if (searchCond)
+            conds.push(searchCond);
+        }
+        if (args.tier)
+          conds.push(eq(companies.tier, Number(args.tier)));
+        const where = conds.length ? and(...conds) : undefined;
+        const total = (await db.select({ n: sql`count(*)` }).from(companies).where(where))[0]?.n ?? 0;
+        const rows = await db.select().from(companies).where(where).orderBy(companies.companyNorm).limit(args.page_size).offset(offset);
+        return { dataset: args.dataset, page: args.page, page_size: args.page_size, total, rows: rows.map((c) => ({ company_norm: c.companyNorm, tier: c.tier, industry: c.industry, hq_state: c.hqState, careers_url: c.careersUrl, ats_type: c.atsType, park_count: c.parkCount, skip_flag: c.skipFlag, skip_reason: c.skipReason })) };
+      }
+      if (args.dataset === "h1b_sponsors") {
+        const conds = [];
+        if (q)
+          conds.push(like(h1bSponsors.companyNorm));
+        if (args.min_lca !== undefined)
+          conds.push(gte(h1bSponsors.lcaCount, args.min_lca));
+        const where = conds.length ? and(...conds) : undefined;
+        const total = (await db.select({ n: sql`count(*)` }).from(h1bSponsors).where(where))[0]?.n ?? 0;
+        const rows = await db.select().from(h1bSponsors).where(where).orderBy(desc(h1bSponsors.lcaCount)).limit(args.page_size).offset(offset);
+        return { dataset: args.dataset, page: args.page, page_size: args.page_size, total, rows: rows.map((h) => ({ company_norm: h.companyNorm, lca_count: h.lcaCount, stats_by_year: h.statsByYear, last_refreshed: iso(h.lastRefreshed) })) };
+      }
+      const tierNorm = (t) => (t ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+      const wantTier = args.tier ? tierNorm(/^\d+$/.test(args.tier.trim()) ? `tier${args.tier.trim()}` : args.tier) : "";
+      const conds = [];
+      if (q)
+        conds.push(sql`(${like(primeVendors.vendorNorm)} OR ${like(primeVendors.vendorName)} OR ${like(primeVendors.category)} OR ${like(primeVendors.tier)} OR ${like(primeVendors.specialties)} OR ${like(primeVendors.engagementTypes)})`);
+      const where = conds.length ? and(...conds) : undefined;
+      const all = await db.select().from(primeVendors).where(where).orderBy(primeVendors.vendorName);
+      const filtered = wantTier ? all.filter((v) => tierNorm(v.tier) === wantTier) : all;
+      const rows = filtered.slice(offset, offset + args.page_size);
+      return {
+        dataset: args.dataset,
+        page: args.page,
+        page_size: args.page_size,
+        total: filtered.length,
+        rows: rows.map((v) => ({
+          vendor_name: v.vendorName,
+          vendor_norm: v.vendorNorm,
+          portal_url: v.portalUrl,
+          tier: v.tier,
+          category: v.category,
+          specialties: v.specialties,
+          engagement_types: v.engagementTypes,
+          h1b_note_unverified: v.h1bNote,
+          last_refreshed: iso(v.lastRefreshed)
+        }))
+      };
+    }
+  }),
   token_record: defineAction({
     request: object({ run_id: string2(), campaign_id: string2(), date: string2(), input_tokens: number2().int().nonnegative(), output_tokens: number2().int().nonnegative(), total_tokens: number2().int().nonnegative(), stages: jsonValue, usage_reported: boolean2().optional().default(true) }),
     response: okResponse,
@@ -7823,6 +8311,49 @@ var Actions = {
         db.insert(tokenUsage).values({ runId: args.run_id, campaignId: args.campaign_id, date: args.date, inputTokens: args.input_tokens, outputTokens: args.output_tokens, totalTokens: args.total_tokens, stages: args.stages }).onConflictDoUpdate({ target: tokenUsage.runId, set: { campaignId: args.campaign_id, date: args.date, inputTokens: args.input_tokens, outputTokens: args.output_tokens, totalTokens: args.total_tokens, stages: args.stages } }),
         db.update(runs).set({ tokens: args.stages, tokensInput: args.input_tokens, tokensOutput: args.output_tokens, tokensTotal: args.total_tokens, tokensReported: args.usage_reported }).where(eq(runs.runId, args.run_id))
       ]);
+      ctx.invalidateQueries();
+      return { ok: true };
+    }
+  }),
+  linkedin_optimize_start: defineAction({
+    request: emptyRequest,
+    response: object({ run_id: string2() }),
+    async handler(ctx) {
+      const db = ctx.db();
+      const active = (await db.select({ runId: runs.runId }).from(runs).where(and(eq(runs.campaignId, "linkedin_optimize"), eq(runs.status, "running"))).limit(1))[0];
+      if (active)
+        return { run_id: active.runId };
+      const runId = id("run");
+      await db.insert(runs).values({ runId, campaignId: "linkedin_optimize", started: now(), status: "running", mode: "manual", counts: {}, compiledConfig: {}, liveConfig: {} });
+      await db.insert(events).values({ runId, type: "linkedin_optimize_started", payload: { campaign_id: "linkedin_optimize", mode: "manual" } });
+      ctx.invalidateQueries();
+      return { run_id: runId };
+    }
+  }),
+  linkedin_optimize_proposal_complete: defineAction({
+    request: object({ run_id: string2().min(1), verdict: _enum(["pass", "reject", "hold"]), reason: string2().nullable().optional() }),
+    response: okResponse,
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const run = (await db.select().from(runs).where(eq(runs.runId, args.run_id)).limit(1))[0];
+      if (!run)
+        return { ok: false, message: "Run not found." };
+      await db.insert(events).values({ runId: args.run_id, type: "linkedin_optimize_proposal_complete", payload: { verdict: args.verdict, reason: args.reason ?? null } });
+      if (args.verdict !== "pass")
+        await db.update(runs).set({ ended: now(), status: args.verdict === "hold" ? "hold" : "rejected", blocker: args.reason ?? null }).where(eq(runs.runId, args.run_id));
+      ctx.invalidateQueries();
+      return { ok: true };
+    }
+  }),
+  linkedin_optimize_apply_complete: defineAction({
+    request: object({ run_id: string2().min(1), approval_id: string2().min(1), section: linkedinSection, verdict: _enum(["pass", "reject", "hold"]), before_hash: string2().nullable().optional(), after_hash: string2().nullable().optional(), reason: string2().nullable().optional() }),
+    response: okResponse,
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const run = (await db.select().from(runs).where(eq(runs.runId, args.run_id)).limit(1))[0];
+      if (!run)
+        return { ok: false, message: "Run not found." };
+      await db.insert(events).values({ runId: args.run_id, type: "linkedin_optimize_apply_complete", payload: { approval_id: args.approval_id, section: args.section, verdict: args.verdict, before_hash: args.before_hash ?? null, after_hash: args.after_hash ?? null, reason: args.reason ?? null } });
       ctx.invalidateQueries();
       return { ok: true };
     }

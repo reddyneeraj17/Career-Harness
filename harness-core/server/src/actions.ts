@@ -965,8 +965,20 @@ export const Actions = {
   }),
 
   approval_resolve: defineAction({
-    request: z.object({ approval_id: z.string(), answer: z.string(), judged_by: z.string(), edited_text: z.string().min(1).optional() }), response: okResponse,
-    async handler(ctx, args) { const db = ctx.db<typeof schema>(); const found = (await db.select().from(schema.approvals).where(eq(schema.approvals.approvalId, args.approval_id)).limit(1))[0]; if (!found || found.resolvedAt) return { ok: false, message: found ? "Approval is already resolved." : "Approval not found." }; await db.update(schema.approvals).set({ answer: args.answer, judgedBy: args.judged_by, resolvedAt: now(), proposedText: args.edited_text ?? found.proposedText }).where(eq(schema.approvals.approvalId, args.approval_id)); ctx.invalidateQueries(); return { ok: true }; },
+    request: z.object({ approval_id: z.string(), answer: z.string(), judged_by: z.string(), edited_text: z.string().trim().min(1).optional() }), response: okResponse,
+    async handler(ctx, args) { const db = ctx.db<typeof schema>(); const found = (await db.select().from(schema.approvals).where(eq(schema.approvals.approvalId, args.approval_id)).limit(1))[0]; if (!found || found.resolvedAt) return { ok: false, message: found ? "Approval is already resolved." : "Approval not found." };
+      // LinkedIn optimizer: normalize the dashboard's "Approve"/"Discard" to the
+      // canonical "approved"/"discarded" the apply worker looks for.
+      if (found.kind === "linkedin_section") {
+        const decision = args.answer.trim().toLowerCase();
+        if (decision !== "approve" && decision !== "approved" && decision !== "discard" && decision !== "discarded") return { ok: false, message: "Choose Approve or Discard." };
+        const approved = decision === "approve" || decision === "approved";
+        const proposedText = args.edited_text?.trim() || found.proposedText?.trim() || "";
+        if (approved && !proposedText) return { ok: false, message: "The proposed text is empty and cannot be applied." };
+        await db.update(schema.approvals).set({ answer: approved ? "approved" : "discarded", judgedBy: args.judged_by, resolvedAt: now(), proposedText: approved ? proposedText : found.proposedText }).where(eq(schema.approvals.approvalId, args.approval_id));
+        ctx.invalidateQueries(); return { ok: true };
+      }
+      await db.update(schema.approvals).set({ answer: args.answer, judgedBy: args.judged_by, resolvedAt: now(), proposedText: args.edited_text ?? found.proposedText }).where(eq(schema.approvals.approvalId, args.approval_id)); ctx.invalidateQueries(); return { ok: true }; },
   }),
 
   run_open: defineAction({
@@ -1525,7 +1537,21 @@ export const Actions = {
           by_lane: facet((p) => p?.selectedLane ?? null),
           by_h1b_result: facet((p) => p?.h1bResult ?? null),
         };
-        return { view: args.view, generated_at: generatedAt.toISOString(), data: { counts, ledger, resumes, submitted_breakdowns } };
+        // Dashboard provenance board shape (matches the local dashboard client):
+        // totals + per-facet tallies with "not_recorded" for missing values.
+        const tally = (values: Array<string | null>) => Object.fromEntries(Array.from(values.reduce((result, value) => {
+          const key = value ?? "not_recorded"; result.set(key, (result.get(key) ?? 0) + 1); return result;
+        }, new Map<string, number>())).sort(([left], [right]) => left.localeCompare(right)));
+        const provenanceValues = submittedProvenance.map((a) => postMap.get(a.postingId));
+        const provenance_summary = {
+          submitted_total: submittedProvenance.length,
+          by_source: tally(provenanceValues.map((p) => p?.sourceClass ?? null)),
+          by_tier: tally(provenanceValues.map((p) => p?.sourceTier ?? null)),
+          by_lane: tally(provenanceValues.map((p) => p?.selectedLane ?? null)),
+          by_h1b_result: tally(provenanceValues.map((p) => p?.h1bResult ?? null)),
+          by_discovery_phase: tally(provenanceValues.map((p) => p?.discoveryPhase ?? null)),
+        };
+        return { view: args.view, generated_at: generatedAt.toISOString(), data: { counts, ledger, resumes, submitted_breakdowns, provenance_summary } };
       }
       if (args.view === "runs") {
         const runRows = await db.select().from(schema.runs).orderBy(desc(schema.runs.started)).limit(200);
@@ -1760,14 +1786,16 @@ export const Actions = {
       const like = (col: SQLWrapper) => sql<boolean>`${col} LIKE ${`%${q.replace(/[%_]/g, "")}%`}`;
       const offset = (args.page - 1) * args.page_size;
       if (args.dataset === "companies") {
-        const conds: SQLWrapper[] = []; if (q) conds.push(like(schema.companies.companyNorm)); if (args.tier) conds.push(eq(schema.companies.tier, Number(args.tier)));
+        const conds: SQLWrapper[] = [];
+        if (q) { const searchCond = or(like(schema.companies.companyNorm), like(schema.companies.industry)); if (searchCond) conds.push(searchCond); }
+        if (args.tier) conds.push(eq(schema.companies.tier, Number(args.tier)));
         const where = conds.length ? and(...conds) : undefined;
         const total = (await db.select({ n: sql<number>`count(*)` }).from(schema.companies).where(where))[0]?.n ?? 0;
         const rows = await db.select().from(schema.companies).where(where).orderBy(schema.companies.companyNorm).limit(args.page_size).offset(offset);
         return { dataset: args.dataset, page: args.page, page_size: args.page_size, total, rows: rows.map((c) => ({ company_norm: c.companyNorm, tier: c.tier, industry: c.industry, hq_state: c.hqState, careers_url: c.careersUrl, ats_type: c.atsType, park_count: c.parkCount, skip_flag: c.skipFlag, skip_reason: c.skipReason })) };
       }
       if (args.dataset === "h1b_sponsors") {
-        const conds: SQLWrapper[] = []; if (q) conds.push(like(schema.h1bSponsors.companyNorm)); if (args.min_lca) conds.push(gte(schema.h1bSponsors.lcaCount, args.min_lca));
+        const conds: SQLWrapper[] = []; if (q) conds.push(like(schema.h1bSponsors.companyNorm)); if (args.min_lca !== undefined) conds.push(gte(schema.h1bSponsors.lcaCount, args.min_lca));
         const where = conds.length ? and(...conds) : undefined;
         const total = (await db.select({ n: sql<number>`count(*)` }).from(schema.h1bSponsors).where(where))[0]?.n ?? 0;
         const rows = await db.select().from(schema.h1bSponsors).where(where).orderBy(desc(schema.h1bSponsors.lcaCount)).limit(args.page_size).offset(offset);
@@ -1775,7 +1803,8 @@ export const Actions = {
       }
       // prime_vendors: stored tiers look like "Tier 1" — normalize both sides before comparing.
       const tierNorm = (t: string | null) => (t ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
-      const wantTier = args.tier ? tierNorm(args.tier) : "";
+      // The dashboard sends bare "1"/"2"/"3"; stored values normalize to "tier1"/etc.
+      const wantTier = args.tier ? tierNorm(/^\d+$/.test(args.tier.trim()) ? `tier${args.tier.trim()}` : args.tier) : "";
       const conds: SQLWrapper[] = [];
       if (q) conds.push(sql<boolean>`(${like(schema.primeVendors.vendorNorm)} OR ${like(schema.primeVendors.vendorName)} OR ${like(schema.primeVendors.category)} OR ${like(schema.primeVendors.tier)} OR ${like(schema.primeVendors.specialties)} OR ${like(schema.primeVendors.engagementTypes)})`);
       const where = conds.length ? and(...conds) : undefined;

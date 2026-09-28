@@ -13,7 +13,7 @@ const tabs: { id: Tab; label: string; icon: string }[] = [
   { id: "runs", label: "Runs", icon: "play" },
   { id: "schedules", label: "Schedules", icon: "schedule" },
   { id: "replies", label: "Replies", icon: "reply" },
-  { id: "datasets", label: "Datasets", icon: "search" },
+  { id: "datasets", label: "Datasets", icon: "vendors" },
   { id: "profile", label: "Profile", icon: "profile" },
 ];
 
@@ -24,6 +24,7 @@ function Icon({ name, size = 18 }: { name: string; size?: number }) {
   if (name === "play") return <svg {...common}><circle cx="12" cy="12" r="9"/><path d="m10 8 6 4-6 4z"/></svg>;
   if (name === "schedule") return <svg {...common}><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4M16 3v4M4 10h16"/><path d="m9 15 2 2 4-4"/></svg>;
   if (name === "reply") return <svg {...common}><path d="m9 17-5-5 5-5"/><path d="M4 12h9a6 6 0 0 1 6 6"/></svg>;
+  if (name === "vendors") return <svg {...common}><path d="M8 7V5.5A2.5 2.5 0 0 1 10.5 3h3A2.5 2.5 0 0 1 16 5.5V7"/><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M3 12h18M10 12v2h4v-2"/></svg>;
   if (name === "shield") return <svg {...common}><path d="M12 3 5 6v5c0 4.6 2.8 8.1 7 10 4.2-1.9 7-5.4 7-10V6z"/><path d="m9 12 2 2 4-5"/></svg>;
   if (name === "profile") return <svg {...common}><circle cx="12" cy="8" r="3.5"/><path d="M5 21a7 7 0 0 1 14 0"/><path d="M4 4h2M18 4h2"/></svg>;
   if (name === "refresh") return <svg {...common}><path d="M20 6v5h-5"/><path d="M18.5 15a7 7 0 1 1-.4-6.7L20 11"/></svg>;
@@ -94,12 +95,20 @@ function DateRangeControl({ value, onChange, label }: { value: DateRange; onChan
 }
 
 function Status({ value }: { value: string }) {
-  const tone = /submitted|confirmed|completed|healthy|sent|auto_sent|in_sync/.test(value) ? "good" : /blocked|failed|attention|drift|needs_me|held/.test(value) ? "warn" : "neutral";
+  const normalized = value.toLowerCase();
+  const tone = /submitted|confirmed|completed|healthy|sent|auto_sent|in_sync|enabled|passed|approved/.test(normalized)
+    ? "good"
+    : /rejected|failed|blocked|error|cancelled/.test(normalized)
+      ? "danger"
+      : /attention|drift|needs_me|held|pending|unknown|disabled/.test(normalized)
+        ? "warn"
+        : "neutral";
   return <span className={`status status-${tone}`}>{titleCase(value)}</span>;
 }
 
 function Kpi({ label, value, hero = false, note }: { label: string; value: unknown; hero?: boolean; note?: string }) {
-  return <div className={hero ? "kpi kpi-hero" : "kpi"}><span>{label}</span><strong>{fmt(value)}</strong>{note && <small>{note}</small>}</div>;
+  const display = typeof value === "number" ? fmt(value) : String(value ?? 0);
+  return <div className={hero ? "kpi kpi-hero" : "kpi"}><span>{label}</span><strong>{display}</strong>{note && <small>{note}</small>}</div>;
 }
 
 function Empty({ title, body }: { title: string; body: string }) {
@@ -110,12 +119,13 @@ const fileName = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1) ??
 type WorkspaceFileRef = { app_id: string; kind: "resume" | "screenshot" | "confirmation" | "prep" } | { variant_id: string };
 
 function WorkspaceFileButton({ fileRef, label, displayName }: { fileRef: WorkspaceFileRef; label: string; displayName: string }) {
-  const [preview, setPreview] = useState<{ filename: string; url: string; pages: { page: number; url: string }[]; truncated: boolean } | null>(null);
+  const [preview, setPreview] = useState<{ filename: string; url: string; contentType: string; pages: { page: number; url: string }[]; truncated: boolean } | null>(null);
   const open = useMutation({
     mutationFn: () => api.file_open(fileRef),
     onSuccess: (result) => setPreview({
       filename: result.filename,
       url: new URL(result.file_url, window.location.href).href,
+      contentType: result.content_type,
       pages: result.preview_pages.map((page) => ({ page: page.page, url: new URL(page.file_url, window.location.href).href })),
       truncated: result.preview_truncated,
     }),
@@ -130,12 +140,12 @@ function WorkspaceFileButton({ fileRef, label, displayName }: { fileRef: Workspa
     <span className="workspace-file-control"><button type="button" className="file-button" onClick={() => open.mutate()} disabled={open.isPending} aria-label={`${label}: ${displayName}`}>{open.isPending ? "Opening…" : label} <Icon name="eye" size={14} /></button>{open.isError && <small>File unavailable</small>}</span>
     {preview && <div className="dialog-backdrop pdf-preview-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setPreview(null); }}>
       <div className="pdf-preview" role="dialog" aria-modal="true" aria-labelledby="pdf-preview-title">
-        <div className="pdf-preview-head"><div><span>File preview</span><h2 id="pdf-preview-title">{preview.filename}</h2></div><button type="button" className="pdf-close" onClick={() => setPreview(null)} aria-label={`Close ${preview.filename}`}>Close</button></div>
-        <div className="pdf-preview-pages" aria-label={`${preview.filename} preview pages`}>
+        <div className="pdf-preview-head"><div><span>{preview.contentType === "application/pdf" ? "PDF preview" : "Text preview"}</span><h2 id="pdf-preview-title">{preview.filename}</h2></div><button type="button" className="pdf-close" onClick={() => setPreview(null)} aria-label={`Close ${preview.filename}`}>Close</button></div>
+        {preview.contentType === "text/plain" ? <div className="text-file-preview"><iframe src={preview.url} title={preview.filename} /></div> : <div className="pdf-preview-pages" aria-label={`${preview.filename} preview pages`}>
           {preview.pages.length > 0 ? preview.pages.map((page) => <figure key={page.page}><img src={page.url} alt={`Page ${page.page} of ${preview.filename}`} /><figcaption>Page {page.page}</figcaption></figure>) : <div className="pdf-preview-empty"><b>Preview unavailable</b><span>Download the original PDF below.</span></div>}
           {preview.truncated && <p className="pdf-preview-note">Preview shows the first {preview.pages.length} pages. Download the PDF to see the rest.</p>}
-        </div>
-        <div className="pdf-preview-actions"><a href={preview.url} download={preview.filename}>Download PDF</a><span>The original PDF is unchanged.</span></div>
+        </div>}
+        <div className="pdf-preview-actions"><a href={preview.url} download={preview.filename}>Download {preview.contentType === "application/pdf" ? "PDF" : "file"}</a><span>The original file is unchanged.</span></div>
       </div>
     </div>}
   </>;
@@ -148,70 +158,74 @@ function ScreenshotEvidence({ appId, path }: { appId: string; path: string }) {
   return <a className="screenshot-link" href={asset.data.file_url} target="_blank" rel="noreferrer" download={asset.data.filename} aria-label={`Open submission screenshot ${asset.data.filename}`}><img src={asset.data.file_url} alt="Submission evidence screenshot" /><span>Open capture</span></a>;
 }
 
-function Section({ title, aside, children, className = "", id, collapsible = false, defaultCollapsed = false }: { title: string; aside?: ReactNode; children: ReactNode; className?: string; id?: string; collapsible?: boolean; defaultCollapsed?: boolean }) {
-  const [collapsed, setCollapsed] = useState(defaultCollapsed);
-  const toggle = () => setCollapsed((c) => !c);
-  return <section className={`section ${className}${collapsed ? " is-collapsed" : ""}`} id={id}>
-    <div className={`section-head${collapsible ? " section-head-toggle" : ""}`} onClick={collapsible ? toggle : undefined} onKeyDown={collapsible ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } } : undefined} role={collapsible ? "button" : undefined} tabIndex={collapsible ? 0 : undefined} aria-expanded={collapsible ? !collapsed : undefined} aria-label={collapsible ? `${collapsed ? "Expand" : "Collapse"} ${title}` : undefined}>
-      <h2>{collapsible && <Icon name="chevron" size={14} />}{title}</h2>{aside}
-    </div>
-    {(!collapsible || !collapsed) && children}
-  </section>;
+function Section({ title, aside, children, className = "" }: { title: string; aside?: ReactNode; children: ReactNode; className?: string }) {
+  return <section className={`section ${className}`}><div className="section-head"><h2>{title}</h2>{aside}</div>{children}</section>;
 }
 
-// LinkedIn optimizer (v1.2.6): per-section proposal card with side-by-side
-// current/proposed text and Approve / Edit / Discard. Edit lets the customer
-// rewrite the proposal inline; the edited text is stored on the approval and
-// is what the apply worker uses.
-function LinkedInApprovalCard({ a, onResolve, resolving }: { a: AnyData; onResolve: (id: string, answer: string, editedText?: string) => void; resolving: boolean }) {
+function ApprovalCard({ approval, judgedBy, onResolved }: { approval: AnyData; judgedBy: string; onResolved: () => void }) {
+  const isLinkedIn = approval.kind === "linkedin_section";
+  const original = String(approval.proposed_text ?? "");
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(String(a.proposed_text ?? ""));
-  const section = String(a.section ?? "section");
-  return <article className="linkedin-card">
-    <div><Status value="linkedin_section" /><h3>LinkedIn · {section}</h3><p className="muted">{String(a.question ?? "")}</p><p className="muted">{when(a.created_at)}</p></div>
-    {editing ? <>
-      <textarea aria-label={`Edited ${section} text`} value={draft} onChange={(e) => setDraft(e.target.value)} />
-      <div className="approval-actions">
-        <button disabled={resolving || !draft.trim()} onClick={() => onResolve(String(a.approval_id), "approved", draft.trim())}>{resolving ? "Saving…" : "Save & approve"}</button>
-        <button disabled={resolving} onClick={() => { setEditing(false); setDraft(String(a.proposed_text ?? "")); }}>Cancel</button>
-      </div>
-    </> : <>
-      <div className="linkedin-diff">
-        <figure><figcaption>Current</figcaption><pre>{String(a.current_text ?? "—")}</pre></figure>
-        <figure><figcaption>Proposed</figcaption><pre className="proposed">{String(a.proposed_text ?? "—")}</pre></figure>
-      </div>
-      <div className="approval-actions">
-        <button disabled={resolving} onClick={() => onResolve(String(a.approval_id), "approved")}>Approve</button>
-        <button disabled={resolving} onClick={() => { setDraft(String(a.proposed_text ?? "")); setEditing(true); }}>Edit</button>
-        <button disabled={resolving} onClick={() => onResolve(String(a.approval_id), "discarded")}>Discard</button>
-      </div>
-    </>}
+  const [draft, setDraft] = useState(original);
+  const [message, setMessage] = useState("");
+  const resolve = useMutation({
+    mutationFn: ({ answer, editedText }: { answer: string; editedText?: string }) => api.approval_resolve({ approval_id: String(approval.approval_id), answer, judged_by: judgedBy, ...(editedText ? { edited_text: editedText } : {}) }),
+    onSuccess: (result) => {
+      if (!result.ok) { setMessage(result.message ?? "This decision could not be saved."); return; }
+      onResolved();
+    },
+    onError: () => setMessage("This decision could not be saved. Nothing changed."),
+  });
+  if (!isLinkedIn) return <article className="approval"><div><Status value={String(approval.kind)} /><h3>{approval.question}</h3><p>{when(approval.created_at)}{approval.app_id ? ` · ${approval.app_id}` : ""}</p></div><div className="approval-actions">{(Array.isArray(approval.options) ? approval.options : []).map((option: string) => <button type="button" key={option} disabled={resolve.isPending} onClick={() => resolve.mutate({ answer: option })}>{option}</button>)}</div>{message && <p className="inline-error" role="alert">{message}</p>}</article>;
+  const section = titleCase(String(approval.section ?? "LinkedIn section"));
+  const approve = () => {
+    const next = draft.trim();
+    if (!next) { setMessage("Proposed text cannot be empty."); return; }
+    resolve.mutate({ answer: "Approve", ...(next !== original.trim() ? { editedText: next } : {}) });
+  };
+  return <article className="approval linkedin-approval">
+    <div className="linkedin-approval-head"><div><Status value="linkedin_section" /><h3>{section}</h3></div><span>{when(approval.created_at)}</span></div>
+    <p className="linkedin-question">{approval.question}</p>
+    <div className="linkedin-diff">
+      <section><span>Current</span><div className="linkedin-copy">{String(approval.current_text ?? "").trim() || "Not set"}</div></section>
+      <section><span>{editing ? "Edit proposal" : "Proposed"}</span>{editing ? <textarea aria-label={`Edit proposed ${section}`} value={draft} onChange={(event) => setDraft(event.target.value)} /> : <div className="linkedin-copy proposed">{original}</div>}</section>
+    </div>
+    {approval.run_id && <code className="linkedin-run-id">{approval.run_id}</code>}
+    {message && <p className="inline-error" role="alert">{message}</p>}
+    <div className="approval-actions linkedin-approval-actions">
+      {editing ? <><button type="button" className="approve-section" disabled={resolve.isPending || !draft.trim()} onClick={approve}>{resolve.isPending ? "Starting apply…" : "Approve edited text"}</button><button type="button" disabled={resolve.isPending} onClick={() => { setDraft(original); setEditing(false); setMessage(""); }}>Cancel edit</button></> : <><button type="button" className="approve-section" disabled={resolve.isPending} onClick={approve}>{resolve.isPending ? "Starting apply…" : "Approve"}</button><button type="button" disabled={resolve.isPending} onClick={() => setEditing(true)}>Edit</button></>}
+      <button type="button" className="discard-section" disabled={resolve.isPending} onClick={() => resolve.mutate({ answer: "Discard" })}>Discard</button>
+    </div>
   </article>;
 }
 
 function Overview({ data, onRefresh, refreshing }: { data: AnyData; onRefresh: () => void; refreshing: boolean }) {
   const c = data.counts ?? { by_state: {} }; const approvals = Array.isArray(data.approvals) ? data.approvals : [];
   const [question, setQuestion] = useState(""); const [answer, setAnswer] = useState<AnyData | null>(null);
+  const [optimizeNotice, setOptimizeNotice] = useState<{ tone: "good" | "error"; text: string } | null>(null);
   const ask = useMutation({ mutationFn: (query: string) => api.snapshot({ view: "ask", query }), onSuccess: (r) => setAnswer((r.data ?? {}) as AnyData) });
-  const resolve = useMutation({ mutationFn: ({ id, answer, editedText }: { id: string; answer: string; editedText?: string }) => api.approval_resolve({ approval_id: id, answer, judged_by: "dashboard", edited_text: editedText }), onSuccess: onRefresh });
-  const optimize = useMutation({ mutationFn: () => api.linkedin_optimize_start({}), onSuccess: onRefresh });
+  const optimize = useMutation({
+    mutationFn: () => api.linkedin_optimize_start({}),
+    onSuccess: (result) => {
+      setOptimizeNotice({ tone: "good", text: `LinkedIn audit started · ${result.run_id}` });
+      onRefresh();
+    },
+    onError: () => setOptimizeNotice({ tone: "error", text: "The LinkedIn optimizer run could not be started." }),
+  });
   const submitAsk = (e: FormEvent) => { e.preventDefault(); const q = question.trim(); if (q) ask.mutate(q); };
-  const linkedInApprovals = approvals.filter((a: AnyData) => a.kind === "linkedin_section");
-  const otherApprovals = approvals.filter((a: AnyData) => a.kind !== "linkedin_section");
   return <>
-    <div className="page-lead"><div><p className="eyebrow">Live control plane</p><h1>What needs attention now?</h1><p>Throughput, fleet signal, and decisions from one store.</p></div><div className="page-actions"><button type="button" className="optimize-btn" disabled={optimize.isPending} onClick={() => optimize.mutate()} title="Start a LinkedIn profile optimization run: audit, propose per-section rewrites, apply only what you approve."><Icon name="play" /><span>{optimize.isPending ? "Starting…" : "Optimize LinkedIn"}</span></button><RefreshButton onClick={onRefresh} active={refreshing} /></div></div>
-    {optimize.isError && <p className="inline-error" role="alert">Could not start the LinkedIn optimizer. Try again.</p>}
+    <div className="page-lead"><div><p className="eyebrow">Live control plane</p><h1>What needs attention now?</h1><p>Throughput, fleet signal, and decisions from one store.</p></div><div className="page-lead-actions"><button type="button" className="optimize-linkedin" onClick={() => { setOptimizeNotice(null); optimize.mutate(); }} disabled={optimize.isPending}><Icon name="profile" size={17} />{optimize.isPending ? "Starting…" : "Optimize LinkedIn"}</button><RefreshButton onClick={onRefresh} active={refreshing} /></div></div>
+    {optimizeNotice && <div className={`save-notice ${optimizeNotice.tone}`} role={optimizeNotice.tone === "error" ? "alert" : "status"}>{optimizeNotice.text}</div>}
     <div className="kpi-band"><Kpi hero label="Total applications" value={c.total} note="All recorded states" /><Kpi label="Submitted" value={c.by_state?.submitted} /><Kpi label="Blocked" value={c.by_state?.blocked} /><Kpi label="Runs · 24h" value={data.runs_24h} /><Kpi label="Events · 24h" value={data.events_24h} /></div>
     <div className="overview-grid">
       <Section title="Fleet health · 24 hours" aside={<span className="live-dot">Live</span>}>
         <div className="signal"><div className="signal-ring"><strong>{fmt(data.healthy_runs_24h)}</strong><span>healthy</span></div><div><p><b>{fmt(data.runs_24h)}</b> runs observed</p><p><b>{fmt(data.events_24h)}</b> ledger events</p><p className="muted">Health is derived from runs and events.</p></div></div>
       </Section>
-      <Section title="Approval batch" id="approval-batch" aside={<span className="count-label">{fmt(approvals.length)} open</span>}>
-        {approvals.length === 0 ? <Empty title="Queue clear" body="New approval requests will appear here." /> : <div className="stack">
-          {linkedInApprovals.map((a: AnyData) => <LinkedInApprovalCard key={a.approval_id} a={a} resolving={resolve.isPending} onResolve={(id, answer, editedText) => resolve.mutate({ id, answer, editedText })} />)}
-          {otherApprovals.map((a: AnyData) => <article className="approval" key={a.approval_id}><div><Status value={a.kind} /><h3>{a.question}</h3><p>{when(a.created_at)}</p></div><div className="approval-actions">{(Array.isArray(a.options) ? a.options : []).map((option: string) => <button key={option} onClick={() => resolve.mutate({ id: a.approval_id, answer: option })}>{option}</button>)}</div></article>)}
-        </div>}
-      </Section>
+      <div id="approval-queue">
+        <Section title="Approval batch" aside={<span className="count-label">{fmt(approvals.length)} open</span>}>
+          {approvals.length === 0 ? <Empty title="Queue clear" body="New approval requests will appear here." /> : <div className="stack">{approvals.map((approval: AnyData) => <ApprovalCard key={approval.approval_id} approval={approval} judgedBy="dashboard" onResolved={onRefresh} />)}</div>}
+        </Section>
+      </div>
     </div>
     <Section title="Ask the ledger" aside={<span className="source-note">Deterministic routing</span>} className="ask-section">
       <form className="ask-form" onSubmit={submitAsk}><Icon name="search" /><input aria-label="Ask the ledger" value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="e.g. How many applications are blocked?" /><button type="submit" disabled={ask.isPending}>{ask.isPending ? "Checking…" : "Ask"}</button></form>
@@ -222,30 +236,31 @@ function Overview({ data, onRefresh, refreshing }: { data: AnyData; onRefresh: (
   </>;
 }
 
-function ResumeControl({ appId, state, onResumed, onOpenOverview }: { appId: string; state: string; onResumed: () => void; onOpenOverview: () => void }) {
-  const [note, setNote] = useState("");
-  const [message, setMessage] = useState("");
-  const [needsApproval, setNeedsApproval] = useState(false);
-  const resume = useMutation({
-    mutationFn: () => api.app_resume({ app_id: appId, note: note.trim() || undefined }),
-    onSuccess: (result) => {
-      if (result.ok) { setMessage(""); setNeedsApproval(false); onResumed(); }
-      else { setMessage(result.message ?? "Resume failed."); setNeedsApproval(/approval/i.test(result.message ?? "")); }
-    },
-    onError: (error) => setMessage(error instanceof Error ? error.message : "Resume failed."),
-  });
-  if (state !== "parked" && state !== "needs_me") return null;
-  return <div className="resume-control">
-    <input type="text" aria-label="Resume note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional note" maxLength={2000} />
-    <button type="button" disabled={resume.isPending} onClick={() => resume.mutate()}>{resume.isPending ? "Resuming…" : "Resume"}</button>
-    {message && <p className="resume-message" role="alert">{message}{needsApproval && <> <button type="button" className="text-link" onClick={onOpenOverview}>Open Overview</button></>}</p>}
-  </div>;
+type BreakdownItem = { key: string; label: string };
+
+function ProvenanceBreakdown({ title, counts, items }: { title: string; counts: AnyData; items: BreakdownItem[] }) {
+  const extra = Object.keys(counts ?? {}).filter((key) => !items.some((item) => item.key === key)).sort().map((key) => ({ key, label: titleCase(key) }));
+  return <div className="provenance-dimension"><h3>{title}</h3><div>{[...items, ...extra].map((item) => <span key={item.key}><b>{fmt(counts?.[item.key])}</b>{item.label}</span>)}</div></div>;
 }
 
 function Applications({ data, onRefresh, refreshing, onOpenOverview }: { data: AnyData; onRefresh: () => void; refreshing: boolean; onOpenOverview: () => void }) {
   const ledger = Array.isArray(data.ledger) ? data.ledger : [];
+  const provenance = data.provenance_summary ?? {};
   const [filter, setFilter] = useState("all"); const [search, setSearch] = useState("");
+  const [provenanceOpen, setProvenanceOpen] = useState(false);
   const [dateRange, setDateRange] = useState<DateRange>({ preset: "all", start: "", end: "" });
+  const [resumeTarget, setResumeTarget] = useState<{ appId: string; label: string } | null>(null);
+  const [resumeNote, setResumeNote] = useState("");
+  const [resumeNotice, setResumeNotice] = useState<{ tone: "good" | "error"; text: string; needsApproval?: boolean } | null>(null);
+  const resume = useMutation({
+    mutationFn: () => api.app_resume({ app_id: resumeTarget?.appId ?? "", ...(resumeNote.trim() ? { note: resumeNote.trim() } : {}) }),
+    onSuccess: (result) => {
+      if (!result.ok) { setResumeNotice({ tone: "error", text: result.message ?? "This application could not be resumed.", needsApproval: /approval/i.test(result.message ?? "") }); return; }
+      setResumeNotice({ tone: "good", text: `${resumeTarget?.label ?? "Application"} returned to Reviewed.` });
+      setResumeTarget(null); setResumeNote(""); onRefresh();
+    },
+    onError: () => setResumeNotice({ tone: "error", text: "The application could not be resumed. Nothing changed." }),
+  });
   const shown = useMemo(() => {
     const query = search.trim().toLowerCase();
     return ledger.filter((application: AnyData) => {
@@ -262,8 +277,25 @@ function Applications({ data, onRefresh, refreshing, onOpenOverview }: { data: A
   const rangeNote = dateRange.preset === "all" ? "All recorded dates" : dateRange.preset === "today" ? "Today · America/Chicago" : dateRange.preset === "custom" ? [bounds.start, bounds.end].filter(Boolean).join(" — ") || "Choose start or end" : dateRange.preset === "7d" ? "Last 7 Chicago days" : "Last 30 Chicago days";
   return <>
     <div className="page-lead"><div><p className="eyebrow">Application ledger</p><h1>Applications, fully traceable</h1><p>Filter the ledger without losing its evidence trail.</p></div><RefreshButton onClick={onRefresh} active={refreshing} /></div>
+    {resumeNotice && <div className={`save-notice ${resumeNotice.tone}`} role={resumeNotice.tone === "error" ? "alert" : "status"}><span>{resumeNotice.text}</span>{resumeNotice.needsApproval && <button type="button" className="notice-link" onClick={onOpenOverview}>Open approval on Overview</button>}</div>}
     <div className="kpi-band applications-kpis"><Kpi hero label="Matching applications" value={shown.length} note={rangeNote} /><Kpi label="Submitted" value={counts.submitted} /><Kpi label="Held" value={(counts.held ?? 0) + (counts.needs_me ?? 0)} /><Kpi label="Blocked" value={counts.blocked} /><Kpi label="Rejected" value={counts.rejected} /><Kpi label="Parked" value={counts.parked} /></div>
-    <SubmittedBreakdowns data={data} />
+    <section className={`section provenance-section${provenanceOpen ? " is-open" : " is-collapsed"}`} aria-labelledby="submission-sources-heading">
+      <div className="section-head">
+        <button type="button" className="provenance-toggle" aria-expanded={provenanceOpen} aria-controls="submission-sources-breakdown" onClick={() => setProvenanceOpen((open) => !open)}>
+          <span id="submission-sources-heading" className="provenance-toggle-title" role="heading" aria-level={2}>Submission sources</span>
+          <span className="provenance-toggle-meta"><span className="count-label">{fmt(provenance.submitted_total)} submitted</span><Icon name="chevron" size={16} /></span>
+        </button>
+      </div>
+      <div id="submission-sources-breakdown" hidden={!provenanceOpen}>
+        <div className="provenance-board">
+          <ProvenanceBreakdown title="Source" counts={provenance.by_source} items={[{ key: "company_portal", label: "Companies" }, { key: "vendor_portal", label: "Vendors" }, { key: "job_board", label: "Job boards" }, { key: "linkedin", label: "LinkedIn" }, { key: "open_web", label: "Open web" }, { key: "not_recorded", label: "Not recorded" }]} />
+          <ProvenanceBreakdown title="Tier" counts={provenance.by_tier} items={[{ key: "1", label: "Tier 1" }, { key: "2", label: "Tier 2" }, { key: "3", label: "Tier 3" }, { key: "unknown", label: "Unknown" }, { key: "not_recorded", label: "Not recorded" }]} />
+          <ProvenanceBreakdown title="Employment lane" counts={provenance.by_lane} items={[{ key: "full_time", label: "Full time" }, { key: "w2_contract", label: "W2 contract" }, { key: "c2c_contract", label: "C2C contract" }, { key: "part_time", label: "Part time" }, { key: "internship", label: "Internship" }, { key: "not_recorded", label: "Not recorded" }]} />
+          <ProvenanceBreakdown title="H-1B result" counts={provenance.by_h1b_result} items={[{ key: "scored", label: "Scored" }, { key: "unknown", label: "Unknown" }, { key: "not_applicable", label: "Bypassed" }, { key: "not_recorded", label: "Not recorded" }]} />
+          <ProvenanceBreakdown title="Discovery phase" counts={provenance.by_discovery_phase} items={[{ key: "dataset", label: "Dataset" }, { key: "web_expansion", label: "Web expansion" }, { key: "additional_source", label: "Additional source" }, { key: "not_recorded", label: "Not recorded" }]} />
+        </div>
+      </div>
+    </section>
     <Section title="Application ledger" aside={<span className="count-label">{fmt(shown.length)} of {fmt(ledger.length)}</span>}>
       <div className="filter-console">
         <div className="filters"><label><span>Search</span><input type="search" aria-label="Search applications" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Company, role, reason, or ID" /></label><label><span>State</span><select aria-label="Filter by application state" value={filter} onChange={(e) => setFilter(e.target.value)}>{states.map((s) => <option key={s} value={s}>{titleCase(s)}</option>)}</select></label></div>
@@ -272,7 +304,14 @@ function Applications({ data, onRefresh, refreshing, onOpenOverview }: { data: A
       {shown.length === 0 ? <Empty title={ledger.length ? "No applications match" : "No applications yet"} body={ledger.length ? "Change a date, state, or search filter to widen the ledger." : "Claimed postings will appear here with state, evidence, and attribution."} /> : <div className="ledger">{shown.map((a: AnyData) => <article className="ledger-row application-row" key={a.app_id}>
         <div className="ledger-main"><div><h3>{a.role}</h3><p>{a.company}</p></div><Status value={a.state} /></div>
         <div className="ledger-meta"><span>{a.campaign_id}</span><code>{a.app_id}</code><span>{chicagoWhen(a.updated_at)}</span></div>
-        <ProvenanceLine a={a} />
+        <div className="provenance-line" aria-label={`Provenance for ${String(a.role)}`}>
+          <span><b>Source</b>{a.source_name || a.source || "Not recorded"}{a.source_class ? ` · ${titleCase(String(a.source_class))}` : ""}</span>
+          <span><b>Tier</b>{a.source_tier && a.source_tier !== "unknown" ? `Tier ${a.source_tier}` : "Unknown"}</span>
+          <span><b>Lane</b>{a.selected_lane ? titleCase(String(a.selected_lane)) : "Not recorded"}</span>
+          <span><b>H-1B</b>{a.h1b_result ? titleCase(String(a.h1b_result === "not_applicable" ? "bypassed" : a.h1b_result)) : "Not recorded"}{a.h1b_mode ? ` · ${titleCase(String(a.h1b_mode))}` : ""}</span>
+          <span><b>Discovery</b>{a.discovery_phase ? titleCase(String(a.discovery_phase)) : "Not recorded"}</span>
+          {Array.isArray(a.employment_types_offered) && a.employment_types_offered.length > 0 && <span><b>Offered</b>{a.employment_types_offered.map((value: string) => titleCase(value)).join(", ")}</span>}
+        </div>
         <div className="evidence-grid">
           <div className="evidence-cell"><span>Resume used</span>{a.resume_path ? <><WorkspaceFileButton fileRef={{ app_id: String(a.app_id), kind: "resume" }} label={fileName(String(a.resume_path))} displayName={fileName(String(a.resume_path))} />{a.variant_id && <small>{a.variant_id}</small>}{a.resume_hash && <code title={String(a.resume_hash)}>{String(a.resume_hash).slice(0, 12)}…</code>}</> : <b>Not recorded</b>}</div>
           <div className="evidence-cell"><span>Screenshot</span>{a.screenshot_path && a.screenshot_exists ? <ScreenshotEvidence appId={String(a.app_id)} path={String(a.screenshot_path)} /> : <b className="evidence-missing">not captured</b>}</div>
@@ -281,153 +320,21 @@ function Applications({ data, onRefresh, refreshing, onOpenOverview }: { data: A
         </div>
         {a.confirmation && <blockquote className="confirmation">“{a.confirmation}”{a.confirmation_path && <small>{fileName(String(a.confirmation_path))}</small>}</blockquote>}
         {a.blocker && <p className="blocker">{a.blocker}</p>}
-        {a.url && <a className="text-link" href={a.url} target="_blank" rel="noreferrer">Open posting <Icon name="external" size={14} /></a>}
-        <ResumeControl appId={String(a.app_id)} state={String(a.state)} onResumed={onRefresh} onOpenOverview={onOpenOverview} />
+        <div className="application-actions">
+          {a.url && <a className="text-link" href={a.url} target="_blank" rel="noreferrer">Open posting <Icon name="external" size={14} /></a>}
+          {(a.state === "parked" || a.state === "needs_me") && <button type="button" className="resume-application" onClick={() => { setResumeTarget({ appId: String(a.app_id), label: `${String(a.role)} at ${String(a.company)}` }); setResumeNote(""); setResumeNotice(null); }}>Resume</button>}
+        </div>
       </article>)}</div>}
     </Section>
-  </>;
-}
-
-function Breakdown({ label, entries }: { label: string; entries: AnyData }) {
-  const rows = Object.entries(entries ?? {}).sort((a, b) => Number(b[1]) - Number(a[1])).slice(0, 8);
-  if (rows.length === 0) return null;
-  return <div className="breakdown"><span>{label}</span><ul>{rows.map(([key, value]) => <li key={key}><b>{titleCase(String(key))}</b><span>{fmt(value)}</span></li>)}</ul></div>;
-}
-
-function SubmittedBreakdowns({ data }: { data: AnyData }) {
-  const bd = (data.submitted_breakdowns ?? {}) as AnyData;
-  const facets = [
-    { label: "Source class", entries: bd.by_source_class },
-    { label: "Discovery phase", entries: bd.by_discovery_phase },
-    { label: "Tier", entries: bd.by_source_tier },
-    { label: "Lane", entries: bd.by_lane },
-    { label: "H-1B result", entries: bd.by_h1b_result },
-  ].filter((f) => f.entries && Object.keys(f.entries).length > 0);
-  if (facets.length === 0) return null;
-  return <Section title="Submission sources" collapsible defaultCollapsed aside={<span className="source-note">Verified submissions only</span>}>
-    <div className="breakdown-grid">{facets.map((f) => <Breakdown key={f.label} label={f.label} entries={f.entries} />)}</div>
-  </Section>;
-}
-
-function ProvenanceLine({ a }: { a: AnyData }) {
-  const parts: string[] = [];
-  if (a.source_name) parts.push(String(a.source_name));
-  if (a.source_class) parts.push(titleCase(String(a.source_class)));
-  if (a.source_tier && a.source_tier !== "unknown") parts.push(`tier ${a.source_tier}`);
-  if (a.discovery_phase) parts.push(titleCase(String(a.discovery_phase)));
-  const offered = Array.isArray(a.employment_types_offered) ? a.employment_types_offered.filter(Boolean) : [];
-  if (offered.length) parts.push(`offered: ${offered.map((t: unknown) => titleCase(String(t))).join(", ")}`);
-  if (a.selected_lane) parts.push(`lane: ${titleCase(String(a.selected_lane))}`);
-  if (a.h1b_mode === "bypass_c2c") parts.push("H-1B bypassed (C2C)");
-  else if (a.h1b_result) parts.push(`H-1B: ${titleCase(String(a.h1b_result))}`);
-  if (parts.length === 0) return null;
-  return <p className="provenance-line">{parts.join(" · ")}</p>;
-}
-
-type DatasetId = "companies" | "h1b_sponsors" | "prime_vendors";
-const DATASET_TABS: { id: DatasetId; label: string }[] = [
-  { id: "companies", label: "Companies" },
-  { id: "h1b_sponsors", label: "H-1B sponsors" },
-  { id: "prime_vendors", label: "Vendors" },
-];
-
-// Datasets page: every dataset browses server-side through dataset_browse
-// (100 rows per page). The dashboard never dumps thousands of rows into the DOM.
-function Datasets({ onRefresh, refreshing }: { onRefresh: () => void; refreshing: boolean }) {
-  const [dataset, setDataset] = useState<DatasetId>("companies");
-  const [search, setSearch] = useState("");
-  const [debounced, setDebounced] = useState("");
-  const [pages, setPages] = useState<Record<DatasetId, number>>({ companies: 1, h1b_sponsors: 1, prime_vendors: 1 });
-  const [tier, setTier] = useState("");
-  const [minLca, setMinLca] = useState("");
-  const page = pages[dataset] ?? 1;
-
-  // Debounce the search input; changing the query resets to page 1.
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebounced(search);
-      setPages((p) => ({ ...p, [dataset]: 1 }));
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [search, dataset]);
-
-  const switchDataset = (next: DatasetId) => { setSearch(""); setDebounced(""); setTier(""); setMinLca(""); setDataset(next); };
-  const goPage = (next: number) => setPages((p) => ({ ...p, [dataset]: Math.max(1, next) }));
-
-  const browse = useQuery({
-    queryKey: ["dataset_browse", dataset, debounced, tier, minLca, page],
-    queryFn: () => api.dataset_browse({
-      dataset,
-      search: debounced.trim() || undefined,
-      tier: dataset !== "h1b_sponsors" && tier ? tier : undefined,
-      min_lca: dataset === "h1b_sponsors" && minLca.trim() ? Number(minLca) : undefined,
-      page, page_size: 100,
-    }),
-    staleTime: 30_000, refetchOnMount: "always",
-  });
-  const result = (browse.data ?? {}) as AnyData;
-  const rows = Array.isArray(result.rows) ? result.rows : [];
-  const total = Number(result.total ?? 0);
-  const pageSize = Number(result.page_size ?? 100);
-  const pageCount = Math.max(1, Math.ceil(total / pageSize));
-  const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
-  const to = Math.min(total, page * pageSize);
-
-  const yearHistory = (stats: unknown) => {
-    const obj = (stats && typeof stats === "object" ? stats : {}) as Record<string, AnyData>;
-    const years = Object.keys(obj).filter((y) => /^\d{4}$/.test(y)).sort();
-    if (years.length === 0) return "—";
-    return years.map((y) => `${y}: ${fmt(Number(obj[y]?.lcas ?? obj[y] ?? 0))}`).join(" · ");
-  };
-
-  return <>
-    <div className="page-lead"><div><p className="eyebrow">Reference datasets</p><h1>Datasets</h1><p>The launchpad the scouts sweep before expanding to the open web.</p></div><RefreshButton onClick={onRefresh} active={refreshing} /></div>
-    <div className="dataset-tabs" role="tablist" aria-label="Datasets">
-      {DATASET_TABS.map((t) => <button key={t.id} role="tab" aria-selected={dataset === t.id} className={dataset === t.id ? "active" : ""} onClick={() => switchDataset(t.id)}>{t.label}</button>)}
-    </div>
-    <div className="kpi-band"><Kpi hero label={DATASET_TABS.find((t) => t.id === dataset)?.label ?? "Rows"} value={total} note="server-side paging · 100 per page" /></div>
-    <Section title={DATASET_TABS.find((t) => t.id === dataset)?.label ?? "Dataset"} aside={<span className="count-label">Showing {fmt(from)}–{fmt(to)} of {fmt(total)}</span>}>
-      <div className="filter-console"><div className="filters">
-        <label><span>Search</span><input type="search" aria-label="Search dataset" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={dataset === "prime_vendors" ? "Name, category, tier, specialty" : "Company name"} /></label>
-        {dataset !== "h1b_sponsors" && <label><span>Tier</span><select aria-label="Filter by tier" value={tier} onChange={(e) => { setTier(e.target.value); setPages((p) => ({ ...p, [dataset]: 1 })); }}><option value="">All tiers</option><option value="1">Tier 1</option><option value="2">Tier 2</option><option value="3">Tier 3</option></select></label>}
-        {dataset === "h1b_sponsors" && <label><span>Min LCAs</span><input type="number" min={0} aria-label="Minimum LCA count" value={minLca} onChange={(e) => { setMinLca(e.target.value); setPages((p) => ({ ...p, [dataset]: 1 })); }} placeholder="e.g. 100" /></label>}
-      </div></div>
-      {browse.isPending ? <div className="loading"><span /><p>Reading dataset…</p></div>
-        : browse.isError ? <Empty title="Dataset unavailable" body="The dataset could not be read. Try refreshing." />
-        : rows.length === 0 ? <Empty title="No rows match" body="Change the search or filters to widen the dataset." />
-        : <div className="ledger">{rows.map((row: AnyData, index: number) => {
-          const key = String(row.company_norm ?? row.vendor_norm ?? `${dataset}-${index}`);
-          if (dataset === "companies") return <article className="ledger-row" key={key}>
-            <div className="ledger-main"><div><h3>{titleCase(String(row.company_norm ?? ""))}</h3><p>{row.industry ? titleCase(String(row.industry)) : "—"}{row.hq_state ? ` · ${row.hq_state}` : ""}</p></div>{row.tier ? <Status value={`tier ${row.tier}`} /> : null}</div>
-            <div className="ledger-meta">{row.careers_url ? <a className="text-link" href={String(row.careers_url)} target="_blank" rel="noreferrer">Careers <Icon name="external" size={14} /></a> : null}{row.skip_flag ? <span className="reply-action action-discarded">Skipped</span> : null}</div>
-            <div className="evidence-grid">
-              {row.ats_type ? <div className="evidence-cell"><span>ATS</span><b>{titleCase(String(row.ats_type))}</b></div> : null}
-              {row.park_count ? <div className="evidence-cell"><span>Parks</span><b>{fmt(row.park_count)}</b></div> : null}
-              {row.skip_reason ? <div className="evidence-cell"><span>Skip reason</span><b>{String(row.skip_reason)}</b></div> : null}
-            </div>
-          </article>;
-          if (dataset === "h1b_sponsors") return <article className="ledger-row" key={key}>
-            <div className="ledger-main"><div><h3>{titleCase(String(row.company_norm ?? ""))}</h3><p>H-1B sponsor history</p></div><Status value={`${fmt(row.lca_count)} LCAs`} /></div>
-            <div className="ledger-meta">{row.last_refreshed ? <span>Refreshed {chicagoWhen(row.last_refreshed)}</span> : null}</div>
-            <div className="evidence-grid">
-              <div className="evidence-cell"><span>Yearly LCAs</span><b>{yearHistory(row.stats_by_year)}</b></div>
-            </div>
-          </article>;
-          return <article className="ledger-row" key={key}>
-            <div className="ledger-main"><div><h3>{row.vendor_name}</h3><p>{row.category ?? "—"}</p></div>{row.tier ? <Status value={String(row.tier)} /> : null}</div>
-            <div className="ledger-meta">{row.portal_url ? <a className="text-link" href={String(row.portal_url)} target="_blank" rel="noreferrer">Portal <Icon name="external" size={14} /></a> : null}{row.last_refreshed ? <span>{chicagoWhen(row.last_refreshed)}</span> : null}</div>
-            <div className="evidence-grid">
-              {row.specialties ? <div className="evidence-cell"><span>Specialties</span><b>{row.specialties}</b></div> : null}
-              {row.engagement_types ? <div className="evidence-cell"><span>Engagement types</span><b>{row.engagement_types}</b></div> : null}
-              {row.h1b_note_unverified ? <div className="evidence-cell"><span>Unverified sponsorship note</span><b>{row.h1b_note_unverified}</b></div> : null}
-            </div>
-          </article>;
-        })}</div>}
-      <div className="pager"><span>Page {fmt(page)} of {fmt(pageCount)}</span><div>
-        <button type="button" disabled={page <= 1 || browse.isPending} onClick={() => goPage(page - 1)}>Previous</button>
-        <button type="button" disabled={page >= pageCount || browse.isPending} onClick={() => goPage(page + 1)}>Next</button>
-      </div></div>
-    </Section>
+    {resumeTarget && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !resume.isPending) setResumeTarget(null); }}>
+      <form className="confirm-dialog resume-dialog" role="dialog" aria-modal="true" aria-labelledby="resume-dialog-title" onSubmit={(event) => { event.preventDefault(); resume.mutate(); }}>
+        <h2 id="resume-dialog-title">Resume application</h2>
+        <p><b>{resumeTarget.label}</b> will return to Reviewed so the next coordinator run can continue it.</p>
+        <label><span>Optional note</span><textarea aria-label="Resume note" value={resumeNote} onChange={(event) => setResumeNote(event.target.value)} maxLength={2000} placeholder="What changed or what should the next run know?" /></label>
+        {resumeNotice?.tone === "error" && <p className="inline-error" role="alert">{resumeNotice.text}</p>}
+        <div>{resumeNotice?.needsApproval && <button type="button" onClick={() => { setResumeTarget(null); onOpenOverview(); }}>Open Overview</button>}<button type="button" onClick={() => setResumeTarget(null)} disabled={resume.isPending}>Cancel</button><button type="submit" className="primary-button" disabled={resume.isPending}>{resume.isPending ? "Resuming…" : "Return to reviewed"}</button></div>
+      </form>
+    </div>}
   </>;
 }
 
@@ -541,120 +448,50 @@ const eventDetail = (payload: unknown): string => {
   }
 };
 
-// --- Run suggestions + Ask about this run (v1.2.6) ---
-// Deterministic, derived only from run_detail data — no LLM, no schema change.
+const truncateText = (value: unknown, limit = 140): string => {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
+};
 
-type SuggestionAction = "retry_browser" | "review_blocker" | "review_approvals" | "open_event_log" | "watch_hint";
-type RunSuggestion = { id: string; label: string; why: string; action: SuggestionAction };
+const payloadField = (payload: unknown, key: string): string => {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return "—";
+  const value = (payload as Record<string, unknown>)[key];
+  return value === null || value === undefined || value === "" ? "—" : truncateText(value);
+};
 
-function isOpenApproval(a: AnyData): boolean {
-  return (a.resolved_at ?? a.resolvedAt) == null;
-}
-
-function suggestForRun(run: AnyData, approvals: AnyData[], events: AnyData[]): RunSuggestion[] {
-  const out: RunSuggestion[] = [];
-  const blocker = String(run.blocker ?? "");
-  const campaign = String(run.campaign_id ?? "");
-  const status = String(run.status ?? "");
-  const active = (run.ended ?? run.ended_at ?? run.endedAt) == null;
-
-  if (/(^|[^a-z0-9])(999|bot[ -]?block|rate[ -]?limit)([^a-z0-9]|$)/i.test(blocker)) {
-    let why = "The text fetch was bot-blocked; the live browser route is not.";
-    if (campaign === "linkedin_optimize") why += " The optimizer skill delegates browser steps to the parent agent.";
-    out.push({ id: "retry-browser", label: "Retry this run via the live browser route", why, action: "retry_browser" });
-  } else if (blocker.trim()) {
-    const short = blocker.length > 160 ? `${blocker.slice(0, 160).trimEnd()}…` : blocker;
-    out.push({ id: "review-blocker", label: "Review the blocker", why: short, action: "review_blocker" });
-  }
-
-  const open = approvals.filter(isOpenApproval);
-  if (open.length > 0) out.push({ id: "review-approvals", label: `Review ${open.length} pending approval${open.length === 1 ? "" : "s"}`, why: `${open.length} decision${open.length === 1 ? " is" : "s are"} waiting on you.`, action: "review_approvals" });
-
-  const failed = status === "failed" || status === "completed_with_issues" || events.some((e: AnyData) => /^(fail|failed|error)$/i.test(String(e?.payload?.verdict ?? e?.verdict ?? "")));
-  if (failed) out.push({ id: "open-event-log", label: "Open the event log for this run", why: "See what failed and the recorded reason.", action: "open_event_log" });
-
-  if (active) out.push({ id: "watch-hint", label: "Watch in chat", why: "Flip the watch toggle to get screenshots in chat as it works.", action: "watch_hint" });
-
-  return out.slice(0, 3);
-}
-
-async function copyText(text: string): Promise<boolean> {
-  try { await navigator.clipboard.writeText(text); return true; } catch { /* clipboard may be unavailable */ }
+async function copyToClipboard(text: string): Promise<boolean> {
   try {
-    const ta = document.createElement("textarea");
-    ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
-    document.body.appendChild(ta); ta.select();
-    const ok = document.execCommand("copy");
-    document.body.removeChild(ta); return ok;
-  } catch { return false; }
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    const copied = document.execCommand("copy");
+    textarea.remove();
+    return copied;
+  } catch {
+    return false;
+  }
 }
 
-function RunSuggestions({ run, approvals, events, onAction }: {
-  run: AnyData; approvals: AnyData[]; events: AnyData[];
-  onAction: (action: SuggestionAction, suggestion: RunSuggestion) => void;
-}) {
-  const suggestions = useMemo(() => suggestForRun(run, approvals, events), [run, approvals, events]);
-  if (suggestions.length === 0) return null;
-  return <section className="run-suggestions" aria-label="Suggested next steps">
-    <h3>Suggested next steps</h3>
-    <ul>{suggestions.map((s) => <li key={s.id}>
-      <button type="button" className="suggestion-btn" onClick={() => onAction(s.action, s)}>{s.label}</button>
-      <p>{s.why}</p>
-    </li>)}</ul>
-  </section>;
-}
-
-function AskAboutRun({ run, approvals, events, onAsked }: { run: AnyData; approvals: AnyData[]; events: AnyData[]; onAsked: () => void }) {
-  const [question, setQuestion] = useState("");
-  const [toast, setToast] = useState("");
-  const log = useMutation({
-    mutationFn: (q: string) => api.event_log({ type: "run_question_asked", run_id: String(run.run_id), payload: { question: q } }),
-  });
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    const q = question.trim();
-    if (!q) return;
-    const lines: string[] = [
-      `run_id: ${run.run_id}`,
-      `campaign: ${run.campaign_id ?? "—"}`,
-      `mode: ${run.mode ?? "—"}`,
-      `status: ${run.status ?? "—"}`,
-      `stage: ${run.current_stage ?? "—"}`,
-    ];
-    if (run.blocker) lines.push(`blocker: ${run.blocker}`);
-    const counts = run.current_state_counts && typeof run.current_state_counts === "object"
-      ? Object.entries(run.current_state_counts as Record<string, unknown>).map(([k, v]) => `${k}=${v}`).join(", ") : "";
-    if (counts) lines.push(`state counts: ${counts}`);
-    const recent = events.slice(0, 8).map((ev: AnyData) => {
-      const p = (ev.payload ?? {}) as AnyData;
-      return `- ${ev.type} @ ${ev.at}${p.verdict ? ` · verdict ${p.verdict}` : ""}${p.reason ? ` · ${String(p.reason).slice(0, 120)}` : ""}`;
-    });
-    if (recent.length) lines.push("recent events:", ...recent);
-    const open = approvals.filter(isOpenApproval).slice(0, 5).map((a: AnyData) => `- ${a.kind ?? "approval"}: ${String(a.question ?? a.section ?? "").slice(0, 100)}`);
-    if (open.length) lines.push("open approvals:", ...open);
-    const prompt = `Ask Muse about run ${run.run_id} (${run.campaign_id ?? "unknown campaign"}): ${q}\n\n--- run context ---\n${lines.join("\n")}`;
-    const ok = await copyText(prompt);
-    setToast(ok ? "Copied — paste it into the main chat and send; Muse will answer with full run context." : "Copy failed — select the prompt text manually.");
-    setQuestion("");
-    try { await log.mutateAsync(q); } catch { /* feed record is best-effort */ }
-    onAsked();
-    window.setTimeout(() => setToast(""), 8000);
-  };
-  return <section className="run-ask" aria-label="Ask about this run">
-    <h3>Ask about this run</h3>
-    <form className="run-ask-form" onSubmit={(e) => { void submit(e); }}>
-      <input aria-label="Ask about this run" value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="e.g. Why did this run get blocked?" />
-      <button type="submit" disabled={!question.trim()}>Send</button>
-    </form>
-    {toast && <p className="run-ask-toast" role="status">{toast}</p>}
-    <p className="muted">The question and a compact run summary are copied for the main chat, and the question is recorded in this run's activity feed.</p>
-  </section>;
-}
+type RunSuggestion = { key: string; label: string; why: string; actionLabel: string; onAction: () => void };
 
 function RunDetail({ runId, onClose, onChanged, onOpenApprovals }: { runId: string; onClose: () => void; onChanged: () => void; onOpenApprovals: () => void }) {
   const queryClient = useQueryClient();
   const detail = useQuery({ queryKey: ["run-detail", runId], queryFn: () => api.run_detail({ run_id: runId }), refetchInterval: 15_000, refetchOnMount: "always", staleTime: 0 });
   const [notice, setNotice] = useState("");
+  const [question, setQuestion] = useState("");
+  const [askNotice, setAskNotice] = useState("");
+  const [watchHighlighted, setWatchHighlighted] = useState(false);
+  const blockerRef = useRef<HTMLParagraphElement | null>(null);
+  const watchRef = useRef<HTMLElement | null>(null);
+  const activityRef = useRef<HTMLElement | null>(null);
   const watch = useMutation({
     mutationFn: (next: { watch_chat?: boolean; capture_browser?: boolean }) => api.run_watch_set({ run_id: runId, ...next }),
     onSuccess: (result) => {
@@ -663,10 +500,16 @@ function RunDetail({ runId, onClose, onChanged, onOpenApprovals }: { runId: stri
       onChanged();
     },
   });
-  const resolve = useMutation({
-    mutationFn: ({ id, answer }: { id: string; answer: string }) => api.approval_resolve({ approval_id: id, answer, judged_by: "run_detail" }),
-    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ["run-detail", runId] }); onChanged(); },
+  const logQuestion = useMutation({
+    mutationFn: (asked: string) => api.event_log({ run_id: runId, type: "run_question_asked", payload: { question: asked } }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["run-detail", runId] }),
   });
+  useEffect(() => {
+    if (!watchHighlighted) return;
+    const timeout = window.setTimeout(() => setWatchHighlighted(false), 1800);
+    return () => window.clearTimeout(timeout);
+  }, [watchHighlighted]);
+  const approvalChanged = () => { void queryClient.invalidateQueries({ queryKey: ["run-detail", runId] }); onChanged(); };
   const data = (detail.data?.data ?? {}) as AnyData;
   const run = (data.run ?? {}) as AnyData;
   const events = Array.isArray(data.events) ? data.events : [];
@@ -675,33 +518,79 @@ function RunDetail({ runId, onClose, onChanged, onOpenApprovals }: { runId: stri
   const postingVerdicts = Array.isArray(data.posting_verdicts) ? data.posting_verdicts : [];
   const screenshots = applications.filter((app: AnyData) => Boolean(app.screenshot_path));
   const counts = run.current_state_counts && typeof run.current_state_counts === "object" ? Object.entries(run.current_state_counts as Record<string, unknown>) : [];
-  const blockerRef = useRef<HTMLParagraphElement>(null);
-  const feedRef = useRef<HTMLElement>(null);
-  const watchRef = useRef<HTMLElement>(null);
-  const scrollTo = (ref: React.RefObject<HTMLElement | HTMLParagraphElement | null>) => ref.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-  const onSuggestion = (action: SuggestionAction) => {
-    if (action === "retry_browser") {
-      void copyText(`Retry run ${runId} via the live browser route`).then((ok) => setNotice(ok ? "Retry prompt copied — paste it into the main chat to re-run via the live browser." : "Copy failed — the retry prompt could not be copied."));
-    } else if (action === "review_blocker") scrollTo(blockerRef);
-    else if (action === "review_approvals") onOpenApprovals();
-    else if (action === "open_event_log") scrollTo(feedRef);
-    else if (action === "watch_hint") { scrollTo(watchRef); setNotice("Turn on Main chat updates below to follow this run in chat."); }
+  const blocker = String(run.blocker ?? "").trim();
+  const hasFetchBlock = /(?:999|bot[- ]block|rate[- ]limit)/i.test(blocker);
+  const hasFailureEvent = events.some((event: AnyData) => /fail/i.test(payloadField(event.payload, "verdict")));
+  const scrollTo = (ref: { current: HTMLElement | null }) => ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const highlightWatch = () => {
+    setWatchHighlighted(false);
+    window.requestAnimationFrame(() => {
+      setWatchHighlighted(true);
+      scrollTo(watchRef);
+    });
   };
-  const onAsked = () => { void queryClient.invalidateQueries({ queryKey: ["run-detail", runId] }); onChanged(); };
+  const suggestions: RunSuggestion[] = [];
+  if (hasFetchBlock) {
+    suggestions.push({
+      key: "retry-browser",
+      label: "Retry this run via the live browser route",
+      why: `The text fetch was bot-blocked; the live browser route is not.${run.campaign_id === "linkedin_optimize" ? " The optimizer skill delegates browser steps to the parent agent." : ""}`,
+      actionLabel: "Copy prompt",
+      onAction: () => { void copyToClipboard(`Retry run ${runId} via the live browser route`).then((copied) => setAskNotice(copied ? "Retry prompt copied — paste it into the main chat." : "Clipboard access failed. Copy the retry prompt manually.")); },
+    });
+  } else if (blocker) {
+    suggestions.push({ key: "review-blocker", label: "Review the blocker", why: truncateText(blocker), actionLabel: "View blocker", onAction: () => scrollTo(blockerRef) });
+  }
+  if (approvals.length > 0) suggestions.push({ key: "approvals", label: `Review ${fmt(approvals.length)} pending approvals`, why: `${fmt(approvals.length)} decisions are waiting on you.`, actionLabel: "Open queue", onAction: onOpenApprovals });
+  if (["failed", "completed_with_issues"].includes(String(run.status ?? "").toLowerCase()) || hasFailureEvent) suggestions.push({ key: "failures", label: "Open the event log for this run", why: "See what failed and the recorded reason.", actionLabel: "Open log", onAction: () => scrollTo(activityRef) });
+  if (run.ended === null || run.ended === undefined) suggestions.push({ key: "watch", label: "Watch in chat", why: "Flip the watch toggle to get screenshots in chat as it works.", actionLabel: "Show controls", onAction: highlightWatch });
+  const visibleSuggestions = suggestions.slice(0, 3);
+  const submitQuestion = async (event: FormEvent) => {
+    event.preventDefault();
+    const asked = question.trim();
+    if (!asked) return;
+    const stateLine = counts.length > 0 ? counts.map(([state, value]) => `${state}=${String(value ?? 0)}`).join(", ") : "none";
+    const eventLines = events.slice(0, 8).map((item: AnyData) => `- ${String(item.type ?? "unknown")} | ${String(item.at ?? "—")} | verdict=${payloadField(item.payload, "verdict")} | reason=${payloadField(item.payload, "reason")}`);
+    const approvalLines = approvals.map((approval: AnyData) => `- ${String(approval.section ?? approval.kind ?? "unknown")} | current=${truncateText(approval.current_text, 100) || "—"} | proposed=${truncateText(approval.proposed_text, 100) || "—"}`);
+    const context = [
+      `Ask Muse about run ${runId} (${String(run.campaign_id ?? "unknown")}): ${asked}`,
+      "",
+      "Run context",
+      `run_id: ${runId}`,
+      `campaign_id: ${String(run.campaign_id ?? "unknown")}`,
+      `mode: ${String(run.mode ?? "unknown")}`,
+      `status: ${String(run.status ?? "unknown")}`,
+      `current_stage: ${String(run.current_stage ?? "unknown")}`,
+      `blocker: ${blocker || "none"}`,
+      `state_counts: ${stateLine}`,
+      "latest_events:",
+      ...(eventLines.length > 0 ? eventLines : ["- none"]),
+      "open_approvals:",
+      ...(approvalLines.length > 0 ? approvalLines : ["- none"]),
+    ].join("\n");
+    const copied = await copyToClipboard(context);
+    logQuestion.mutate(asked);
+    if (copied) {
+      setAskNotice("Copied — paste it into the main chat and send; Muse will answer with full run context.");
+      setQuestion("");
+    } else {
+      setAskNotice("Clipboard access failed. Your question was recorded, but the prompt was not copied.");
+    }
+  };
   return <div className="run-detail-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="run-detail-panel" role="dialog" aria-modal="true" aria-labelledby="run-detail-title">
       <header className="run-detail-head"><div><span>{run.status === "running" ? "Live run" : "Run trace"}</span><h2 id="run-detail-title">{runId}</h2></div><button type="button" onClick={onClose} aria-label={`Close run ${runId}`}>Close</button></header>
       {detail.isPending ? <div className="loading run-detail-loading"><span /><p>Reading run trace…</p></div> : detail.isError || detail.data?.found === false ? <div className="run-detail-error"><b>Run trace unavailable</b><p>This run could not be read. Try again.</p><button type="button" onClick={() => void detail.refetch()}>Retry</button></div> : <div className="run-detail-content">
         <div className="run-live-strip"><div><span>Current stage</span><strong>{titleCase(String(run.current_stage ?? run.status ?? "unknown"))}</strong></div><div><span>Status</span><Status value={String(run.status ?? "unknown")} /></div><div><span>Started</span><b>{when(run.started)}</b></div><div><span>Last check</span><b>{when(detail.data?.generated_at)}</b></div></div>
-        {run.blocker && <p className="run-detail-blocker" ref={blockerRef}><b>Blocker</b>{String(run.blocker)}</p>}
+        {visibleSuggestions.length > 0 && <section className="run-suggestions" aria-labelledby="run-suggestions-title"><div className="run-suggestions-head"><h3 id="run-suggestions-title">Suggested next steps</h3><span>{fmt(visibleSuggestions.length)}</span></div><div className="run-suggestion-list">{visibleSuggestions.map((suggestion) => <article key={suggestion.key}><div><b>{suggestion.label}</b><p>{suggestion.why}</p></div><button type="button" onClick={suggestion.onAction}>{suggestion.actionLabel}</button></article>)}</div></section>}
+        <section className="run-ask" aria-labelledby="run-ask-title"><div><h3 id="run-ask-title">Ask about this run</h3><p>Copies your question with this run’s current context for Muse.</p></div><form onSubmit={(event) => void submitQuestion(event)}><input aria-label="Question about this run" value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="What caused this blocker?" /><button type="submit" disabled={!question.trim() || logQuestion.isPending}>Send</button></form>{askNotice && <p className={askNotice.startsWith("Copied") || askNotice.startsWith("Retry") ? "run-ask-notice" : "inline-error"} role="status">{askNotice}</p>}{logQuestion.isError && <p className="inline-error" role="alert">The prompt was copied, but the question could not be added to the activity feed.</p>}</section>
+        {run.blocker && <p ref={blockerRef} className="run-detail-blocker"><b>Blocker</b>{String(run.blocker)}</p>}
         {counts.length > 0 && <div className="run-counts" aria-label="Current application state counts">{counts.map(([state, value]) => <span key={state}>{titleCase(state)} <b>{fmt(value)}</b></span>)}</div>}
-        <RunSuggestions run={run} approvals={approvals} events={events} onAction={onSuggestion} />
-        <AskAboutRun run={run} approvals={approvals} events={events} onAsked={onAsked} />
-        <section className="watch-controls" ref={watchRef} aria-labelledby="watch-title"><div className="watch-copy"><h3 id="watch-title">Follow this run</h3><p>Workers receive these preferences with every event they log.</p></div><label className="watch-toggle"><input type="checkbox" checked={run.watch_chat === true} disabled={watch.isPending} onChange={() => watch.mutate({ watch_chat: run.watch_chat !== true })} /><span><b>Main chat updates</b><small>Phase changes and completion</small></span></label><label className="watch-toggle"><input type="checkbox" checked={run.capture_browser === true} disabled={watch.isPending} onChange={() => watch.mutate({ capture_browser: run.capture_browser !== true })} /><span><b>Browser captures</b><small>Ask the worker to retain key portal steps</small></span></label><p className="watch-limit"><b>Live browser video cannot be streamed into main chat.</b> Captured steps appear below when the worker records them.</p>{notice && <p className="watch-notice" role="status">{notice}</p>}{watch.isError && <p className="inline-error" role="alert">Watch settings could not be saved.</p>}</section>
-        {approvals.length > 0 && <section className="run-detail-section"><div className="run-detail-section-head"><h3>Needs your decision</h3><span>{fmt(approvals.length)} open</span></div><div className="stack">{approvals.map((approval: AnyData) => <article className="approval" key={approval.approval_id}><div><Status value={String(approval.kind)} /><h3>{approval.question}</h3><p>{when(approval.created_at)}{approval.app_id ? ` · ${approval.app_id}` : ""}</p></div><div className="approval-actions">{(Array.isArray(approval.options) ? approval.options : []).map((option: string) => <button type="button" key={option} disabled={resolve.isPending} onClick={() => resolve.mutate({ id: String(approval.approval_id), answer: option })}>{option}</button>)}</div></article>)}</div></section>}
+        <section ref={watchRef} className={`watch-controls${watchHighlighted ? " highlighted" : ""}`} aria-labelledby="watch-title"><div className="watch-copy"><h3 id="watch-title">Follow this run</h3><p>Workers receive these preferences with every event they log.</p></div><label className="watch-toggle"><input type="checkbox" checked={run.watch_chat === true} disabled={watch.isPending} onChange={() => watch.mutate({ watch_chat: run.watch_chat !== true })} /><span><b>Main chat updates</b><small>Phase changes and completion</small></span></label><label className="watch-toggle"><input type="checkbox" checked={run.capture_browser === true} disabled={watch.isPending} onChange={() => watch.mutate({ capture_browser: run.capture_browser !== true })} /><span><b>Browser captures</b><small>Ask the worker to retain key portal steps</small></span></label><p className="watch-limit"><b>Live browser video cannot be streamed into main chat.</b> Captured steps appear below when the worker records them.</p>{notice && <p className="watch-notice" role="status">{notice}</p>}{watch.isError && <p className="inline-error" role="alert">Watch settings could not be saved.</p>}</section>
+        {approvals.length > 0 && <section className="run-detail-section"><div className="run-detail-section-head"><h3>Needs your decision</h3><span>{fmt(approvals.length)} open</span></div><div className="stack">{approvals.map((approval: AnyData) => <ApprovalCard key={approval.approval_id} approval={approval} judgedBy="run_detail" onResolved={approvalChanged} />)}</div></section>}
         {applications.length > 0 && <section className="run-detail-section"><div className="run-detail-section-head"><h3>Applications</h3><span>{fmt(applications.length)} claimed</span></div><div className="run-record-list">{applications.map((app: AnyData) => <article key={app.app_id}><div className="run-record-top"><code>{app.app_id}</code><Status value={String(app.state)} /></div><p><b>Reason</b>{app.status_reason ? String(app.status_reason) : "—"}</p>{app.talking_points_path && <WorkspaceFileButton fileRef={{ app_id: String(app.app_id), kind: "prep" }} label="Open talking points" displayName={fileName(String(app.talking_points_path))} />}</article>)}</div></section>}
         {postingVerdicts.length > 0 && <section className="run-detail-section"><div className="run-detail-section-head"><h3>Posting verdicts</h3><span>{fmt(postingVerdicts.length)} latest</span></div><div className="run-record-list">{postingVerdicts.map((item: AnyData) => <article key={item.posting_id}><div className="run-record-top"><div><b>{item.role || item.posting_id}</b>{item.company && <span>{item.company}</span>}</div><Status value={String(item.verdict)} /></div><p><b>{titleCase(String(item.stage))}</b>{item.reason ? String(item.reason) : "—"}</p><small>{when(item.at)} · {item.posting_id}</small></article>)}</div></section>}
-        <section className="run-detail-section" ref={feedRef}><div className="run-detail-section-head"><h3>Activity feed</h3><span>{run.status === "running" ? "Refreshes every 15 seconds" : `${fmt(events.length)} events`}</span></div>{events.length === 0 ? <Empty title="No events yet" body="The run is open, but no skill has logged an event." /> : <ol className="event-feed">{events.map((event: AnyData, index: number) => <li key={event.id}><div className={`event-node${index === 0 ? " latest" : ""}`} /><div><div className="event-top"><b>{titleCase(String(event.type))}</b><time>{when(event.at)}</time></div>{event.app_id && <code>{event.app_id}</code>}{eventDetail(event.payload) && <p>{eventDetail(event.payload)}</p>}</div></li>)}</ol>}</section>
+        <section ref={activityRef} className="run-detail-section"><div className="run-detail-section-head"><h3>Activity feed</h3><span>{run.status === "running" ? "Refreshes every 15 seconds" : `${fmt(events.length)} events`}</span></div>{events.length === 0 ? <Empty title="No events yet" body="The run is open, but no skill has logged an event." /> : <ol className="event-feed">{events.map((event: AnyData, index: number) => <li key={event.id}><div className={`event-node${index === 0 ? " latest" : ""}`} /><div><div className="event-top"><b>{titleCase(String(event.type))}</b><time>{when(event.at)}</time></div>{event.app_id && <code>{event.app_id}</code>}{eventDetail(event.payload) && <p>{eventDetail(event.payload)}</p>}</div></li>)}</ol>}</section>
         <section className="run-detail-section"><div className="run-detail-section-head"><h3>Browser evidence</h3><span>{fmt(screenshots.length)} captures</span></div>{screenshots.length === 0 ? <Empty title="No browser captures" body={run.capture_browser ? "Capture is requested. New evidence will appear here after the worker records it." : "Turn on Browser captures to request evidence at key portal steps."} /> : <div className="browser-captures">{screenshots.map((app: AnyData) => <article key={app.app_id}><div><b>{app.app_id}</b><span>{titleCase(String(app.state))}</span></div><ScreenshotEvidence appId={String(app.app_id)} path={String(app.screenshot_path)} />{app.confirmation && <p>{String(app.confirmation)}</p>}</article>)}</div>}</section>
       </div>}
     </section>
@@ -825,47 +714,6 @@ function Schedules() {
   </>;
 }
 
-function HeldReplyControls({ reply, onChanged }: { reply: AnyData; onChanged: () => void }) {
-  const replyId = String(reply.replyId ?? reply.reply_id ?? "");
-  const decision = (reply.heldResolution ?? reply.held_resolution ?? null) as string | null;
-  const [viewing, setViewing] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [original, setOriginal] = useState("");
-  const [message, setMessage] = useState("");
-  const load = useMutation({
-    mutationFn: () => api.held_reply_draft({ reply_id: replyId }),
-    onSuccess: (r) => {
-      if (r.ok && typeof r.draft_text === "string") { setDraft(r.draft_text); setOriginal(r.draft_text); }
-      else setMessage(r.message ?? "No draft available.");
-    },
-    onError: (e) => setMessage(e instanceof Error ? e.message : "Could not load the draft."),
-  });
-  const resolve = useMutation({
-    mutationFn: (next: "approved" | "discarded") => api.held_reply_resolve({ reply_id: replyId, decision: next, edited_text: next === "approved" && editing && draft !== original ? draft : undefined }),
-    onSuccess: (r) => {
-      if (r.ok) { setViewing(false); setEditing(false); setMessage(""); onChanged(); }
-      else setMessage(r.message ?? "Could not record the decision.");
-    },
-    onError: (e) => setMessage(e instanceof Error ? e.message : "Could not record the decision."),
-  });
-  if (decision) return <span className={`reply-action action-${decision}`}>{decision === "approved" ? "Approved" : "Discarded"}</span>;
-  return <div className="held-controls">
-    <div className="held-buttons">
-      <button type="button" disabled={load.isPending} onClick={() => { setMessage(""); setEditing(false); setViewing(true); if (!draft && !original) load.mutate(); }}>View</button>
-      <button type="button" disabled={load.isPending} onClick={() => { setMessage(""); setViewing(false); setEditing(true); if (!draft && !original) load.mutate(); }}>Approve &amp; send</button>
-      <button type="button" disabled={resolve.isPending} onClick={() => resolve.mutate("discarded")}>Discard</button>
-    </div>
-    {(viewing || editing) && <div className="held-draft">
-      {load.isPending ? <p>Loading draft…</p> : editing
-        ? <><textarea aria-label="Edit held draft" value={draft} onChange={(e) => setDraft(e.target.value)} rows={8} />
-            <div className="held-buttons"><button type="button" disabled={resolve.isPending} onClick={() => resolve.mutate("approved")}>{resolve.isPending ? "Recording…" : "Save approval"}</button><button type="button" onClick={() => setEditing(false)}>Cancel</button></div></>
-        : <pre>{draft || "—"}</pre>}
-    </div>}
-    {message && <p className="resume-message" role="alert">{message}</p>}
-  </div>;
-}
-
 function Replies({ data, onRefresh, refreshing }: { data: AnyData; onRefresh: () => void; refreshing: boolean }) {
   const awaiting = Array.isArray(data.awaiting_me) ? data.awaiting_me : []; const funnel = data.funnel ?? {};
   const replies = useMemo(() => {
@@ -880,6 +728,27 @@ function Replies({ data, onRefresh, refreshing }: { data: AnyData; onRefresh: ()
   const [actionFilter, setActionFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [dateRange, setDateRange] = useState<DateRange>({ preset: "all", start: "", end: "" });
+  const [replyNotice, setReplyNotice] = useState<{ tone: "good" | "error"; text: string } | null>(null);
+  const [draftEditor, setDraftEditor] = useState<{ replyId: string; descriptor: string; filename: string; original: string; text: string; mode: "view" | "approve" } | null>(null);
+  const draft = useMutation({
+    mutationFn: ({ replyId }: { replyId: string; descriptor: string; mode: "view" | "approve" }) => api.held_reply_draft({ reply_id: replyId }),
+    onSuccess: (result, request) => {
+      const text = result.draft_text;
+      const filename = String(result.draft_path ?? "Reply draft").split("/").pop() || "Reply draft";
+      if (!result.ok || text === undefined) { setReplyNotice({ tone: "error", text: result.message ?? "The draft could not be opened." }); return; }
+      setReplyNotice(null); setDraftEditor({ replyId: request.replyId, descriptor: request.descriptor, filename, original: text, text, mode: request.mode });
+    },
+    onError: () => setReplyNotice({ tone: "error", text: "The draft could not be opened." }),
+  });
+  const resolveReply = useMutation({
+    mutationFn: ({ replyId, decision, editedText }: { replyId: string; decision: "approved" | "discarded"; editedText?: string }) => api.held_reply_resolve({ reply_id: replyId, decision, ...(editedText !== undefined ? { edited_text: editedText } : {}) }),
+    onSuccess: (result, request) => {
+      if (!result.ok) { setReplyNotice({ tone: "error", text: result.message ?? "The held reply could not be resolved." }); return; }
+      setReplyNotice({ tone: "good", text: request.decision === "approved" ? "Reply approved. The scheduled replier will send it." : "Reply discarded." });
+      setDraftEditor(null); onRefresh();
+    },
+    onError: () => setReplyNotice({ tone: "error", text: "The held reply could not be resolved. Nothing changed." }),
+  });
   const replyChannel = (reply: AnyData) => {
     const threadId = String(reply.threadId ?? reply.thread_id ?? "");
     const prefix = (threadId.split("|")[0] ?? "").trim().toLowerCase();
@@ -897,6 +766,7 @@ function Replies({ data, onRefresh, refreshing }: { data: AnyData; onRefresh: ()
     const next = new Set(previous); if (next.has(replyId)) next.delete(replyId); else next.add(replyId); return next;
   });
   return <><div className="page-lead"><div><p className="eyebrow">Conversation ledger</p><h1>Replies and outcomes</h1><p>Email and LinkedIn activity in one chronological record.</p></div><RefreshButton onClick={onRefresh} active={refreshing} /></div>
+    {replyNotice && <div className={`save-notice ${replyNotice.tone}`} role={replyNotice.tone === "error" ? "alert" : "status"}>{replyNotice.text}</div>}
     <div className="kpi-band"><Kpi hero label="Threads" value={data.hero} /><Kpi label="Sent · 7 days" value={data.sent_7d} /><Kpi label="Held · 7 days" value={data.held_7d} /><Kpi label="Awaiting me" value={awaiting.length} /></div>
     <div className="reply-grid"><Section title="Outcome funnel"><div className="funnel"><div><strong>{fmt(funnel.applied)}</strong><span>Applied</span></div><i /><div><strong>{fmt(funnel.replied)}</strong><span>Reply</span></div><i /><div><strong>{fmt(funnel.interview)}</strong><span>Interview</span></div></div></Section><Section title="Awaiting me" aside={<span className="count-label">{fmt(awaiting.length)}</span>}>{awaiting.length === 0 ? <Empty title="Nothing waiting" body="Held or needs-me threads will collect here." /> : <div className="mini-list">{awaiting.map((t: AnyData) => <div key={t.threadId ?? t.thread_id}><span>{t.channel}</span><b>{t.classification ?? "Unclassified"}</b></div>)}</div>}</Section></div>
     <Section title="Activity ledger" aside={<span className="count-label">{fmt(visibleReplies.length)}{visibleReplies.length !== replies.length ? ` of ${fmt(replies.length)}` : ""} events</span>} className="reply-ledger-section">
@@ -909,27 +779,145 @@ function Replies({ data, onRefresh, refreshing }: { data: AnyData; onRefresh: ()
         <DateRangeControl value={dateRange} onChange={setDateRange} label="Filter replies by date" />
       </div>
       {replies.length === 0 ? <Empty title="No reply activity yet" body="Sent, held, skipped, and auto-sent activity will appear here in time order." /> : visibleReplies.length === 0 ? <Empty title="No matching activity" body="Change or clear a filter to see more events." /> : <div className="reply-table-wrap"><table className="reply-table">
-        <thead><tr><th>Date</th><th>Channel</th><th>Person / topic</th><th>Action</th><th>Held decision</th><th>Rule</th><th>Reason / source</th></tr></thead>
+        <thead><tr><th>Date</th><th>Channel</th><th>Person / topic</th><th>Action</th><th>Rule</th><th>Reason / source</th><th>Decision</th></tr></thead>
         <tbody>{visibleReplies.map((reply: AnyData, index: number) => {
           const replyId = String(reply.replyId ?? reply.reply_id ?? `reply-${index}`); const threadId = String(reply.threadId ?? reply.thread_id ?? "");
           const prefix = (threadId.split("|")[0] ?? "").trim().toLowerCase(); const channel = prefix === "linkedin" ? "LinkedIn" : prefix === "email" ? "Email" : titleCase(prefix || "unknown");
           const reason = String(reply.reason ?? "No reason recorded"); const descriptor = ((reason.split(" — ")[0] ?? reason).split(";")[0] ?? reason).trim() || "No descriptor";
           const action = String(reply.action ?? "skipped"); const isExpanded = expanded.has(replyId); const rule = String(reply.ruleId ?? reply.rule_id ?? "—");
+          const decision = reply.heldResolution ?? reply.decision ? String(reply.heldResolution ?? reply.decision) : null; const resolvedAt = reply.heldResolvedAt ?? reply.held_resolved_at ?? reply.resolvedAt ?? reply.resolved_at;
+          const pendingHeld = action === "held" && !decision;
           return <tr key={replyId}>
             <td data-label="Date" className="reply-date"><time dateTime={String(reply.at ?? "")}>{chicagoWhen(reply.at)}</time></td>
             <td data-label="Channel"><span className={`channel-pill channel-${prefix === "linkedin" ? "linkedin" : prefix === "email" ? "email" : "other"}`}>{channel}</span></td>
             <td data-label="Person / topic"><span className="reply-topic" title={descriptor}>{descriptor}</span></td>
             <td data-label="Action"><span className={`reply-action action-${action}`}>{action === "auto_sent" ? "Auto-sent" : titleCase(action)}</span></td>
-            <td data-label="Held decision">{action === "held" ? <HeldReplyControls reply={reply} onChanged={onRefresh} /> : <span className="reply-action">—</span>}</td>
             <td data-label="Rule"><span className="rule-pill">{rule}</span></td>
             <td data-label="Reason / source"><button type="button" className={`reason-toggle ${isExpanded ? "expanded" : ""}`} onClick={() => toggleReason(replyId)} aria-expanded={isExpanded} aria-label={`${isExpanded ? "Collapse" : "Expand"} reason for ${descriptor}`}><span>{reason}</span><small>{isExpanded ? "Show less" : "Show all"}</small></button></td>
+            <td data-label="Decision">
+              {decision ? <div className="reply-decision"><Status value={decision} />{resolvedAt && <small>{chicagoWhen(resolvedAt)}</small>}</div> : pendingHeld ? <div className="held-reply-actions">
+                <button type="button" onClick={() => draft.mutate({ replyId, descriptor, mode: "view" })} disabled={draft.isPending || resolveReply.isPending}>View draft</button>
+                <button type="button" className="approve-reply" onClick={() => draft.mutate({ replyId, descriptor, mode: "approve" })} disabled={draft.isPending || resolveReply.isPending}>Approve &amp; send</button>
+                <button type="button" className="discard-reply" onClick={() => resolveReply.mutate({ replyId, decision: "discarded" })} disabled={draft.isPending || resolveReply.isPending}>Discard</button>
+              </div> : <span className="muted">—</span>}
+            </td>
           </tr>;
         })}</tbody>
       </table></div>}
     </Section>
+    {draftEditor && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !resolveReply.isPending) setDraftEditor(null); }}>
+      <form className="confirm-dialog reply-draft-dialog" role="dialog" aria-modal="true" aria-labelledby="reply-draft-title" onSubmit={(event) => {
+        event.preventDefault();
+        if (draftEditor.mode !== "approve") return;
+        const changed = draftEditor.text !== draftEditor.original ? draftEditor.text.trim() : undefined;
+        if (changed === "") { setReplyNotice({ tone: "error", text: "An approved reply cannot be empty." }); return; }
+        resolveReply.mutate({ replyId: draftEditor.replyId, decision: "approved", editedText: changed });
+      }}>
+        <div className="reply-draft-heading"><div><span>{draftEditor.mode === "approve" ? "Review before approval" : "Held draft"}</span><h2 id="reply-draft-title">{draftEditor.descriptor}</h2></div><code>{draftEditor.filename}</code></div>
+        <label><span>Draft text</span><textarea aria-label="Held reply draft text" value={draftEditor.text} readOnly={draftEditor.mode === "view"} onChange={(event) => setDraftEditor({ ...draftEditor, text: event.target.value })} /></label>
+        <p>Approval records your decision here. The scheduled replier handles sending.</p>
+        {replyNotice?.tone === "error" && <p className="inline-error" role="alert">{replyNotice.text}</p>}
+        <div><button type="button" onClick={() => setDraftEditor(null)} disabled={resolveReply.isPending}>{draftEditor.mode === "view" ? "Close" : "Cancel"}</button>{draftEditor.mode === "approve" && <button type="submit" className="primary-button" disabled={resolveReply.isPending}>{resolveReply.isPending ? "Approving…" : "Approve & send"}</button>}</div>
+      </form>
+    </div>}
   </>;
 }
 
+type DatasetName = "companies" | "h1b_sponsors" | "prime_vendors";
+
+const datasetLabels: Record<DatasetName, string> = {
+  companies: "Companies",
+  h1b_sponsors: "H-1B sponsors",
+  prime_vendors: "Vendors",
+};
+
+function statsSummary(value: unknown): string {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "—";
+  const entries = Object.entries(value as Record<string, unknown>);
+  return entries.length ? entries.map(([year, raw]) => {
+    const detail = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : null;
+    const count = detail ? detail.lcas ?? detail.lca_count ?? detail.count ?? detail.total : raw;
+    return `${year}: ${fmt(count)} LCAs`;
+  }).join(" · ") : "—";
+}
+
+type DatasetUiState = { searchDraft: string; search: string; tier: string; minLca: string; page: number };
+
+const initialDatasetStates: Record<DatasetName, DatasetUiState> = {
+  companies: { searchDraft: "", search: "", tier: "", minLca: "", page: 1 },
+  h1b_sponsors: { searchDraft: "", search: "", tier: "", minLca: "", page: 1 },
+  prime_vendors: { searchDraft: "", search: "", tier: "", minLca: "", page: 1 },
+};
+
+function Datasets() {
+  const [dataset, setDataset] = useState<DatasetName>("companies");
+  const [datasetStates, setDatasetStates] = useState<Record<DatasetName, DatasetUiState>>(initialDatasetStates);
+  const view = datasetStates[dataset];
+  const pageSize = 100;
+  const queryClient = useQueryClient();
+  const updateView = (patch: Partial<DatasetUiState>) => setDatasetStates((current) => ({ ...current, [dataset]: { ...current[dataset], ...patch } }));
+
+  useEffect(() => {
+    if (view.searchDraft.trim() === view.search) return;
+    const timer = window.setTimeout(() => updateView({ search: view.searchDraft.trim(), page: 1 }), 350);
+    return () => window.clearTimeout(timer);
+  }, [dataset, view.searchDraft, view.search]);
+
+  const result = useQuery({
+    queryKey: ["dataset-browse", dataset, view.search, view.tier, view.minLca, view.page, pageSize],
+    queryFn: () => api.dataset_browse({
+      dataset,
+      page: view.page,
+      page_size: pageSize,
+      ...(view.search ? { search: view.search } : {}),
+      ...(dataset !== "h1b_sponsors" && view.tier ? { tier: view.tier } : {}),
+      ...(dataset === "h1b_sponsors" && view.minLca ? { min_lca: Number(view.minLca) } : {}),
+    }),
+    staleTime: 60_000,
+    placeholderData: (previous) => previous?.dataset === dataset ? previous : undefined,
+  });
+  const rows = (result.data?.rows ?? []) as AnyData[];
+  const total = Number(result.data?.total ?? 0);
+  const currentPage = Number(result.data?.page ?? view.page ?? 1);
+  const currentPageSize = Number(result.data?.page_size ?? pageSize ?? 100);
+  const totalPages = Math.max(1, Math.ceil(total / currentPageSize));
+  const start = total === 0 ? 0 : (currentPage - 1) * currentPageSize + 1;
+  const end = Math.min(currentPage * currentPageSize, total);
+
+  const clearFilters = () => updateView({ searchDraft: "", search: "", tier: "", minLca: "", page: 1 });
+  const refresh = () => { void queryClient.invalidateQueries({ queryKey: ["dataset-browse", dataset] }); void result.refetch(); };
+  const datasetEmpty = !view.search && !view.tier && !view.minLca && total === 0;
+
+  return <>
+    <div className="dataset-switcher" role="group" aria-label="Choose dataset">
+      {(Object.keys(datasetLabels) as DatasetName[]).map((name) => <button type="button" key={name} className={dataset === name ? "active" : ""} aria-pressed={dataset === name} onClick={() => setDataset(name)}>{datasetLabels[name]}</button>)}
+    </div>
+    <div className="page-lead"><div><p className="eyebrow">Reference datasets</p><h1>{datasetLabels[dataset]}</h1><p>{dataset === "companies" ? "Browse the company targeting catalog and career-source metadata." : dataset === "h1b_sponsors" ? "Inspect imported sponsorship counts and year-level evidence." : "Browse prime vendor portals, specialties, and engagement models."}</p></div><RefreshButton onClick={refresh} active={result.isFetching} /></div>
+    <div className="kpi-band dataset-kpis"><Kpi hero label="Matching rows" value={total} note={datasetLabels[dataset]} /><Kpi label="Showing" value={total === 0 ? "0" : `${fmt(start)}–${fmt(end)} of ${fmt(total)}`} /><Kpi label="Page" value={`${currentPage} of ${totalPages}`} /><Kpi label="Rows per page" value={currentPageSize} /></div>
+    <Section title={`${datasetLabels[dataset]} directory`} aside={<span className="count-label">{fmt(total)} rows</span>}>
+      <div className="dataset-filters">
+        <label className="dataset-search"><span>Search</span><input type="search" aria-label={`Search ${datasetLabels[dataset]}`} value={view.searchDraft} onChange={(event) => updateView({ searchDraft: event.target.value })} placeholder={dataset === "companies" ? "Company or industry" : dataset === "h1b_sponsors" ? "Employer name" : "Vendor, category, or specialty"} /></label>
+        {dataset === "h1b_sponsors" ? <label><span>Minimum LCAs</span><input type="number" min="0" step="1" aria-label="Minimum LCA count" value={view.minLca} onChange={(event) => updateView({ minLca: event.target.value, page: 1 })} placeholder="Any" /></label> : <label><span>Tier</span><select aria-label={`Filter ${datasetLabels[dataset]} by tier`} value={view.tier} onChange={(event) => updateView({ tier: event.target.value, page: 1 })}><option value="">All tiers</option><option value="1">Tier 1</option><option value="2">Tier 2</option><option value="3">Tier 3</option></select></label>}
+        <div className="dataset-filter-actions"><span>{view.searchDraft.trim() !== view.search ? "Searching…" : "Filters update this dataset"}</span><button type="button" onClick={clearFilters}>Clear</button></div>
+      </div>
+      {result.isPending ? <div className="loading dataset-loading"><span /><p>Reading {datasetLabels[dataset]}…</p></div> : result.isError ? <div className="dataset-error" role="alert"><p>This dataset could not be read.</p><button type="button" onClick={() => result.refetch()}>Retry</button></div> : rows.length === 0 ? <Empty title={datasetEmpty ? `No ${datasetLabels[dataset].toLowerCase()} yet` : "No rows match"} body={datasetEmpty ? "Import this dataset to populate the directory." : "Change or clear a filter to see more rows."} /> : <div className="dataset-list" role="list" aria-label={`${datasetLabels[dataset]} rows`}>
+        {dataset === "companies" && rows.map((row: AnyData) => <article className="dataset-row" role="listitem" key={row.company_norm}>
+          <div className="dataset-heading"><div><h3>{row.company_norm}</h3><p>{[row.industry, `Tier ${row.tier}`].filter(Boolean).join(" · ")}</p></div>{row.careers_url && <a className="vendor-portal" href={row.careers_url} target="_blank" rel="noreferrer">Careers <Icon name="external" size={14} /></a>}</div>
+          <div className="dataset-details"><div><span>Headquarters</span><p>{row.hq_state || "—"}</p></div><div><span>ATS</span><p>{row.ats_type || "—"}</p></div><div><span>Park count</span><p>{fmt(row.park_count)}</p></div><div><span>Skip status</span><p>{row.skip_flag ? row.skip_reason || "Skipped" : "Active"}</p></div></div>
+        </article>)}
+        {dataset === "h1b_sponsors" && rows.map((row: AnyData) => <article className="dataset-row" role="listitem" key={row.company_norm}>
+          <div className="dataset-heading"><div><h3>{row.company_norm}</h3><p>{fmt(row.lca_count)} LCAs</p></div></div>
+          <div className="dataset-details h1b-dataset-details"><div><span>Year history</span><p>{statsSummary(row.stats_by_year)}</p></div><div><span>Last refreshed</span><p>{when(row.last_refreshed)}</p></div></div>
+        </article>)}
+        {dataset === "prime_vendors" && rows.map((vendor: AnyData) => <article className="dataset-row" role="listitem" key={vendor.vendor_norm}>
+          <div className="dataset-heading"><div><h3>{vendor.vendor_name}</h3><p>{[vendor.category, vendor.tier ? `Tier ${String(vendor.tier).replace(/^tier\s*/i, "")}` : null].filter(Boolean).join(" · ") || "Uncategorized"}</p></div>{vendor.portal_url && <a className="vendor-portal" href={vendor.portal_url} target="_blank" rel="noreferrer">Open portal <Icon name="external" size={14} /></a>}</div>
+          <div className="dataset-details"><div><span>Specialties</span><p>{vendor.specialties || "—"}</p></div><div><span>Engagement types</span><p>{vendor.engagement_types || "—"}</p></div><div className="vendor-h1b"><span>Unverified sponsorship note</span><p>{vendor.h1b_note_unverified || "No note supplied"}</p></div><div><span>Last refreshed</span><p>{when(vendor.last_refreshed)}</p></div></div>
+        </article>)}
+      </div>}
+      {!result.isPending && !result.isError && <nav className="pagination" aria-label={`${datasetLabels[dataset]} pages`}><button type="button" onClick={() => updateView({ page: 1 })} disabled={currentPage <= 1}>First</button><button type="button" onClick={() => updateView({ page: Math.max(1, currentPage - 1) })} disabled={currentPage <= 1}>Previous</button><span>Page <b>{currentPage}</b> of <b>{totalPages}</b></span><button type="button" onClick={() => updateView({ page: Math.min(totalPages, currentPage + 1) })} disabled={currentPage >= totalPages}>Next</button><button type="button" onClick={() => updateView({ page: totalPages })} disabled={currentPage >= totalPages}>Last</button></nav>}
+    </Section>
+  </>;
+}
 
 const objectValue = (value: unknown): AnyData => value && typeof value === "object" && !Array.isArray(value) ? value as AnyData : {};
 const stringList = (value: unknown): string[] => Array.isArray(value) ? value.map(String) : [];
@@ -1238,25 +1226,21 @@ export function App() {
   const profileQuery = useQuery({ queryKey: ["profile"], queryFn: () => api.profile_get({}), refetchOnMount: "always", staleTime: 0 });
   useEffect(() => { if (profileQuery.isSuccess && profileQuery.data.profile === null) setOnboardingLock(true); }, [profileQuery.isSuccess, profileQuery.data?.profile]);
   const needsOnboarding = onboardingLock || (profileQuery.isSuccess && profileQuery.data.profile === null);
-  const isDatasets = active === "datasets";
-  const snapshotView = (active === "profile" || active === "schedules" || isDatasets ? "overview" : active) as "overview" | "applications" | "resumes" | "runs" | "replies";
-  const snapshot = useQuery({ queryKey: ["snapshot", active], queryFn: () => api.snapshot({ view: snapshotView }), refetchOnMount: "always", staleTime: 0, enabled: profileQuery.isSuccess && profileQuery.data.profile !== null && !needsOnboarding && active !== "profile" && active !== "schedules" && !isDatasets });
+  const snapshotView = active === "profile" || active === "schedules" || active === "datasets" ? "overview" : active;
+  const snapshot = useQuery({ queryKey: ["snapshot", active], queryFn: () => api.snapshot({ view: snapshotView }), refetchOnMount: "always", staleTime: 0, enabled: profileQuery.isSuccess && profileQuery.data.profile !== null && !needsOnboarding && active !== "profile" && active !== "schedules" && active !== "datasets" });
   const data = (snapshot.data?.data ?? {}) as AnyData;
-  const refresh = () => {
-    if (isDatasets) { void queryClient.invalidateQueries({ queryKey: ["dataset_browse"] }); return; }
-    void queryClient.invalidateQueries({ queryKey: ["snapshot", active] }); void snapshot.refetch();
-  };
-  const openApprovalsQueue = () => {
+  const refresh = () => { void queryClient.invalidateQueries({ queryKey: ["snapshot", active] }); void snapshot.refetch(); };
+  const openApprovals = () => {
     setActive("overview");
-    window.setTimeout(() => { document.getElementById("approval-batch")?.scrollIntoView({ behavior: "smooth", block: "start" }); }, 200);
+    window.setTimeout(() => document.getElementById("approval-queue")?.scrollIntoView({ behavior: "smooth", block: "start" }), 120);
   };
   if (profileQuery.isPending) return <div className="app-shell"><SafeAreaTopScrim backgroundColor="var(--bg)" /><main className="workspace"><div className="loading"><span /><p>Reading profile…</p></div></main></div>;
   if (profileQuery.isError) return <div className="app-shell"><SafeAreaTopScrim backgroundColor="var(--bg)" /><main className="workspace"><div className="error-screen"><div className="health-orb"><Icon name="profile" size={28} /></div><h1>Profile unavailable</h1><p>The current profile could not be read.</p><button onClick={() => profileQuery.refetch()}>Retry</button></div></main></div>;
   if (needsOnboarding) return <Onboarding onOpenDashboard={() => { void profileQuery.refetch().then((result) => { if (result.data?.profile) setOnboardingLock(false); }); }} />;
   return <div className="app-shell"><SafeAreaTopScrim backgroundColor="var(--bg)" /><aside className="rail" aria-label="Dashboard navigation"><div className="rail-mark"><span /><span /></div><nav>{tabs.map((tab) => <button key={tab.id} className={active === tab.id ? "active" : ""} onClick={() => setActive(tab.id)} aria-current={active === tab.id ? "page" : undefined}><Icon name={tab.icon} /><span>{tab.label}</span></button>)}</nav><div className="rail-foot"><span className="live-dot">Private</span></div></aside>
     <main className="workspace">
-      {active === "profile" ? <Profile onOpenSchedules={() => setActive("schedules")} /> : active === "schedules" ? <Schedules /> : active === "datasets" ? <Datasets onRefresh={refresh} refreshing={false} /> : snapshot.isPending ? <div className="loading"><span /><p>Reading {active} ledger…</p></div> : snapshot.isError ? <div className="error-screen"><div className="health-orb"><Icon name="shield" size={28} /></div><h1>Source unavailable</h1><p>The {active} snapshot could not be read.</p><button onClick={() => snapshot.refetch()}>Retry</button></div> : <>{active === "overview" && <Overview data={data} onRefresh={refresh} refreshing={snapshot.isFetching} />}{active === "applications" && <Applications data={data} onRefresh={refresh} refreshing={snapshot.isFetching} onOpenOverview={() => setActive("overview")} />}{active === "resumes" && <Resumes data={data} onRefresh={refresh} refreshing={snapshot.isFetching} />}{active === "runs" && <Runs data={data} onRefresh={refresh} refreshing={snapshot.isFetching} onOpenApprovals={openApprovalsQueue} />}{active === "replies" && <Replies data={data} onRefresh={refresh} refreshing={snapshot.isFetching} />}</>}
-      {active !== "profile" && active !== "schedules" && snapshot.data && <p className="freshness">Snapshot {when(snapshot.data.generated_at)}</p>}
+      {active === "profile" ? <Profile onOpenSchedules={() => setActive("schedules")} /> : active === "schedules" ? <Schedules /> : active === "datasets" ? <Datasets /> : snapshot.isPending ? <div className="loading"><span /><p>Reading {active} ledger…</p></div> : snapshot.isError ? <div className="error-screen"><div className="health-orb"><Icon name="shield" size={28} /></div><h1>Source unavailable</h1><p>The {active} snapshot could not be read.</p><button onClick={() => snapshot.refetch()}>Retry</button></div> : <>{active === "overview" && <Overview data={data} onRefresh={refresh} refreshing={snapshot.isFetching} />}{active === "applications" && <Applications data={data} onRefresh={refresh} refreshing={snapshot.isFetching} onOpenOverview={() => setActive("overview")} />}{active === "resumes" && <Resumes data={data} onRefresh={refresh} refreshing={snapshot.isFetching} />}{active === "runs" && <Runs data={data} onRefresh={refresh} refreshing={snapshot.isFetching} onOpenApprovals={openApprovals} />}{active === "replies" && <Replies data={data} onRefresh={refresh} refreshing={snapshot.isFetching} />}</>}
+      {active !== "profile" && active !== "schedules" && active !== "datasets" && snapshot.data && <p className="freshness">Snapshot {when(snapshot.data.generated_at)}</p>}
     </main>
     <nav className="bottom-nav" aria-label="Dashboard navigation">{tabs.map((tab) => <button key={tab.id} className={active === tab.id ? "active" : ""} onClick={() => setActive(tab.id)} aria-current={active === tab.id ? "page" : undefined}><Icon name={tab.icon} /><span>{tab.label}</span></button>)}</nav>
   </div>;
