@@ -19,7 +19,7 @@ Acknowledge you have read it before continuing.
 
 **1. Get the kit and verify.**
 - Clone the pinned version — the repo is public, no credentials needed:
-  `git clone --branch v1.2.10 https://github.com/reddyneeraj17/Career-Harness.git
+  `git clone --branch v1.2.11 https://github.com/reddyneeraj17/Career-Harness.git
   ~/workspace/harness-kit`
   `--branch` accepts a tag, so this pins exactly v1.2.9 (tags are the pull
   mechanism; a GitHub Release is also published per RELEASING.md).
