@@ -65,6 +65,14 @@ export const runs = sqliteTable("runs", {
   needsMe: integer("needs_me", { mode: "boolean" }).notNull().default(false), watchChat: integer("watch_chat", { mode: "boolean" }).notNull().default(false), captureBrowser: integer("capture_browser", { mode: "boolean" }).notNull().default(false), compiledConfig: text("compiled_config", { mode: "json" }).notNull().default({}), liveConfig: text("live_config", { mode: "json" }).notNull().default({}), blocker: text("blocker"),
 });
 
+// Ad-hoc schedule triggers (migration 0014): the dashboard's "Trigger now"
+// button queues a one-shot run here; the schedule-trigger-dispatch cron fires it.
+export const scheduleTriggers = sqliteTable("schedule_triggers", {
+  id: integer("id").primaryKey({ autoIncrement: true }), jobId: text("job_id").notNull(), campaign: text("campaign"),
+  status: text("status").notNull().default("pending"), createdAt: integer("created_at", { mode: "timestamp_ms" }),
+  handledAt: integer("handled_at", { mode: "timestamp_ms" }), error: text("error"),
+});
+
 export const events = sqliteTable("events", {
   id: integer("id").primaryKey({ autoIncrement: true }), runId: text("run_id"), appId: text("app_id"), type: text("type").notNull(),
   payload: text("payload", { mode: "json" }).notNull().default({}), at: integer("at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),

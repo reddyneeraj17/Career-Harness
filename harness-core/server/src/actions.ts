@@ -10,6 +10,7 @@ const okResponse = z.object({ ok: z.boolean(), message: z.string().optional() })
 const now = () => new Date();
 const iso = (d: Date | null | undefined) => d ? d.toISOString() : null;
 const norm = (value: string) => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+const titleCaseForServer = (value: string) => value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 const id = (prefix: string) => `${prefix}_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
 const countNumber = (value: unknown) => Number(value ?? 0);
 const chicagoDay = (date = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
@@ -23,6 +24,21 @@ const h1bMode = z.enum(["soft_lookup", "bypass_c2c"]);
 const h1bResult = z.enum(["scored", "unknown", "not_applicable"]);
 // LinkedIn optimizer (v1.2.6): profile sections the optimizer can propose rewrites for.
 const linkedinSection = z.enum(["headline", "about", "experience", "skills", "visibility"]);
+// LinkedIn optimizer main-agent reroute: the dashboard hands the audit and each
+// approved apply to the main agent via `awaiting_main_agent` events instead of
+// spawning a worker (the worker path hit LinkedIn HTTP 999 blocks).
+const linkedinSections = ["headline", "about", "experience", "skills", "visibility"] as const;
+const linkedinStartResponse = z.union([
+  z.object({ ok: z.literal(true), run_id: z.string(), task_id: z.string().nullable(), message: z.string() }),
+  z.object({ ok: z.literal(false), message: z.string() }),
+]);
+const linkedinProposalCompleteResponse = z.object({ ok: z.boolean(), message: z.string() });
+const linkedinApplyCompleteResponse = z.object({ ok: z.boolean(), message: z.string(), run_complete: z.boolean() });
+
+function linkedinProfileUrl(row: typeof schema.profile.$inferSelect | undefined): string | null {
+  const value = jsonObject(row?.identity).linkedin;
+  return typeof value === "string" && value.startsWith("https://") ? value : null;
+}
 const runMode = z.enum(["scheduled", "manual"]);
 const postingRow = z.object({
   posting_id: z.string().min(1), company: z.string().min(1), role: z.string().min(1), url: z.string().min(1), source: z.string().min(1),
@@ -222,6 +238,20 @@ const schedulesStatusResponse = z.object({
   manifest_missing: z.boolean(),
   rows: z.array(scheduleStatusRowSchema),
 });
+// Ad-hoc schedule triggers: the dashboard's "Trigger now" button queues a
+// one-shot run; the schedule-trigger-dispatch cron fires it within ~2 minutes.
+const scheduleTriggerResponse = z.union([
+  z.object({ ok: z.literal(true), trigger_id: z.number().int().positive() }),
+  z.object({ ok: z.literal(false), reason: z.string() }),
+]);
+const scheduleTriggerRowSchema = z.object({
+  id: z.number().int().positive(), job_id: z.string(), campaign: z.string().nullable(), status: z.string(),
+  created_at: z.string().nullable(), handled_at: z.string().nullable(), error: z.string().nullable(),
+});
+const scheduleTriggerMarkResponse = z.union([
+  z.object({ ok: z.literal(true) }),
+  z.object({ ok: z.literal(false), reason: z.string() }),
+]);
 
 // The 12 compiled campaign jobs. job_id <-> campaign mapping is bijective:
 // strip the `harness-` prefix and replace `-` with `_`.
@@ -966,19 +996,51 @@ export const Actions = {
 
   approval_resolve: defineAction({
     request: z.object({ approval_id: z.string(), answer: z.string(), judged_by: z.string(), edited_text: z.string().trim().min(1).optional() }), response: okResponse,
-    async handler(ctx, args) { const db = ctx.db<typeof schema>(); const found = (await db.select().from(schema.approvals).where(eq(schema.approvals.approvalId, args.approval_id)).limit(1))[0]; if (!found || found.resolvedAt) return { ok: false, message: found ? "Approval is already resolved." : "Approval not found." };
-      // LinkedIn optimizer: normalize the dashboard's "Approve"/"Discard" to the
-      // canonical "approved"/"discarded" the apply worker looks for.
-      if (found.kind === "linkedin_section") {
-        const decision = args.answer.trim().toLowerCase();
-        if (decision !== "approve" && decision !== "approved" && decision !== "discard" && decision !== "discarded") return { ok: false, message: "Choose Approve or Discard." };
-        const approved = decision === "approve" || decision === "approved";
-        const proposedText = args.edited_text?.trim() || found.proposedText?.trim() || "";
-        if (approved && !proposedText) return { ok: false, message: "The proposed text is empty and cannot be applied." };
-        await db.update(schema.approvals).set({ answer: approved ? "approved" : "discarded", judgedBy: args.judged_by, resolvedAt: now(), proposedText: approved ? proposedText : found.proposedText }).where(eq(schema.approvals.approvalId, args.approval_id));
-        ctx.invalidateQueries(); return { ok: true };
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const found = (await db.select().from(schema.approvals).where(eq(schema.approvals.approvalId, args.approval_id)).limit(1))[0];
+      if (!found || found.resolvedAt) return { ok: false, message: found ? "Approval is already resolved." : "Approval not found." };
+      if (found.kind !== "linkedin_section") {
+        await db.update(schema.approvals).set({ answer: args.answer, judgedBy: args.judged_by, resolvedAt: now() }).where(eq(schema.approvals.approvalId, args.approval_id));
+        ctx.invalidateQueries();
+        return { ok: true };
       }
-      await db.update(schema.approvals).set({ answer: args.answer, judgedBy: args.judged_by, resolvedAt: now(), proposedText: args.edited_text ?? found.proposedText }).where(eq(schema.approvals.approvalId, args.approval_id)); ctx.invalidateQueries(); return { ok: true }; },
+      // LinkedIn optimizer main-agent reroute: approving a section hands the
+      // apply to the main agent via an `awaiting_main_agent` event; the
+      // linkedin-optimize-dispatch cron picks it up within ~2 minutes.
+      const decision = args.answer.trim().toLowerCase();
+      if (!found.runId || !found.section || !linkedinSections.includes(found.section as (typeof linkedinSections)[number])) return { ok: false, message: "This LinkedIn approval is missing its run or section context." };
+      if (decision !== "approve" && decision !== "approved" && decision !== "discard" && decision !== "discarded") return { ok: false, message: "Choose Approve or Discard. Edit the proposal before approving it." };
+      const approved = decision === "approve" || decision === "approved";
+      const proposedText = args.edited_text?.trim() || found.proposedText?.trim() || "";
+      if (approved && !proposedText) return { ok: false, message: "The proposed text is empty and cannot be applied." };
+      const run = (await db.select().from(schema.runs).where(eq(schema.runs.runId, found.runId)).limit(1))[0];
+      const profileRow = (await db.select().from(schema.profile).where(eq(schema.profile.id, 1)).limit(1))[0];
+      const profileUrl = linkedinProfileUrl(profileRow);
+      if (!run || run.campaignId !== "linkedin_optimize") return { ok: false, message: "The LinkedIn optimizer run could not be found." };
+      if (approved && !profileUrl) return { ok: false, message: "Add a valid HTTPS LinkedIn URL in Profile before approving this section." };
+      await db.update(schema.approvals).set({ answer: approved ? "approved" : "discarded", proposedText: approved ? proposedText : found.proposedText, judgedBy: args.judged_by, resolvedAt: now() }).where(eq(schema.approvals.approvalId, args.approval_id));
+      if (!approved) {
+        await db.insert(schema.events).values({ runId: found.runId, type: "section_discarded", payload: { section: found.section, approval_id: found.approvalId }, at: now() });
+      } else {
+        await db.update(schema.runs).set({ status: "running", needsMe: false, blocker: null }).where(eq(schema.runs.runId, found.runId));
+        await db.insert(schema.events).values({ runId: found.runId, type: "awaiting_main_agent", payload: { phase: "apply", section: found.section, approval_id: found.approvalId }, at: now() });
+      }
+      const remaining = (await db.select({ count: sql<number>`count(*)` }).from(schema.approvals).where(and(eq(schema.approvals.runId, found.runId), eq(schema.approvals.kind, "linkedin_section"), isNull(schema.approvals.resolvedAt))))[0];
+      if (!approved && countNumber(remaining?.count) === 0) {
+        const allSectionApprovals = await db.select().from(schema.approvals).where(and(eq(schema.approvals.runId, found.runId), eq(schema.approvals.kind, "linkedin_section")));
+        const applyEvents = await db.select().from(schema.events).where(and(eq(schema.events.runId, found.runId), eq(schema.events.type, "section_applied")));
+        const appliedIds = new Set(applyEvents.map((event) => jsonObject(event.payload).approval_id).filter((value): value is string => typeof value === "string"));
+        const allApprovedApplied = allSectionApprovals.every((row) => row.answer !== "approved" || appliedIds.has(row.approvalId));
+        if (allApprovedApplied) {
+          const discarded = allSectionApprovals.filter((row) => row.answer === "discarded").length;
+          await db.update(schema.runs).set({ status: "completed", ended: now(), needsMe: false, blocker: null, counts: { sections: allSectionApprovals.length, applied: appliedIds.size, discarded } }).where(eq(schema.runs.runId, found.runId));
+          await db.insert(schema.events).values({ runId: found.runId, type: "done", payload: { phase: "done", applied: appliedIds.size, discarded }, at: now() });
+        }
+      }
+      ctx.invalidateQueries();
+      return { ok: true, message: approved ? `Approved ${titleCaseForServer(found.section)}. The main agent will apply it automatically.` : `Discarded ${titleCaseForServer(found.section)}. The live profile was not changed.` };
+    },
   }),
 
   run_open: defineAction({
@@ -989,6 +1051,33 @@ export const Actions = {
   run_close: defineAction({
     request: z.object({ run_id: z.string(), status: z.string(), counts: jsonValue.optional(), tokens: jsonValue.optional(), needs_me: z.boolean().optional(), blocker: z.string().nullable().optional() }), response: okResponse,
     async handler(ctx, args) { const db = ctx.db<typeof schema>(); const pending = (await db.select({ count: sql<number>`count(*)` }).from(schema.applications).where(and(eq(schema.applications.runId, args.run_id), eq(schema.applications.state, "applying"), or(isNull(schema.applications.outcome), eq(schema.applications.outcome, "")))))[0]; if (countNumber(pending?.count) > 0) return { ok: false, message: "Run cannot close while applying rows lack an outcome." }; await db.update(schema.runs).set({ ended: now(), status: args.status, counts: args.counts ?? {}, tokens: args.tokens ?? {}, needsMe: args.needs_me ?? false, blocker: args.blocker ?? null }).where(eq(schema.runs.runId, args.run_id)); ctx.invalidateQueries(); return { ok: true }; },
+  }),
+
+  // Operator cancellation: the dashboard's Cancel run button marks an active run
+  // cancelled and ends it; applications still in `applying` are cancelled too.
+  // The run-coordinator watches for status="cancelled" and stands workers down.
+  run_cancel: defineAction({
+    request: z.object({ run_id: z.string().min(1) }),
+    response: okResponse,
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const run = (await db.select({ ended: schema.runs.ended }).from(schema.runs).where(eq(schema.runs.runId, args.run_id)).limit(1))[0];
+      if (!run) return { ok: false, message: "Run not found." };
+      if (run.ended) return { ok: false, message: "Run has already ended." };
+      const changed = now();
+      const reason = "Run cancelled by user.";
+      const applying = await db.select({ appId: schema.applications.appId }).from(schema.applications)
+        .where(and(eq(schema.applications.runId, args.run_id), eq(schema.applications.state, "applying")));
+      await db.batch([
+        db.update(schema.applications).set({ state: "cancelled", outcome: "cancelled", statusReason: reason, blocker: null, updatedAt: changed })
+          .where(and(eq(schema.applications.runId, args.run_id), eq(schema.applications.state, "applying"))),
+        db.update(schema.runs).set({ status: "cancelled", ended: changed, needsMe: false, blocker: null })
+          .where(and(eq(schema.runs.runId, args.run_id), isNull(schema.runs.ended))),
+        db.insert(schema.events).values({ runId: args.run_id, type: "run_cancelled", payload: { reason, cancelled_applications: applying.length }, at: changed }),
+      ]);
+      ctx.invalidateQueries();
+      return { ok: true };
+    },
   }),
 
   run_detail: defineAction({
@@ -1774,6 +1863,72 @@ export const Actions = {
 
   // Fast server-side browsing for the Datasets page: the dashboard never dumps
   // thousands of rows into the DOM. One dataset per call, 100 rows per page.
+  // Ad-hoc schedule triggers: "Trigger now" on a Schedules row queues a pending
+  // row here (works on disabled schedules too — it never re-enables them).
+  // The schedule-trigger-dispatch cron picks pending rows up within ~2 minutes
+  // and fires the campaign; already_running guards queue-time duplicates.
+  schedule_trigger: defineAction({
+    request: z.object({ job_id: z.string().min(1) }),
+    response: scheduleTriggerResponse,
+    privileged: [privileged.readSchedulesManifest],
+    async handler(ctx, args): Promise<z.infer<typeof scheduleTriggerResponse>> {
+      const jobId = args.job_id.trim();
+      let parsed: z.infer<typeof schedulesManifestSchema> | null = null;
+      try {
+        const result = await ctx.executePrivileged(privileged.readSchedulesManifest, {});
+        if (!result.manifestText) return { ok: false, reason: "manifest_missing" };
+        const checked = schedulesManifestSchema.safeParse(JSON.parse(result.manifestText));
+        parsed = checked.success ? checked.data : null;
+      } catch {
+        return { ok: false, reason: "manifest_unparseable" };
+      }
+      if (!parsed) return { ok: false, reason: "manifest_unparseable" };
+      const job = parsed.jobs.find((entry) => entry.job_id === jobId);
+      if (!job) return { ok: false, reason: "unknown_job_id" };
+
+      const db = ctx.db<typeof schema>();
+      const activeRun = (await db.select({ runId: schema.runs.runId }).from(schema.runs)
+        .where(and(eq(schema.runs.campaignId, job.campaign), isNull(schema.runs.ended))).limit(1))[0];
+      if (activeRun) return { ok: false, reason: "already_running" };
+
+      const inserted = await db.insert(schema.scheduleTriggers).values({
+        jobId, campaign: job.campaign, status: "pending", createdAt: now(),
+      }).returning({ id: schema.scheduleTriggers.id });
+      const triggerId = inserted[0]?.id;
+      if (triggerId === undefined) return { ok: false, reason: "queue_failed" };
+      ctx.invalidateQueries();
+      return { ok: true, trigger_id: triggerId };
+    },
+  }),
+
+  schedule_trigger_pending: defineAction({
+    request: emptyRequest,
+    response: z.object({ rows: z.array(scheduleTriggerRowSchema) }),
+    async handler(ctx) {
+      const rows = await ctx.db<typeof schema>().select().from(schema.scheduleTriggers)
+        .where(eq(schema.scheduleTriggers.status, "pending")).orderBy(asc(schema.scheduleTriggers.id));
+      return {
+        rows: rows.map((row) => ({
+          id: row.id, job_id: row.jobId, campaign: row.campaign, status: row.status,
+          created_at: iso(row.createdAt), handled_at: iso(row.handledAt), error: row.error,
+        })),
+      };
+    },
+  }),
+
+  schedule_trigger_mark: defineAction({
+    request: z.object({ id: z.number().int().positive(), status: z.enum(["dispatched", "failed"]), error: z.string().nullable().optional() }),
+    response: scheduleTriggerMarkResponse,
+    async handler(ctx, args): Promise<z.infer<typeof scheduleTriggerMarkResponse>> {
+      const updated = await ctx.db<typeof schema>().update(schema.scheduleTriggers).set({
+        status: args.status, handledAt: now(), error: args.error ?? null,
+      }).where(eq(schema.scheduleTriggers.id, args.id)).returning({ id: schema.scheduleTriggers.id });
+      if (!updated[0]) return { ok: false, reason: "not_found" };
+      ctx.invalidateQueries();
+      return { ok: true };
+    },
+  }),
+
   dataset_browse: defineAction({
     request: z.object({
       dataset: z.enum(["companies", "h1b_sponsors", "prime_vendors"]),
@@ -1842,47 +1997,102 @@ export const Actions = {
   // the returned run_id. Refuses to stack a second run while one is active —
   // two workers must never edit the same live profile at once.
   linkedin_optimize_start: defineAction({
-    request: emptyRequest, response: z.object({ run_id: z.string() }),
-    async handler(ctx) {
+    request: emptyRequest,
+    response: linkedinStartResponse,
+    async handler(ctx): Promise<z.infer<typeof linkedinStartResponse>> {
       const db = ctx.db<typeof schema>();
-      const active = (await db.select({ runId: schema.runs.runId }).from(schema.runs).where(and(eq(schema.runs.campaignId, "linkedin_optimize"), eq(schema.runs.status, "running"))).limit(1))[0];
-      if (active) return { run_id: active.runId };
-      const runId = id("run");
-      await db.insert(schema.runs).values({ runId, campaignId: "linkedin_optimize", started: now(), status: "running", mode: "manual", counts: {}, compiledConfig: {}, liveConfig: {} });
-      await db.insert(schema.events).values({ runId, type: "linkedin_optimize_started", payload: { campaign_id: "linkedin_optimize", mode: "manual" } });
+      const profileRow = (await db.select().from(schema.profile).where(eq(schema.profile.id, 1)).limit(1))[0];
+      const profileUrl = linkedinProfileUrl(profileRow);
+      if (!profileUrl) return { ok: false, message: "Add a valid HTTPS LinkedIn URL in Profile before starting an optimization run." };
+      const runId = id("run_linkedin_optimize");
+      await db.batch([
+        db.insert(schema.runs).values({ runId, campaignId: "linkedin_optimize", mode: "manual", started: now(), status: "running", counts: {}, tokens: {}, compiledConfig: { phases: ["audit", "propose", "awaiting_approvals", "apply", "done"], sections: linkedinSections }, liveConfig: { profile_url: profileUrl } }),
+        db.insert(schema.events).values({ runId, type: "awaiting_main_agent", payload: { phase: "audit", sections: linkedinSections }, at: now() }),
+      ]);
       ctx.invalidateQueries();
-      return { run_id: runId };
+      return { ok: true, run_id: runId, task_id: null, message: "LinkedIn optimize run created. The main agent will pick it up automatically via the browser route." };
     },
   }),
 
-  // LinkedIn optimizer: the worker calls this when audit → propose finishes
-  // (or fails). verdict=pass means per-section approvals were enqueued and the
-  // run now waits on the customer; any other verdict closes the run.
   linkedin_optimize_proposal_complete: defineAction({
-    request: z.object({ run_id: z.string().min(1), verdict: z.enum(["pass", "reject", "hold"]), reason: z.string().nullable().optional() }), response: okResponse,
-    async handler(ctx, args) {
+    request: z.object({ run_id: z.string().min(1), verdict: z.enum(["pass", "reject", "hold"]), reason: z.string().nullable().optional() }),
+    response: linkedinProposalCompleteResponse,
+    async handler(ctx, args): Promise<z.infer<typeof linkedinProposalCompleteResponse>> {
       const db = ctx.db<typeof schema>();
       const run = (await db.select().from(schema.runs).where(eq(schema.runs.runId, args.run_id)).limit(1))[0];
-      if (!run) return { ok: false, message: "Run not found." };
-      await db.insert(schema.events).values({ runId: args.run_id, type: "linkedin_optimize_proposal_complete", payload: { verdict: args.verdict, reason: args.reason ?? null } });
-      if (args.verdict !== "pass") await db.update(schema.runs).set({ ended: now(), status: args.verdict === "hold" ? "hold" : "rejected", blocker: args.reason ?? null }).where(eq(schema.runs.runId, args.run_id));
+      if (!run || run.campaignId !== "linkedin_optimize") return { ok: false, message: "LinkedIn optimizer run not found." };
+      if (args.verdict !== "pass") {
+        const blocker = args.reason?.trim() || (args.verdict === "hold" ? "The live LinkedIn profile could not be read." : "The LinkedIn identity or proposal gate failed.");
+        await db.batch([
+          db.update(schema.runs).set({ status: args.verdict === "hold" ? "blocked" : "failed", ended: now(), needsMe: args.verdict === "hold", blocker }).where(eq(schema.runs.runId, args.run_id)),
+          db.insert(schema.events).values({ runId: args.run_id, type: args.verdict === "hold" ? "blocked" : "failed", payload: { phase: "propose", verdict: args.verdict, reason: blocker }, at: now() }),
+        ]);
+        ctx.invalidateQueries();
+        return { ok: true, message: blocker };
+      }
+      const sectionRows = await db.select().from(schema.approvals).where(and(eq(schema.approvals.runId, args.run_id), eq(schema.approvals.kind, "linkedin_section"), isNull(schema.approvals.resolvedAt)));
+      const present = new Set(sectionRows.map((row) => row.section).filter((value): value is string => typeof value === "string"));
+      const missing = linkedinSections.filter((section) => !present.has(section));
+      const duplicateSections = linkedinSections.filter((section) => sectionRows.filter((row) => row.section === section).length !== 1);
+      if (missing.length > 0 || sectionRows.length !== linkedinSections.length || duplicateSections.length > 0) {
+        const detail = missing.length > 0 ? `missing: ${missing.join(", ")}` : duplicateSections.length > 0 ? `duplicates: ${duplicateSections.join(", ")}` : `received ${sectionRows.length} cards`;
+        const blocker = `Proposal did not produce exactly one approval card per LinkedIn section (${detail}).`;
+        await db.batch([
+          db.update(schema.runs).set({ status: "blocked", needsMe: true, blocker }).where(eq(schema.runs.runId, args.run_id)),
+          db.insert(schema.events).values({ runId: args.run_id, type: "blocked", payload: { phase: "propose", reason: blocker }, at: now() }),
+        ]);
+        ctx.invalidateQueries();
+        return { ok: false, message: blocker };
+      }
+      await db.batch([
+        db.update(schema.runs).set({ status: "awaiting_approvals", needsMe: true, blocker: null }).where(eq(schema.runs.runId, args.run_id)),
+        db.insert(schema.events).values({ runId: args.run_id, type: "propose", payload: { phase: "propose", verdict: "pass", sections: sectionRows.map((row) => row.section) }, at: now() }),
+        db.insert(schema.events).values({ runId: args.run_id, type: "awaiting_approvals", payload: { phase: "awaiting_approvals", count: sectionRows.length }, at: now() }),
+      ]);
       ctx.invalidateQueries();
-      return { ok: true };
+      return { ok: true, message: "Five LinkedIn section proposals are ready for review." };
     },
   }),
 
-  // LinkedIn optimizer: the worker calls this after applying one approved
-  // section (or recording why it could not). before_hash/after_hash are the
-  // profile-section content hashes so every edit is verifiable.
   linkedin_optimize_apply_complete: defineAction({
-    request: z.object({ run_id: z.string().min(1), approval_id: z.string().min(1), section: linkedinSection, verdict: z.enum(["pass", "reject", "hold"]), before_hash: z.string().nullable().optional(), after_hash: z.string().nullable().optional(), reason: z.string().nullable().optional() }), response: okResponse,
-    async handler(ctx, args) {
+    request: z.object({
+      run_id: z.string().min(1), approval_id: z.string().min(1), section: linkedinSection,
+      verdict: z.enum(["pass", "reject", "hold"]), reason: z.string().nullable().optional(),
+      before_hash: z.string().nullable().optional(), after_hash: z.string().nullable().optional(),
+    }),
+    response: linkedinApplyCompleteResponse,
+    async handler(ctx, args): Promise<z.infer<typeof linkedinApplyCompleteResponse>> {
       const db = ctx.db<typeof schema>();
-      const run = (await db.select().from(schema.runs).where(eq(schema.runs.runId, args.run_id)).limit(1))[0];
-      if (!run) return { ok: false, message: "Run not found." };
-      await db.insert(schema.events).values({ runId: args.run_id, type: "linkedin_optimize_apply_complete", payload: { approval_id: args.approval_id, section: args.section, verdict: args.verdict, before_hash: args.before_hash ?? null, after_hash: args.after_hash ?? null, reason: args.reason ?? null } });
+      const approval = (await db.select().from(schema.approvals).where(eq(schema.approvals.approvalId, args.approval_id)).limit(1))[0];
+      if (!approval || approval.runId !== args.run_id || approval.kind !== "linkedin_section" || approval.section !== args.section || approval.answer !== "approved") return { ok: false, message: "The approved LinkedIn section could not be matched to this run.", run_complete: false };
+      if (args.verdict !== "pass") {
+        const blocker = args.reason?.trim() || `The ${args.section} edit could not be verified.`;
+        await db.batch([
+          db.update(schema.runs).set({ status: "blocked", needsMe: true, blocker }).where(eq(schema.runs.runId, args.run_id)),
+          db.insert(schema.events).values({ runId: args.run_id, type: "apply_failed", payload: { section: args.section, approval_id: args.approval_id, verdict: args.verdict, reason: blocker }, at: now() }),
+        ]);
+        ctx.invalidateQueries();
+        return { ok: true, message: blocker, run_complete: false };
+      }
+      await db.insert(schema.events).values({ runId: args.run_id, type: "section_applied", payload: { section: args.section, approval_id: args.approval_id, before_hash: args.before_hash ?? null, after_hash: args.after_hash ?? null }, at: now() });
+      const approvalsForRun = await db.select().from(schema.approvals).where(and(eq(schema.approvals.runId, args.run_id), eq(schema.approvals.kind, "linkedin_section")));
+      const applyEvents = await db.select().from(schema.events).where(and(eq(schema.events.runId, args.run_id), eq(schema.events.type, "section_applied")));
+      const completedApprovalIds = new Set(applyEvents.map((event) => jsonObject(event.payload).approval_id).filter((value): value is string => typeof value === "string"));
+      const unresolved = approvalsForRun.some((row) => row.resolvedAt === null);
+      const approvedOutstanding = approvalsForRun.some((row) => row.answer === "approved" && !completedApprovalIds.has(row.approvalId));
+      const runComplete = !unresolved && !approvedOutstanding;
+      if (runComplete) {
+        await db.batch([
+          db.update(schema.runs).set({ status: "completed", ended: now(), needsMe: false, blocker: null, counts: { sections: approvalsForRun.length, applied: completedApprovalIds.size, discarded: approvalsForRun.filter((row) => row.answer === "discarded").length } }).where(eq(schema.runs.runId, args.run_id)),
+          db.insert(schema.events).values({ runId: args.run_id, type: "done", payload: { phase: "done", applied: completedApprovalIds.size, discarded: approvalsForRun.filter((row) => row.answer === "discarded").length }, at: now() }),
+        ]);
+      } else {
+        const stillWaiting = unresolved;
+        await db.update(schema.runs).set({ status: stillWaiting ? "awaiting_approvals" : "running", needsMe: stillWaiting, blocker: null }).where(eq(schema.runs.runId, args.run_id));
+        if (stillWaiting) await db.insert(schema.events).values({ runId: args.run_id, type: "awaiting_approvals", payload: { phase: "awaiting_approvals", remaining: approvalsForRun.filter((row) => row.resolvedAt === null).length }, at: now() });
+      }
       ctx.invalidateQueries();
-      return { ok: true };
+      return { ok: true, message: runComplete ? "LinkedIn optimization run completed." : `${titleCaseForServer(args.section)} was applied and verified.`, run_complete: runComplete };
     },
   }),
 } satisfies ActionsModule;

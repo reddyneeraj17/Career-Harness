@@ -4,6 +4,39 @@ All notable changes to the Job-Apply Harness kit are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Ad-hoc "Trigger now" on every Schedules row.** Each schedule row now has
+  a Trigger now button that queues a one-shot run — it works on disabled
+  schedules too, without re-enabling them. New `schedule_triggers` table
+  (migration 0014) with three actions: `schedule_trigger` (validates the
+  job against the schedules manifest, refuses with `already_running` when
+  the campaign has an active run, then queues a pending row),
+  `schedule_trigger_pending` (lists pending rows for the dispatcher), and
+  `schedule_trigger_mark` (marks a row `dispatched`/`failed`). The
+  `schedule-trigger-dispatch` cron picks pending rows up within ~2 minutes
+  and fires the campaign.
+- **Operator run cancellation.** Active runs now show a Cancel run button in
+  the run-detail header. A confirmation dialog calls the new `run_cancel`
+  action, which marks the run `cancelled`/`ended`, cancels applications
+  still in `applying`, and writes a `run_cancelled` event. The
+  run-coordinator skill (1.14.0) watches for `status="cancelled"` at every
+  reconciliation point and stands workers down instead of continuing.
+
+### Changed
+- **LinkedIn optimizer reroute (main-agent loop).** `linkedin_optimize_start`
+  no longer spawns a worker — it emits an `awaiting_main_agent` event
+  (phase `audit`) that the `linkedin-optimize-dispatch` cron hands to the
+  main agent for the live-browser audit. Approving a section emits
+  `awaiting_main_agent` (phase `apply`) instead of resolving-and-done; the
+  main agent applies the edit in the browser and closes via
+  `linkedin_optimize_apply_complete`, which now verifies hashes and closes
+  the run when every approved section is applied. `approval_resolve`
+  validates the run/section context and the profile's LinkedIn URL, emits
+  `section_discarded` on discard, and auto-completes the run when every
+  card is resolved with nothing left to apply.
+
 ## [1.2.8] — 2026-09-27
 
 ### Changed

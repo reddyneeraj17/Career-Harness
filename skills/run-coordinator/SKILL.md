@@ -2,12 +2,13 @@
 
 ---
 name: run-coordinator
-version: "1.13.0"
+version: "1.14.0"
 description: Orchestrates one campaign run through the 7-stage pipeline, owns all state transitions, enforces caps, and closes the run.
 ---
 
 # run-coordinator
 
+> Changelog 1.14.0 (2026-09-27): Operator cancellation — the coordinator checks the run's `status` at every reconciliation point; on `"cancelled"` (dashboard Cancel run button → `run_cancel` action) it stands workers down and closes out instead of continuing.
 > Changelog 1.12.0 (2026-09-27): Pipeline orchestration — lane construction from `profile.role_types`; lane-balanced tier rotation (fair rotation, not quota); submission target separated from the candidate-processing ceiling with replenishment after attrition; H-1B routing owned by the coordinator (bypass for `c2c_contract`, soft lookup otherwise); deterministic dataset→web expansion ladder with stop rules; structured provenance carried through every stage.
 > Changelog 1.13.0: Resume sweep — right after the login gate, the coordinator picks up applications in `reviewed` from prior runs (including rows the customer resumed via `app_resume`) and routes them straight into APPLY; no re-tailor, no re-review, no looping on re-parked rows.
 > Changelog 1.11.0: Source expansion — datasets are a launchpad, not a fence. When the tier-ascending dataset sweep leaves the run short of its target, the coordinator expands outward (open web search, then additional sources) until the target is met or sources are exhausted.
@@ -242,6 +243,7 @@ or vendors observed in any phase feed `company-discovery` as before.
 - **Claim, don't race.** Parallel workers never own one row: judges return verdict JSON, the coordinator calls `app_transition`.
 - **Intent before submit.** Applier workers write `applying` + `intent_id` before the submit click (portal-navigator skill). Unresolved intents are the doctor's job, not the coordinator's to re-submit.
 - **Reconcile from `snapshot`, never from memory.** Every ~5 minutes and at phase boundaries, reconcile worker reports against `snapshot(run)`. Handoffs can lag 30+ minutes; wait for expected handoffs under 90 minutes old.
+- **Honor operator cancellation.** At every reconciliation point, also read the run's `status`. If it is `"cancelled"` (the operator hit Cancel run on the dashboard, via the `run_cancel` action): stop spawning new workers, tell in-flight workers to stand down, record a `run_cancelled_acknowledged` event, and close out with `run_close` (status `"cancelled"`). Never start new applications after seeing the flag; never override it.
 - **`years_matrix` comes only from `profile_get`.** The `years_matrix` passed to fit-judge is taken verbatim from the profile. If the profile has no years matrix (the profile may state only overall experience, e.g. "10+ years"), pass null/omit the field. NEVER fabricate per-skill years — an invented matrix is a data-integrity violation.
 - **Briefs cite the ledger, never summaries.** Every brief handed to an applier or browser task cites the ledger `app_id` and the `url` copied VERBATIM from the ledger row (read via `snapshot`) — never from run summaries, memory, or worker handoffs. The executor must re-read the ledger row via `snapshot` before acting and refuse if the row's URL differs from the brief.
 - **Harness-core outage.** If `harness-core` is unreachable, workers append to the run's `spillover.jsonl` (`goals/<g>/hidden_files/<run>/spillover.jsonl`); the doctor replays it later via `spillover_replay`. Never invent state the store didn't confirm.

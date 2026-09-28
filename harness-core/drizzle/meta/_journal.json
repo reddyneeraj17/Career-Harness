@@ -92,6 +92,13 @@
             "when": 1790537382280,
             "tag": "0013_run_mode",
             "breakpoints": true
+        },
+        {
+            "idx": 13,
+            "version": "6",
+            "when": 1790565600000,
+            "tag": "0014_add_schedule_triggers",
+            "breakpoints": true
         }
     ]
 }

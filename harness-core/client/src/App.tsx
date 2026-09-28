@@ -207,6 +207,7 @@ function Overview({ data, onRefresh, refreshing }: { data: AnyData; onRefresh: (
   const optimize = useMutation({
     mutationFn: () => api.linkedin_optimize_start({}),
     onSuccess: (result) => {
+      if (!result.ok) { setOptimizeNotice({ tone: "error", text: result.message }); return; }
       setOptimizeNotice({ tone: "good", text: `LinkedIn audit started · ${result.run_id}` });
       onRefresh();
     },
@@ -489,6 +490,8 @@ function RunDetail({ runId, onClose, onChanged, onOpenApprovals }: { runId: stri
   const [question, setQuestion] = useState("");
   const [askNotice, setAskNotice] = useState("");
   const [watchHighlighted, setWatchHighlighted] = useState(false);
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
+  const [cancelNotice, setCancelNotice] = useState<{ tone: "good" | "error"; text: string } | null>(null);
   const blockerRef = useRef<HTMLParagraphElement | null>(null);
   const watchRef = useRef<HTMLElement | null>(null);
   const activityRef = useRef<HTMLElement | null>(null);
@@ -499,6 +502,20 @@ function RunDetail({ runId, onClose, onChanged, onOpenApprovals }: { runId: stri
       void queryClient.invalidateQueries({ queryKey: ["run-detail", runId] });
       onChanged();
     },
+  });
+  const cancelRun = useMutation({
+    mutationFn: () => api.run_cancel({ run_id: runId }),
+    onSuccess: (result) => {
+      if (!result.ok) {
+        setCancelNotice({ tone: "error", text: result.message ?? "This run could not be cancelled." });
+        return;
+      }
+      setCancelConfirmOpen(false);
+      setCancelNotice({ tone: "good", text: "Run cancelled. In-flight applications were marked cancelled." });
+      void queryClient.invalidateQueries({ queryKey: ["run-detail", runId] });
+      onChanged();
+    },
+    onError: () => setCancelNotice({ tone: "error", text: "This run could not be cancelled. Nothing changed." }),
   });
   const logQuestion = useMutation({
     mutationFn: (asked: string) => api.event_log({ run_id: runId, type: "run_question_asked", payload: { question: asked } }),
@@ -512,6 +529,7 @@ function RunDetail({ runId, onClose, onChanged, onOpenApprovals }: { runId: stri
   const approvalChanged = () => { void queryClient.invalidateQueries({ queryKey: ["run-detail", runId] }); onChanged(); };
   const data = (detail.data?.data ?? {}) as AnyData;
   const run = (data.run ?? {}) as AnyData;
+  const isActive = detail.data?.found === true && run.ended === null;
   const events = Array.isArray(data.events) ? data.events : [];
   const approvals = Array.isArray(data.approvals) ? data.approvals : [];
   const applications = Array.isArray(data.applications) ? data.applications : [];
@@ -579,9 +597,10 @@ function RunDetail({ runId, onClose, onChanged, onOpenApprovals }: { runId: stri
   };
   return <div className="run-detail-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="run-detail-panel" role="dialog" aria-modal="true" aria-labelledby="run-detail-title">
-      <header className="run-detail-head"><div><span>{run.status === "running" ? "Live run" : "Run trace"}</span><h2 id="run-detail-title">{runId}</h2></div><button type="button" onClick={onClose} aria-label={`Close run ${runId}`}>Close</button></header>
+      <header className="run-detail-head"><div><span>{run.status === "running" ? "Live run" : "Run trace"}</span><h2 id="run-detail-title">{runId}</h2></div><div className="run-detail-head-actions">{isActive && <button type="button" className="cancel-run-button" onClick={() => { setCancelNotice(null); setCancelConfirmOpen(true); }}>Cancel run</button>}<button type="button" onClick={onClose} aria-label={`Close run ${runId}`}>Close</button></div></header>
       {detail.isPending ? <div className="loading run-detail-loading"><span /><p>Reading run trace…</p></div> : detail.isError || detail.data?.found === false ? <div className="run-detail-error"><b>Run trace unavailable</b><p>This run could not be read. Try again.</p><button type="button" onClick={() => void detail.refetch()}>Retry</button></div> : <div className="run-detail-content">
         <div className="run-live-strip"><div><span>Current stage</span><strong>{titleCase(String(run.current_stage ?? run.status ?? "unknown"))}</strong></div><div><span>Status</span><Status value={String(run.status ?? "unknown")} /></div><div><span>Started</span><b>{when(run.started)}</b></div><div><span>Last check</span><b>{when(detail.data?.generated_at)}</b></div></div>
+        {cancelNotice && <div className={`save-notice ${cancelNotice.tone}`} role={cancelNotice.tone === "error" ? "alert" : "status"}>{cancelNotice.text}</div>}
         {visibleSuggestions.length > 0 && <section className="run-suggestions" aria-labelledby="run-suggestions-title"><div className="run-suggestions-head"><h3 id="run-suggestions-title">Suggested next steps</h3><span>{fmt(visibleSuggestions.length)}</span></div><div className="run-suggestion-list">{visibleSuggestions.map((suggestion) => <article key={suggestion.key}><div><b>{suggestion.label}</b><p>{suggestion.why}</p></div><button type="button" onClick={suggestion.onAction}>{suggestion.actionLabel}</button></article>)}</div></section>}
         <section className="run-ask" aria-labelledby="run-ask-title"><div><h3 id="run-ask-title">Ask about this run</h3><p>Copies your question with this run’s current context for Muse.</p></div><form onSubmit={(event) => void submitQuestion(event)}><input aria-label="Question about this run" value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="What caused this blocker?" /><button type="submit" disabled={!question.trim() || logQuestion.isPending}>Send</button></form>{askNotice && <p className={askNotice.startsWith("Copied") || askNotice.startsWith("Retry") ? "run-ask-notice" : "inline-error"} role="status">{askNotice}</p>}{logQuestion.isError && <p className="inline-error" role="alert">The prompt was copied, but the question could not be added to the activity feed.</p>}</section>
         {run.blocker && <p ref={blockerRef} className="run-detail-blocker"><b>Blocker</b>{String(run.blocker)}</p>}
@@ -593,6 +612,7 @@ function RunDetail({ runId, onClose, onChanged, onOpenApprovals }: { runId: stri
         <section ref={activityRef} className="run-detail-section"><div className="run-detail-section-head"><h3>Activity feed</h3><span>{run.status === "running" ? "Refreshes every 15 seconds" : `${fmt(events.length)} events`}</span></div>{events.length === 0 ? <Empty title="No events yet" body="The run is open, but no skill has logged an event." /> : <ol className="event-feed">{events.map((event: AnyData, index: number) => <li key={event.id}><div className={`event-node${index === 0 ? " latest" : ""}`} /><div><div className="event-top"><b>{titleCase(String(event.type))}</b><time>{when(event.at)}</time></div>{event.app_id && <code>{event.app_id}</code>}{eventDetail(event.payload) && <p>{eventDetail(event.payload)}</p>}</div></li>)}</ol>}</section>
         <section className="run-detail-section"><div className="run-detail-section-head"><h3>Browser evidence</h3><span>{fmt(screenshots.length)} captures</span></div>{screenshots.length === 0 ? <Empty title="No browser captures" body={run.capture_browser ? "Capture is requested. New evidence will appear here after the worker records it." : "Turn on Browser captures to request evidence at key portal steps."} /> : <div className="browser-captures">{screenshots.map((app: AnyData) => <article key={app.app_id}><div><b>{app.app_id}</b><span>{titleCase(String(app.state))}</span></div><ScreenshotEvidence appId={String(app.app_id)} path={String(app.screenshot_path)} />{app.confirmation && <p>{String(app.confirmation)}</p>}</article>)}</div>}</section>
       </div>}
+      {cancelConfirmOpen && isActive && <div className="run-cancel-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !cancelRun.isPending) setCancelConfirmOpen(false); }}><section className="run-cancel-dialog" role="alertdialog" aria-modal="true" aria-labelledby="cancel-run-title" aria-describedby="cancel-run-description"><h3 id="cancel-run-title">Cancel this run?</h3><p id="cancel-run-description">In-flight applications will be marked cancelled.</p>{cancelNotice?.tone === "error" && <p className="inline-error" role="alert">{cancelNotice.text}</p>}<div className="run-cancel-actions"><button type="button" disabled={cancelRun.isPending} onClick={() => setCancelConfirmOpen(false)}>Keep running</button><button type="button" className="confirm-cancel-run" disabled={cancelRun.isPending} onClick={() => cancelRun.mutate()}>{cancelRun.isPending ? "Cancelling…" : "Cancel run"}</button></div></section></div>}
     </section>
   </div>;
 }
@@ -679,6 +699,25 @@ function ScheduleEditor({ jobId, cadence, enabled, onChanged }: { jobId: string;
   </div>;
 }
 
+function ScheduleTrigger({ jobId }: { jobId: string }) {
+  const [notice, setNotice] = useState<{ tone: "good" | "error"; text: string } | null>(null);
+  const trigger = useMutation({
+    mutationFn: () => api.schedule_trigger({ job_id: jobId }),
+    onSuccess: (result) => {
+      if (!result.ok) { setNotice({ tone: "error", text: result.reason }); return; }
+      setNotice({ tone: "good", text: "Triggered — the run will start within a couple of minutes." });
+    },
+    onError: () => setNotice({ tone: "error", text: "The trigger could not be queued." }),
+  });
+  return <div className="schedule-trigger">
+    <div className="schedule-trigger-row">
+      <button type="button" className="schedule-trigger-button" disabled={trigger.isPending} onClick={() => { setNotice(null); trigger.mutate(); }}>{trigger.isPending ? "Triggering…" : "Trigger now"}</button>
+      <span className="schedule-trigger-hint">Fires one ad-hoc run now. Works on disabled schedules too — it does not re-enable them.</span>
+    </div>
+    {notice && <p className={`save-notice ${notice.tone}`} role={notice.tone === "error" ? "alert" : "status"}>{notice.text}</p>}
+  </div>;
+}
+
 function Schedules() {
   const status = useQuery({ queryKey: ["schedules-status"], queryFn: () => api.schedules_status({}), refetchOnMount: "always", staleTime: 0 });
   const rows = status.data?.rows ?? [];
@@ -708,6 +747,7 @@ function Schedules() {
           <div><span>Live body hash</span><code title={row.live_body_hash ?? "No live body hash recorded"}>{shortHash(row.live_body_hash)}</code></div>
         </div>
         <ScheduleEditor key={row.job_id} jobId={row.job_id} cadence={row.cadence} enabled={row.enabled} onChanged={refresh} />
+        <ScheduleTrigger jobId={row.job_id} />
       </article>)}</div>}
     </Section>
     <p className="freshness">Checked {chicagoWhen(status.data.generated_at)}</p>
