@@ -1,7 +1,6 @@
 import { defineAction, z, type ActionsModule, type Ctx } from "@hatch/space-sdk";
 import { privileged } from "@space/privileged";
 import { and, asc, desc, eq, gte, inArray, isNull, lt, or, sql, type SQL, type SQLWrapper } from "drizzle-orm";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import * as schema from "./schema";
 
 const jsonValue = z.unknown();
@@ -558,23 +557,9 @@ function profileYearsMatrix(row: typeof schema.profile.$inferSelect | undefined)
   return {};
 }
 
-// Held-draft files are stored as workspace-relative paths (e.g. "goals/<campaign>/…/drafts/<file>.md"
-// or "/home/hatch/workspace/goals/…"). Resolve them to absolute paths under ~/workspace and
-// refuse anything that would escape it.
-// The artifact platform forbids the `process` global in server actions, so the
-// workspace path is a fixed literal — the same convention as the privileged
-// handlers' WORKSPACE_ROOT in privileged.ts.
-const workspaceHome = () => "/home/hatch/workspace";
-function draftAbsolutePath(stored: string): string | null {
-  const normalized = stored.replaceAll("\\", "/");
-  if (normalized.includes("..")) return null;
-  const abs = normalized.startsWith("/") ? normalized : `${workspaceHome()}/${normalized.replace(/^workspace\//, "")}`;
-  return abs === workspaceHome() || abs.startsWith(`${workspaceHome()}/`) ? abs : null;
-}
-function workspaceRelativeDir(abs: string): string {
-  const prefix = `${workspaceHome()}/`;
-  return abs.startsWith(prefix) ? abs.slice(prefix.length) : abs;
-}
+// Draft file IO lives in the privileged handlers (they run on the host and may
+// touch the filesystem directly); sandboxed server actions reach it through
+// ctx.executePrivileged and never import host-only modules.
 
 export const Actions = {
   profile_get: defineAction({
@@ -1729,9 +1714,9 @@ export const Actions = {
       if (!reply) return { ok: false, message: "Reply not found." };
       if (reply.action !== "held") return { ok: false, message: "Only held replies have drafts." };
       if (!reply.draftPath) return { ok: false, message: "No draft file is attached to this held reply." };
-      const abs = draftAbsolutePath(reply.draftPath);
-      if (!abs || !existsSync(abs)) return { ok: false, message: "No draft file is attached to this held reply." };
-      return { ok: true, draft_text: readFileSync(abs, "utf8"), draft_path: reply.draftPath };
+      const draft = await ctx.executePrivileged(privileged.readHeldDraft, { draft_path: reply.draftPath });
+      if (!draft.found || draft.text === undefined) return { ok: false, message: "No draft file is attached to this held reply." };
+      return { ok: true, draft_text: draft.text, draft_path: reply.draftPath };
     },
   }),
 
@@ -1750,13 +1735,9 @@ export const Actions = {
       let draftPath = reply.draftPath;
       if (args.edited_text !== undefined) {
         if (!reply.draftPath) return { ok: false, message: "The held reply has no draft file to edit." };
-        const abs = draftAbsolutePath(reply.draftPath);
-        if (!abs) return { ok: false, message: "The held reply's draft path is invalid." };
-        const slash = abs.lastIndexOf("/"); const dir = abs.slice(0, slash); const base = abs.slice(slash + 1);
-        const stamp = Date.now();
-        const nextBase = base.includes(".") ? base.replace(/(\.[^.]+)$/, `.edited-${stamp}$1`) : `${base}.edited-${stamp}`;
-        writeFileSync(`${dir}/${nextBase}`, args.edited_text, "utf8");
-        draftPath = `${workspaceRelativeDir(abs)}/${nextBase}`;
+        const saved = await ctx.executePrivileged(privileged.writeHeldDraft, { draft_path: reply.draftPath, text: args.edited_text });
+        if (!saved.ok || !saved.draft_path) return { ok: false, message: saved.message ?? "The held reply's draft path is invalid." };
+        draftPath = saved.draft_path;
       }
       const resolvedAt = now();
       await db.batch([

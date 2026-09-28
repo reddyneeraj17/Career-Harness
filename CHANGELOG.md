@@ -6,6 +6,22 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.2.11] — 2026-09-28
+
+### Fixed
+- **Server actions no longer import the host-only `node:fs` module.** The
+  artifact platform's server validation forbids host modules in sandboxed
+  actions; fresh v1.2.10 dashboard builds were rejected at the
+  `import { existsSync, readFileSync, writeFileSync } from "node:fs"` line
+  in `server/src/actions.ts` (this stayed masked behind the `process`
+  violation until v1.2.10 fixed that). Held-reply draft file IO now goes
+  through two new privileged contracts — `readHeldDraft` and
+  `writeHeldDraft` — whose handlers run on the host with the same
+  workspace confinement the actions used to apply (no `..`, absolute or
+  `workspace/`-relative paths only, symlink-resolved, writes land as
+  `.edited-<stamp>` siblings). `actions.ts` now imports only the space SDK,
+  the generated privileged contracts, drizzle-orm, and the schema.
+
 ## [1.2.10] — 2026-09-28
 
 ### Fixed

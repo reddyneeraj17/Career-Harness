@@ -60,6 +60,16 @@ export const privileged = definePrivilegedContracts({
     response: z.object({ ok: z.literal(true), bytes_written: z.number().int().nonnegative() }),
     timeoutMs: 5_000,
   },
+  readHeldDraft: {
+    request: z.object({ draft_path: z.string().min(1).max(2000) }),
+    response: z.object({ found: z.boolean(), text: z.string().optional() }),
+    timeoutMs: 5_000,
+  },
+  writeHeldDraft: {
+    request: z.object({ draft_path: z.string().min(1).max(2000), text: z.string().min(1).max(200000) }),
+    response: z.object({ ok: z.boolean(), draft_path: z.string().nullable(), message: z.string().optional() }),
+    timeoutMs: 5_000,
+  },
 });
 
 const WORKSPACE_ROOT = "/home/hatch/workspace";
@@ -123,6 +133,21 @@ async function checkedProfilePath(): Promise<string> {
 
 async function pathExists(path: string): Promise<boolean> {
   try { await access(path); return true; } catch { return false; }
+}
+
+// Held-draft files are stored as workspace-relative paths (e.g. "goals/<campaign>/…/drafts/<file>.md"
+// or "/home/hatch/workspace/goals/…"). Resolve them to absolute paths under the workspace root and
+// refuse anything that would escape it — the same confinement the server actions used to apply.
+function draftAbsolutePath(stored: string): string | null {
+  const normalized = stored.replaceAll("\\", "/");
+  if (normalized.includes("..")) return null;
+  const abs = normalized.startsWith("/") ? normalized : `${WORKSPACE_ROOT}/${normalized.replace(/^workspace\//, "")}`;
+  return abs === WORKSPACE_ROOT || abs.startsWith(`${WORKSPACE_ROOT}/`) ? abs : null;
+}
+
+function workspaceRelativePath(abs: string): string {
+  const prefix = `${WORKSPACE_ROOT}/`;
+  return abs.startsWith(prefix) ? abs.slice(prefix.length) : abs;
 }
 
 function collisionName(filename: string, sequence: number): string {
@@ -259,5 +284,37 @@ export const privilegedHandlers = definePrivilegedHandlers(privileged, {
     const path = await checkedProfilePath();
     await writeFile(path, yaml_text, { encoding: "utf8", flag: "w" });
     return { ok: true as const, bytes_written: Buffer.byteLength(yaml_text, "utf8") };
+  },
+  async readHeldDraft({ draft_path }) {
+    const abs = draftAbsolutePath(draft_path);
+    if (!abs) return { found: false };
+    try {
+      const actual = await realpath(abs);
+      if (!isWithin(actual, WORKSPACE_ROOT)) return { found: false };
+      return { found: true, text: await readFile(actual, "utf8") };
+    } catch {
+      return { found: false };
+    }
+  },
+  async writeHeldDraft({ draft_path, text }) {
+    const invalid = { ok: false, draft_path: null, message: "The held reply's draft path is invalid." };
+    const abs = draftAbsolutePath(draft_path);
+    if (!abs) return invalid;
+    const slash = abs.lastIndexOf("/");
+    const dir = abs.slice(0, slash);
+    const base = abs.slice(slash + 1);
+    if (!dir || !base) return invalid;
+    const stamp = Date.now();
+    const nextBase = base.includes(".") ? base.replace(/(\.[^.]+)$/, `.edited-${stamp}$1`) : `${base}.edited-${stamp}`;
+    const target = `${dir}/${nextBase}`;
+    if (!isWithin(resolve(target), WORKSPACE_ROOT)) return invalid;
+    try {
+      const actualDir = await realpath(dir);
+      if (!isWithin(actualDir, WORKSPACE_ROOT)) return invalid;
+    } catch {
+      return { ok: false, draft_path: null, message: "The held reply's draft directory does not exist." };
+    }
+    await writeFile(target, text, "utf8");
+    return { ok: true, draft_path: workspaceRelativePath(target) };
   },
 });

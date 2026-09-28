@@ -4690,6 +4690,16 @@ var privileged = definePrivilegedContracts({
     request: object({ yaml_text: string2().min(1) }),
     response: object({ ok: literal(true), bytes_written: number2().int().nonnegative() }),
     timeoutMs: 5000
+  },
+  readHeldDraft: {
+    request: object({ draft_path: string2().min(1).max(2000) }),
+    response: object({ found: boolean2(), text: string2().optional() }),
+    timeoutMs: 5000
+  },
+  writeHeldDraft: {
+    request: object({ draft_path: string2().min(1).max(2000), text: string2().min(1).max(200000) }),
+    response: object({ ok: boolean2(), draft_path: string2().nullable(), message: string2().optional() }),
+    timeoutMs: 5000
   }
 });
 
@@ -5360,9 +5370,6 @@ function asc(column) {
 function desc(column) {
   return sql`${column} desc`;
 }
-
-// src/actions.ts
-import { existsSync, readFileSync, writeFileSync } from "fs";
 
 // ../node_modules/drizzle-orm/sqlite-core/foreign-keys.js
 class ForeignKeyBuilder {
@@ -6840,18 +6847,6 @@ function profileYearsMatrix(row) {
   }
   return {};
 }
-var workspaceHome = () => "/home/hatch/workspace";
-function draftAbsolutePath(stored) {
-  const normalized = stored.replaceAll("\\", "/");
-  if (normalized.includes(".."))
-    return null;
-  const abs = normalized.startsWith("/") ? normalized : `${workspaceHome()}/${normalized.replace(/^workspace\//, "")}`;
-  return abs === workspaceHome() || abs.startsWith(`${workspaceHome()}/`) ? abs : null;
-}
-function workspaceRelativeDir(abs) {
-  const prefix = `${workspaceHome()}/`;
-  return abs.startsWith(prefix) ? abs.slice(prefix.length) : abs;
-}
 var Actions = {
   profile_get: defineAction({
     request: emptyRequest,
@@ -8112,10 +8107,10 @@ var Actions = {
         return { ok: false, message: "Only held replies have drafts." };
       if (!reply.draftPath)
         return { ok: false, message: "No draft file is attached to this held reply." };
-      const abs = draftAbsolutePath(reply.draftPath);
-      if (!abs || !existsSync(abs))
+      const draft = await ctx.executePrivileged(privileged.readHeldDraft, { draft_path: reply.draftPath });
+      if (!draft.found || draft.text === undefined)
         return { ok: false, message: "No draft file is attached to this held reply." };
-      return { ok: true, draft_text: readFileSync(abs, "utf8"), draft_path: reply.draftPath };
+      return { ok: true, draft_text: draft.text, draft_path: reply.draftPath };
     }
   }),
   held_reply_resolve: defineAction({
@@ -8134,16 +8129,10 @@ var Actions = {
       if (args.edited_text !== undefined) {
         if (!reply.draftPath)
           return { ok: false, message: "The held reply has no draft file to edit." };
-        const abs = draftAbsolutePath(reply.draftPath);
-        if (!abs)
-          return { ok: false, message: "The held reply's draft path is invalid." };
-        const slash = abs.lastIndexOf("/");
-        const dir = abs.slice(0, slash);
-        const base = abs.slice(slash + 1);
-        const stamp = Date.now();
-        const nextBase = base.includes(".") ? base.replace(/(\.[^.]+)$/, `.edited-${stamp}$1`) : `${base}.edited-${stamp}`;
-        writeFileSync(`${dir}/${nextBase}`, args.edited_text, "utf8");
-        draftPath = `${workspaceRelativeDir(abs)}/${nextBase}`;
+        const saved = await ctx.executePrivileged(privileged.writeHeldDraft, { draft_path: reply.draftPath, text: args.edited_text });
+        if (!saved.ok || !saved.draft_path)
+          return { ok: false, message: saved.message ?? "The held reply's draft path is invalid." };
+        draftPath = saved.draft_path;
       }
       const resolvedAt = now();
       await db.batch([
