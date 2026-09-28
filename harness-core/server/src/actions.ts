@@ -561,7 +561,10 @@ function profileYearsMatrix(row: typeof schema.profile.$inferSelect | undefined)
 // Held-draft files are stored as workspace-relative paths (e.g. "goals/<campaign>/…/drafts/<file>.md"
 // or "/home/hatch/workspace/goals/…"). Resolve them to absolute paths under ~/workspace and
 // refuse anything that would escape it.
-const workspaceHome = () => `${process.env.HOME ?? "/home/hatch"}/workspace`;
+// The artifact platform forbids the `process` global in server actions, so the
+// workspace path is a fixed literal — the same convention as the privileged
+// handlers' WORKSPACE_ROOT in privileged.ts.
+const workspaceHome = () => "/home/hatch/workspace";
 function draftAbsolutePath(stored: string): string | null {
   const normalized = stored.replaceAll("\\", "/");
   if (normalized.includes("..")) return null;

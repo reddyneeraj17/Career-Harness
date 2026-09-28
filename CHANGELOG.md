@@ -6,6 +6,18 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.2.10] — 2026-09-28
+
+### Fixed
+- **Server actions no longer read the `process` global.** The artifact
+  platform's server validation forbids `process` in server actions, which
+  rejected fresh v1.2.9 dashboard builds at
+  `workspaceHome()` (`process.env.HOME`). The workspace path is now the
+  fixed literal `/home/hatch/workspace` — the same convention the
+  privileged handlers already use for their `WORKSPACE_ROOT`. No behavior
+  change: the fallback was already `/home/hatch` in every real
+  environment.
+
 ## [1.2.9] — 2026-09-27
 
 ### Added

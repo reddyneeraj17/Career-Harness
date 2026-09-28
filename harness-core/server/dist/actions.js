@@ -3042,7 +3042,7 @@ function initializeContext(params) {
     external: params?.external ?? undefined
   };
 }
-function process2(schema, ctx, _params = { path: [], schemaPath: [] }) {
+function process(schema, ctx, _params = { path: [], schemaPath: [] }) {
   var _a;
   const def = schema._zod.def;
   const seen = ctx.seen.get(schema);
@@ -3079,7 +3079,7 @@ function process2(schema, ctx, _params = { path: [], schemaPath: [] }) {
     if (parent) {
       if (!result.ref)
         result.ref = parent;
-      process2(parent, ctx, params);
+      process(parent, ctx, params);
       ctx.seen.get(parent).isParent = true;
     }
   }
@@ -3362,14 +3362,14 @@ function isTransforming(_schema, _ctx) {
 }
 var createToJSONSchemaMethod = (schema, processors = {}) => (params) => {
   const ctx = initializeContext({ ...params, processors });
-  process2(schema, ctx);
+  process(schema, ctx);
   extractDefs(ctx, schema);
   return finalize(ctx, schema);
 };
 var createStandardJSONSchemaMethod = (schema, io, processors = {}) => (params) => {
   const { libraryOptions, target } = params ?? {};
   const ctx = initializeContext({ ...libraryOptions ?? {}, target, io, processors });
-  process2(schema, ctx);
+  process(schema, ctx);
   extractDefs(ctx, schema);
   return finalize(ctx, schema);
 };
@@ -3528,7 +3528,7 @@ var arrayProcessor = (schema, ctx, _json, params) => {
   if (typeof maximum === "number")
     json.maxItems = maximum;
   json.type = "array";
-  json.items = process2(def.element, ctx, {
+  json.items = process(def.element, ctx, {
     ...params,
     path: [...params.path, "items"]
   });
@@ -3540,7 +3540,7 @@ var objectProcessor = (schema, ctx, _json, params) => {
   json.properties = {};
   const shape = def.shape;
   for (const key in shape) {
-    json.properties[key] = process2(shape[key], ctx, {
+    json.properties[key] = process(shape[key], ctx, {
       ...params,
       path: [...params.path, "properties", key]
     });
@@ -3563,7 +3563,7 @@ var objectProcessor = (schema, ctx, _json, params) => {
     if (ctx.io === "output")
       json.additionalProperties = false;
   } else if (def.catchall) {
-    json.additionalProperties = process2(def.catchall, ctx, {
+    json.additionalProperties = process(def.catchall, ctx, {
       ...params,
       path: [...params.path, "additionalProperties"]
     });
@@ -3572,7 +3572,7 @@ var objectProcessor = (schema, ctx, _json, params) => {
 var unionProcessor = (schema, ctx, json, params) => {
   const def = schema._zod.def;
   const isExclusive = def.inclusive === false;
-  const options = def.options.map((x, i) => process2(x, ctx, {
+  const options = def.options.map((x, i) => process(x, ctx, {
     ...params,
     path: [...params.path, isExclusive ? "oneOf" : "anyOf", i]
   }));
@@ -3584,11 +3584,11 @@ var unionProcessor = (schema, ctx, json, params) => {
 };
 var intersectionProcessor = (schema, ctx, json, params) => {
   const def = schema._zod.def;
-  const a = process2(def.left, ctx, {
+  const a = process(def.left, ctx, {
     ...params,
     path: [...params.path, "allOf", 0]
   });
-  const b = process2(def.right, ctx, {
+  const b = process(def.right, ctx, {
     ...params,
     path: [...params.path, "allOf", 1]
   });
@@ -3607,7 +3607,7 @@ var recordProcessor = (schema, ctx, _json, params) => {
   const keyBag = keyType._zod.bag;
   const patterns = keyBag?.patterns;
   if (def.mode === "loose" && patterns && patterns.size > 0) {
-    const valueSchema = process2(def.valueType, ctx, {
+    const valueSchema = process(def.valueType, ctx, {
       ...params,
       path: [...params.path, "patternProperties", "*"]
     });
@@ -3617,12 +3617,12 @@ var recordProcessor = (schema, ctx, _json, params) => {
     }
   } else {
     if (ctx.target === "draft-07" || ctx.target === "draft-2020-12") {
-      json.propertyNames = process2(def.keyType, ctx, {
+      json.propertyNames = process(def.keyType, ctx, {
         ...params,
         path: [...params.path, "propertyNames"]
       });
     }
-    json.additionalProperties = process2(def.valueType, ctx, {
+    json.additionalProperties = process(def.valueType, ctx, {
       ...params,
       path: [...params.path, "additionalProperties"]
     });
@@ -3637,7 +3637,7 @@ var recordProcessor = (schema, ctx, _json, params) => {
 };
 var nullableProcessor = (schema, ctx, json, params) => {
   const def = schema._zod.def;
-  const inner = process2(def.innerType, ctx, params);
+  const inner = process(def.innerType, ctx, params);
   const seen = ctx.seen.get(schema);
   if (ctx.target === "openapi-3.0") {
     seen.ref = def.innerType;
@@ -3648,20 +3648,20 @@ var nullableProcessor = (schema, ctx, json, params) => {
 };
 var nonoptionalProcessor = (schema, ctx, _json, params) => {
   const def = schema._zod.def;
-  process2(def.innerType, ctx, params);
+  process(def.innerType, ctx, params);
   const seen = ctx.seen.get(schema);
   seen.ref = def.innerType;
 };
 var defaultProcessor = (schema, ctx, json, params) => {
   const def = schema._zod.def;
-  process2(def.innerType, ctx, params);
+  process(def.innerType, ctx, params);
   const seen = ctx.seen.get(schema);
   seen.ref = def.innerType;
   json.default = JSON.parse(JSON.stringify(def.defaultValue));
 };
 var prefaultProcessor = (schema, ctx, json, params) => {
   const def = schema._zod.def;
-  process2(def.innerType, ctx, params);
+  process(def.innerType, ctx, params);
   const seen = ctx.seen.get(schema);
   seen.ref = def.innerType;
   if (ctx.io === "input")
@@ -3669,7 +3669,7 @@ var prefaultProcessor = (schema, ctx, json, params) => {
 };
 var catchProcessor = (schema, ctx, json, params) => {
   const def = schema._zod.def;
-  process2(def.innerType, ctx, params);
+  process(def.innerType, ctx, params);
   const seen = ctx.seen.get(schema);
   seen.ref = def.innerType;
   let catchValue;
@@ -3684,20 +3684,20 @@ var pipeProcessor = (schema, ctx, _json, params) => {
   const def = schema._zod.def;
   const inIsTransform = def.in._zod.traits.has("$ZodTransform");
   const innerType = ctx.io === "input" ? inIsTransform ? def.out : def.in : def.out;
-  process2(innerType, ctx, params);
+  process(innerType, ctx, params);
   const seen = ctx.seen.get(schema);
   seen.ref = innerType;
 };
 var readonlyProcessor = (schema, ctx, json, params) => {
   const def = schema._zod.def;
-  process2(def.innerType, ctx, params);
+  process(def.innerType, ctx, params);
   const seen = ctx.seen.get(schema);
   seen.ref = def.innerType;
   json.readOnly = true;
 };
 var optionalProcessor = (schema, ctx, _json, params) => {
   const def = schema._zod.def;
-  process2(def.innerType, ctx, params);
+  process(def.innerType, ctx, params);
   const seen = ctx.seen.get(schema);
   seen.ref = def.innerType;
 };
@@ -6056,6 +6056,15 @@ var runs = sqliteTable("runs", {
   liveConfig: text("live_config", { mode: "json" }).notNull().default({}),
   blocker: text("blocker")
 });
+var scheduleTriggers = sqliteTable("schedule_triggers", {
+  id: integer2("id").primaryKey({ autoIncrement: true }),
+  jobId: text("job_id").notNull(),
+  campaign: text("campaign"),
+  status: text("status").notNull().default("pending"),
+  createdAt: integer2("created_at", { mode: "timestamp_ms" }),
+  handledAt: integer2("handled_at", { mode: "timestamp_ms" }),
+  error: text("error")
+});
 var events = sqliteTable("events", {
   id: integer2("id").primaryKey({ autoIncrement: true }),
   runId: text("run_id"),
@@ -6174,6 +6183,7 @@ var okResponse = object({ ok: boolean2(), message: string2().optional() });
 var now = () => new Date;
 var iso = (d) => d ? d.toISOString() : null;
 var norm = (value) => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+var titleCaseForServer = (value) => value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 var id = (prefix) => `${prefix}_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
 var countNumber = (value) => Number(value ?? 0);
 var chicagoDay = (date = new Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
@@ -6185,6 +6195,17 @@ var sourceTier = _enum(["1", "2", "3", "unknown"]);
 var h1bMode = _enum(["soft_lookup", "bypass_c2c"]);
 var h1bResult = _enum(["scored", "unknown", "not_applicable"]);
 var linkedinSection = _enum(["headline", "about", "experience", "skills", "visibility"]);
+var linkedinSections = ["headline", "about", "experience", "skills", "visibility"];
+var linkedinStartResponse = union([
+  object({ ok: literal(true), run_id: string2(), task_id: string2().nullable(), message: string2() }),
+  object({ ok: literal(false), message: string2() })
+]);
+var linkedinProposalCompleteResponse = object({ ok: boolean2(), message: string2() });
+var linkedinApplyCompleteResponse = object({ ok: boolean2(), message: string2(), run_complete: boolean2() });
+function linkedinProfileUrl(row) {
+  const value = jsonObject(row?.identity).linkedin;
+  return typeof value === "string" && value.startsWith("https://") ? value : null;
+}
 var runMode = _enum(["scheduled", "manual"]);
 var postingRow = object({
   posting_id: string2().min(1),
@@ -6451,6 +6472,23 @@ var schedulesStatusResponse = object({
   manifest_missing: boolean2(),
   rows: array(scheduleStatusRowSchema)
 });
+var scheduleTriggerResponse = union([
+  object({ ok: literal(true), trigger_id: number2().int().positive() }),
+  object({ ok: literal(false), reason: string2() })
+]);
+var scheduleTriggerRowSchema = object({
+  id: number2().int().positive(),
+  job_id: string2(),
+  campaign: string2().nullable(),
+  status: string2(),
+  created_at: string2().nullable(),
+  handled_at: string2().nullable(),
+  error: string2().nullable()
+});
+var scheduleTriggerMarkResponse = union([
+  object({ ok: literal(true) }),
+  object({ ok: literal(false), reason: string2() })
+]);
 var SCHEDULE_CAMPAIGNS = ["morning_run", "linkedin_feed", "career_portal", "job_board", "email_scan", "linkedin_replies", "approval_judge", "daily_report", "token_usage", "weekly_review", "harness_doctor", "profile_watch"];
 var scheduleJobId = (campaign) => `harness-${campaign.replace(/_/g, "-")}`;
 function jobIdToCampaign(jobId) {
@@ -6802,7 +6840,7 @@ function profileYearsMatrix(row) {
   }
   return {};
 }
-var workspaceHome = () => `${process.env.HOME ?? "/home/hatch"}/workspace`;
+var workspaceHome = () => "/home/hatch/workspace";
 function draftAbsolutePath(stored) {
   const normalized = stored.replaceAll("\\", "/");
   if (normalized.includes(".."))
@@ -7314,21 +7352,48 @@ var Actions = {
       const found = (await db.select().from(approvals).where(eq(approvals.approvalId, args.approval_id)).limit(1))[0];
       if (!found || found.resolvedAt)
         return { ok: false, message: found ? "Approval is already resolved." : "Approval not found." };
-      if (found.kind === "linkedin_section") {
-        const decision = args.answer.trim().toLowerCase();
-        if (decision !== "approve" && decision !== "approved" && decision !== "discard" && decision !== "discarded")
-          return { ok: false, message: "Choose Approve or Discard." };
-        const approved = decision === "approve" || decision === "approved";
-        const proposedText = args.edited_text?.trim() || found.proposedText?.trim() || "";
-        if (approved && !proposedText)
-          return { ok: false, message: "The proposed text is empty and cannot be applied." };
-        await db.update(approvals).set({ answer: approved ? "approved" : "discarded", judgedBy: args.judged_by, resolvedAt: now(), proposedText: approved ? proposedText : found.proposedText }).where(eq(approvals.approvalId, args.approval_id));
+      if (found.kind !== "linkedin_section") {
+        await db.update(approvals).set({ answer: args.answer, judgedBy: args.judged_by, resolvedAt: now() }).where(eq(approvals.approvalId, args.approval_id));
         ctx.invalidateQueries();
         return { ok: true };
       }
-      await db.update(approvals).set({ answer: args.answer, judgedBy: args.judged_by, resolvedAt: now(), proposedText: args.edited_text ?? found.proposedText }).where(eq(approvals.approvalId, args.approval_id));
+      const decision = args.answer.trim().toLowerCase();
+      if (!found.runId || !found.section || !linkedinSections.includes(found.section))
+        return { ok: false, message: "This LinkedIn approval is missing its run or section context." };
+      if (decision !== "approve" && decision !== "approved" && decision !== "discard" && decision !== "discarded")
+        return { ok: false, message: "Choose Approve or Discard. Edit the proposal before approving it." };
+      const approved = decision === "approve" || decision === "approved";
+      const proposedText = args.edited_text?.trim() || found.proposedText?.trim() || "";
+      if (approved && !proposedText)
+        return { ok: false, message: "The proposed text is empty and cannot be applied." };
+      const run = (await db.select().from(runs).where(eq(runs.runId, found.runId)).limit(1))[0];
+      const profileRow = (await db.select().from(profile).where(eq(profile.id, 1)).limit(1))[0];
+      const profileUrl = linkedinProfileUrl(profileRow);
+      if (!run || run.campaignId !== "linkedin_optimize")
+        return { ok: false, message: "The LinkedIn optimizer run could not be found." };
+      if (approved && !profileUrl)
+        return { ok: false, message: "Add a valid HTTPS LinkedIn URL in Profile before approving this section." };
+      await db.update(approvals).set({ answer: approved ? "approved" : "discarded", proposedText: approved ? proposedText : found.proposedText, judgedBy: args.judged_by, resolvedAt: now() }).where(eq(approvals.approvalId, args.approval_id));
+      if (!approved) {
+        await db.insert(events).values({ runId: found.runId, type: "section_discarded", payload: { section: found.section, approval_id: found.approvalId }, at: now() });
+      } else {
+        await db.update(runs).set({ status: "running", needsMe: false, blocker: null }).where(eq(runs.runId, found.runId));
+        await db.insert(events).values({ runId: found.runId, type: "awaiting_main_agent", payload: { phase: "apply", section: found.section, approval_id: found.approvalId }, at: now() });
+      }
+      const remaining = (await db.select({ count: sql`count(*)` }).from(approvals).where(and(eq(approvals.runId, found.runId), eq(approvals.kind, "linkedin_section"), isNull(approvals.resolvedAt))))[0];
+      if (!approved && countNumber(remaining?.count) === 0) {
+        const allSectionApprovals = await db.select().from(approvals).where(and(eq(approvals.runId, found.runId), eq(approvals.kind, "linkedin_section")));
+        const applyEvents = await db.select().from(events).where(and(eq(events.runId, found.runId), eq(events.type, "section_applied")));
+        const appliedIds = new Set(applyEvents.map((event) => jsonObject(event.payload).approval_id).filter((value) => typeof value === "string"));
+        const allApprovedApplied = allSectionApprovals.every((row) => row.answer !== "approved" || appliedIds.has(row.approvalId));
+        if (allApprovedApplied) {
+          const discarded = allSectionApprovals.filter((row) => row.answer === "discarded").length;
+          await db.update(runs).set({ status: "completed", ended: now(), needsMe: false, blocker: null, counts: { sections: allSectionApprovals.length, applied: appliedIds.size, discarded } }).where(eq(runs.runId, found.runId));
+          await db.insert(events).values({ runId: found.runId, type: "done", payload: { phase: "done", applied: appliedIds.size, discarded }, at: now() });
+        }
+      }
       ctx.invalidateQueries();
-      return { ok: true };
+      return { ok: true, message: approved ? `Approved ${titleCaseForServer(found.section)}. The main agent will apply it automatically.` : `Discarded ${titleCaseForServer(found.section)}. The live profile was not changed.` };
     }
   }),
   run_open: defineAction({
@@ -7350,6 +7415,28 @@ var Actions = {
       if (countNumber(pending?.count) > 0)
         return { ok: false, message: "Run cannot close while applying rows lack an outcome." };
       await db.update(runs).set({ ended: now(), status: args.status, counts: args.counts ?? {}, tokens: args.tokens ?? {}, needsMe: args.needs_me ?? false, blocker: args.blocker ?? null }).where(eq(runs.runId, args.run_id));
+      ctx.invalidateQueries();
+      return { ok: true };
+    }
+  }),
+  run_cancel: defineAction({
+    request: object({ run_id: string2().min(1) }),
+    response: okResponse,
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const run = (await db.select({ ended: runs.ended }).from(runs).where(eq(runs.runId, args.run_id)).limit(1))[0];
+      if (!run)
+        return { ok: false, message: "Run not found." };
+      if (run.ended)
+        return { ok: false, message: "Run has already ended." };
+      const changed = now();
+      const reason = "Run cancelled by user.";
+      const applying = await db.select({ appId: applications.appId }).from(applications).where(and(eq(applications.runId, args.run_id), eq(applications.state, "applying")));
+      await db.batch([
+        db.update(applications).set({ state: "cancelled", outcome: "cancelled", statusReason: reason, blocker: null, updatedAt: changed }).where(and(eq(applications.runId, args.run_id), eq(applications.state, "applying"))),
+        db.update(runs).set({ status: "cancelled", ended: changed, needsMe: false, blocker: null }).where(and(eq(runs.runId, args.run_id), isNull(runs.ended))),
+        db.insert(events).values({ runId: args.run_id, type: "run_cancelled", payload: { reason, cancelled_applications: applying.length }, at: changed })
+      ]);
       ctx.invalidateQueries();
       return { ok: true };
     }
@@ -8234,6 +8321,77 @@ var Actions = {
       return { imported, skipped };
     }
   }),
+  schedule_trigger: defineAction({
+    request: object({ job_id: string2().min(1) }),
+    response: scheduleTriggerResponse,
+    privileged: [privileged.readSchedulesManifest],
+    async handler(ctx, args) {
+      const jobId = args.job_id.trim();
+      let parsed = null;
+      try {
+        const result = await ctx.executePrivileged(privileged.readSchedulesManifest, {});
+        if (!result.manifestText)
+          return { ok: false, reason: "manifest_missing" };
+        const checked = schedulesManifestSchema.safeParse(JSON.parse(result.manifestText));
+        parsed = checked.success ? checked.data : null;
+      } catch {
+        return { ok: false, reason: "manifest_unparseable" };
+      }
+      if (!parsed)
+        return { ok: false, reason: "manifest_unparseable" };
+      const job = parsed.jobs.find((entry) => entry.job_id === jobId);
+      if (!job)
+        return { ok: false, reason: "unknown_job_id" };
+      const db = ctx.db();
+      const activeRun = (await db.select({ runId: runs.runId }).from(runs).where(and(eq(runs.campaignId, job.campaign), isNull(runs.ended))).limit(1))[0];
+      if (activeRun)
+        return { ok: false, reason: "already_running" };
+      const inserted = await db.insert(scheduleTriggers).values({
+        jobId,
+        campaign: job.campaign,
+        status: "pending",
+        createdAt: now()
+      }).returning({ id: scheduleTriggers.id });
+      const triggerId = inserted[0]?.id;
+      if (triggerId === undefined)
+        return { ok: false, reason: "queue_failed" };
+      ctx.invalidateQueries();
+      return { ok: true, trigger_id: triggerId };
+    }
+  }),
+  schedule_trigger_pending: defineAction({
+    request: emptyRequest,
+    response: object({ rows: array(scheduleTriggerRowSchema) }),
+    async handler(ctx) {
+      const rows = await ctx.db().select().from(scheduleTriggers).where(eq(scheduleTriggers.status, "pending")).orderBy(asc(scheduleTriggers.id));
+      return {
+        rows: rows.map((row) => ({
+          id: row.id,
+          job_id: row.jobId,
+          campaign: row.campaign,
+          status: row.status,
+          created_at: iso(row.createdAt),
+          handled_at: iso(row.handledAt),
+          error: row.error
+        }))
+      };
+    }
+  }),
+  schedule_trigger_mark: defineAction({
+    request: object({ id: number2().int().positive(), status: _enum(["dispatched", "failed"]), error: string2().nullable().optional() }),
+    response: scheduleTriggerMarkResponse,
+    async handler(ctx, args) {
+      const updated = await ctx.db().update(scheduleTriggers).set({
+        status: args.status,
+        handledAt: now(),
+        error: args.error ?? null
+      }).where(eq(scheduleTriggers.id, args.id)).returning({ id: scheduleTriggers.id });
+      if (!updated[0])
+        return { ok: false, reason: "not_found" };
+      ctx.invalidateQueries();
+      return { ok: true };
+    }
+  }),
   dataset_browse: defineAction({
     request: object({
       dataset: _enum(["companies", "h1b_sponsors", "prime_vendors"]),
@@ -8317,45 +8475,107 @@ var Actions = {
   }),
   linkedin_optimize_start: defineAction({
     request: emptyRequest,
-    response: object({ run_id: string2() }),
+    response: linkedinStartResponse,
     async handler(ctx) {
       const db = ctx.db();
-      const active = (await db.select({ runId: runs.runId }).from(runs).where(and(eq(runs.campaignId, "linkedin_optimize"), eq(runs.status, "running"))).limit(1))[0];
-      if (active)
-        return { run_id: active.runId };
-      const runId = id("run");
-      await db.insert(runs).values({ runId, campaignId: "linkedin_optimize", started: now(), status: "running", mode: "manual", counts: {}, compiledConfig: {}, liveConfig: {} });
-      await db.insert(events).values({ runId, type: "linkedin_optimize_started", payload: { campaign_id: "linkedin_optimize", mode: "manual" } });
+      const profileRow = (await db.select().from(profile).where(eq(profile.id, 1)).limit(1))[0];
+      const profileUrl = linkedinProfileUrl(profileRow);
+      if (!profileUrl)
+        return { ok: false, message: "Add a valid HTTPS LinkedIn URL in Profile before starting an optimization run." };
+      const runId = id("run_linkedin_optimize");
+      await db.batch([
+        db.insert(runs).values({ runId, campaignId: "linkedin_optimize", mode: "manual", started: now(), status: "running", counts: {}, tokens: {}, compiledConfig: { phases: ["audit", "propose", "awaiting_approvals", "apply", "done"], sections: linkedinSections }, liveConfig: { profile_url: profileUrl } }),
+        db.insert(events).values({ runId, type: "awaiting_main_agent", payload: { phase: "audit", sections: linkedinSections }, at: now() })
+      ]);
       ctx.invalidateQueries();
-      return { run_id: runId };
+      return { ok: true, run_id: runId, task_id: null, message: "LinkedIn optimize run created. The main agent will pick it up automatically via the browser route." };
     }
   }),
   linkedin_optimize_proposal_complete: defineAction({
     request: object({ run_id: string2().min(1), verdict: _enum(["pass", "reject", "hold"]), reason: string2().nullable().optional() }),
-    response: okResponse,
+    response: linkedinProposalCompleteResponse,
     async handler(ctx, args) {
       const db = ctx.db();
       const run = (await db.select().from(runs).where(eq(runs.runId, args.run_id)).limit(1))[0];
-      if (!run)
-        return { ok: false, message: "Run not found." };
-      await db.insert(events).values({ runId: args.run_id, type: "linkedin_optimize_proposal_complete", payload: { verdict: args.verdict, reason: args.reason ?? null } });
-      if (args.verdict !== "pass")
-        await db.update(runs).set({ ended: now(), status: args.verdict === "hold" ? "hold" : "rejected", blocker: args.reason ?? null }).where(eq(runs.runId, args.run_id));
+      if (!run || run.campaignId !== "linkedin_optimize")
+        return { ok: false, message: "LinkedIn optimizer run not found." };
+      if (args.verdict !== "pass") {
+        const blocker = args.reason?.trim() || (args.verdict === "hold" ? "The live LinkedIn profile could not be read." : "The LinkedIn identity or proposal gate failed.");
+        await db.batch([
+          db.update(runs).set({ status: args.verdict === "hold" ? "blocked" : "failed", ended: now(), needsMe: args.verdict === "hold", blocker }).where(eq(runs.runId, args.run_id)),
+          db.insert(events).values({ runId: args.run_id, type: args.verdict === "hold" ? "blocked" : "failed", payload: { phase: "propose", verdict: args.verdict, reason: blocker }, at: now() })
+        ]);
+        ctx.invalidateQueries();
+        return { ok: true, message: blocker };
+      }
+      const sectionRows = await db.select().from(approvals).where(and(eq(approvals.runId, args.run_id), eq(approvals.kind, "linkedin_section"), isNull(approvals.resolvedAt)));
+      const present = new Set(sectionRows.map((row) => row.section).filter((value) => typeof value === "string"));
+      const missing = linkedinSections.filter((section) => !present.has(section));
+      const duplicateSections = linkedinSections.filter((section) => sectionRows.filter((row) => row.section === section).length !== 1);
+      if (missing.length > 0 || sectionRows.length !== linkedinSections.length || duplicateSections.length > 0) {
+        const detail = missing.length > 0 ? `missing: ${missing.join(", ")}` : duplicateSections.length > 0 ? `duplicates: ${duplicateSections.join(", ")}` : `received ${sectionRows.length} cards`;
+        const blocker = `Proposal did not produce exactly one approval card per LinkedIn section (${detail}).`;
+        await db.batch([
+          db.update(runs).set({ status: "blocked", needsMe: true, blocker }).where(eq(runs.runId, args.run_id)),
+          db.insert(events).values({ runId: args.run_id, type: "blocked", payload: { phase: "propose", reason: blocker }, at: now() })
+        ]);
+        ctx.invalidateQueries();
+        return { ok: false, message: blocker };
+      }
+      await db.batch([
+        db.update(runs).set({ status: "awaiting_approvals", needsMe: true, blocker: null }).where(eq(runs.runId, args.run_id)),
+        db.insert(events).values({ runId: args.run_id, type: "propose", payload: { phase: "propose", verdict: "pass", sections: sectionRows.map((row) => row.section) }, at: now() }),
+        db.insert(events).values({ runId: args.run_id, type: "awaiting_approvals", payload: { phase: "awaiting_approvals", count: sectionRows.length }, at: now() })
+      ]);
       ctx.invalidateQueries();
-      return { ok: true };
+      return { ok: true, message: "Five LinkedIn section proposals are ready for review." };
     }
   }),
   linkedin_optimize_apply_complete: defineAction({
-    request: object({ run_id: string2().min(1), approval_id: string2().min(1), section: linkedinSection, verdict: _enum(["pass", "reject", "hold"]), before_hash: string2().nullable().optional(), after_hash: string2().nullable().optional(), reason: string2().nullable().optional() }),
-    response: okResponse,
+    request: object({
+      run_id: string2().min(1),
+      approval_id: string2().min(1),
+      section: linkedinSection,
+      verdict: _enum(["pass", "reject", "hold"]),
+      reason: string2().nullable().optional(),
+      before_hash: string2().nullable().optional(),
+      after_hash: string2().nullable().optional()
+    }),
+    response: linkedinApplyCompleteResponse,
     async handler(ctx, args) {
       const db = ctx.db();
-      const run = (await db.select().from(runs).where(eq(runs.runId, args.run_id)).limit(1))[0];
-      if (!run)
-        return { ok: false, message: "Run not found." };
-      await db.insert(events).values({ runId: args.run_id, type: "linkedin_optimize_apply_complete", payload: { approval_id: args.approval_id, section: args.section, verdict: args.verdict, before_hash: args.before_hash ?? null, after_hash: args.after_hash ?? null, reason: args.reason ?? null } });
+      const approval = (await db.select().from(approvals).where(eq(approvals.approvalId, args.approval_id)).limit(1))[0];
+      if (!approval || approval.runId !== args.run_id || approval.kind !== "linkedin_section" || approval.section !== args.section || approval.answer !== "approved")
+        return { ok: false, message: "The approved LinkedIn section could not be matched to this run.", run_complete: false };
+      if (args.verdict !== "pass") {
+        const blocker = args.reason?.trim() || `The ${args.section} edit could not be verified.`;
+        await db.batch([
+          db.update(runs).set({ status: "blocked", needsMe: true, blocker }).where(eq(runs.runId, args.run_id)),
+          db.insert(events).values({ runId: args.run_id, type: "apply_failed", payload: { section: args.section, approval_id: args.approval_id, verdict: args.verdict, reason: blocker }, at: now() })
+        ]);
+        ctx.invalidateQueries();
+        return { ok: true, message: blocker, run_complete: false };
+      }
+      await db.insert(events).values({ runId: args.run_id, type: "section_applied", payload: { section: args.section, approval_id: args.approval_id, before_hash: args.before_hash ?? null, after_hash: args.after_hash ?? null }, at: now() });
+      const approvalsForRun = await db.select().from(approvals).where(and(eq(approvals.runId, args.run_id), eq(approvals.kind, "linkedin_section")));
+      const applyEvents = await db.select().from(events).where(and(eq(events.runId, args.run_id), eq(events.type, "section_applied")));
+      const completedApprovalIds = new Set(applyEvents.map((event) => jsonObject(event.payload).approval_id).filter((value) => typeof value === "string"));
+      const unresolved = approvalsForRun.some((row) => row.resolvedAt === null);
+      const approvedOutstanding = approvalsForRun.some((row) => row.answer === "approved" && !completedApprovalIds.has(row.approvalId));
+      const runComplete = !unresolved && !approvedOutstanding;
+      if (runComplete) {
+        await db.batch([
+          db.update(runs).set({ status: "completed", ended: now(), needsMe: false, blocker: null, counts: { sections: approvalsForRun.length, applied: completedApprovalIds.size, discarded: approvalsForRun.filter((row) => row.answer === "discarded").length } }).where(eq(runs.runId, args.run_id)),
+          db.insert(events).values({ runId: args.run_id, type: "done", payload: { phase: "done", applied: completedApprovalIds.size, discarded: approvalsForRun.filter((row) => row.answer === "discarded").length }, at: now() })
+        ]);
+      } else {
+        const stillWaiting = unresolved;
+        await db.update(runs).set({ status: stillWaiting ? "awaiting_approvals" : "running", needsMe: stillWaiting, blocker: null }).where(eq(runs.runId, args.run_id));
+        if (stillWaiting)
+          await db.insert(events).values({ runId: args.run_id, type: "awaiting_approvals", payload: { phase: "awaiting_approvals", remaining: approvalsForRun.filter((row) => row.resolvedAt === null).length }, at: now() });
+      }
       ctx.invalidateQueries();
-      return { ok: true };
+      return { ok: true, message: runComplete ? "LinkedIn optimization run completed." : `${titleCaseForServer(args.section)} was applied and verified.`, run_complete: runComplete };
     }
   })
 };
