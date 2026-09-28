@@ -6,6 +6,8 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.2.9] — 2026-09-27
+
 ### Added
 - **Ad-hoc "Trigger now" on every Schedules row.** Each schedule row now has
   a Trigger now button that queues a one-shot run — it works on disabled
