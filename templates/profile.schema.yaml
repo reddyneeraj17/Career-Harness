@@ -98,6 +98,17 @@ reply_tiers:
     draft_for_review: {required: true, type: list, items: {type: string}, min_items: 1}
     never:            {required: true, type: list, items: {type: string}, min_items: 1}
 
+years_matrix:
+  required: false
+  type: list
+  items:
+    type: map
+    fields:
+      skill:      {required: true, type: string}
+      category:   {required: false, type: string}
+      years:      {required: true, type: integer, min: 0}
+      where_used: {required: false, type: string}
+
 resumes:
   required: true
   type: map
@@ -126,6 +137,11 @@ campaigns:
     harness_doctor:   {required: false, type: map, fields: {cadence: {required: true, type: string}, enabled: {required: false, type: boolean}}}
     profile_watch:    {required: false, type: map, fields: {cadence: {required: true, type: string}, enabled: {required: false, type: boolean}}}
     browser_watch:    {required: false, type: map, fields: {cadence: {required: true, type: string}, enabled: {required: false, type: boolean}}}
+    schedule_trigger_dispatch: {required: false, type: map, fields: {cadence: {required: true, type: string}, enabled: {required: false, type: boolean}}}
+    # schedule_trigger_dispatch default cadence (template): every 2m. Picks up
+    # "Trigger now" rows from the schedule_triggers table and fires them via
+    # cron.run (temporary enable → run → re-disable for disabled schedules).
+    # A control-plane job: always compiled, even when all campaigns are off.
     # browser_watch default cadence (template): every 2m. Forwards fresh browser
     # screenshots of watched runs (run_watch_set watch_chat=true) to the chat
     # the schedule was compiled from. Silent when nothing is watched.

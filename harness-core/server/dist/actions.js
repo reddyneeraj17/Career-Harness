@@ -4696,6 +4696,47 @@ var privileged = definePrivilegedContracts({
     response: object({ found: boolean2(), text: string2().optional() }),
     timeoutMs: 5000
   },
+  readPersonaYaml: {
+    request: object({ persona_path: string2().regex(/^profiles\/[A-Za-z0-9][A-Za-z0-9._-]*\.ya?ml$/) }),
+    response: object({ found: boolean2(), yamlText: string2().optional() }),
+    timeoutMs: 5000
+  },
+  hiddenFilesDiskUsage: {
+    request: object({ prune_candidates: number2().int().min(1).max(20).optional() }),
+    response: object({
+      bytes_total: number2().int(),
+      folder_count: number2().int(),
+      oldest_folders: array(object({ folder: string2(), bytes: number2().int() }))
+    }),
+    timeoutMs: 30000
+  },
+  stageImportCsv: {
+    request: object({
+      job_id: string2().regex(/^imp_[A-Za-z0-9_-]{1,64}$/),
+      csv: string2().min(1).max(20 * 1024 * 1024).optional(),
+      csv_url: string2().url().max(2000).optional()
+    }).refine((v) => v.csv || v.csv_url, { message: "Provide csv or csv_url." }),
+    response: object({ total_rows: number2().int(), chunks: number2().int(), source_sha256: string2(), size_bytes: number2().int() }),
+    timeoutMs: 120000
+  },
+  readImportCsvChunk: {
+    request: object({
+      job_id: string2().regex(/^imp_[A-Za-z0-9_-]{1,64}$/),
+      offset: number2().int().min(0),
+      limit: number2().int().min(1).max(1e4)
+    }),
+    response: object({
+      rows: array(record(string2(), string2())),
+      total_rows: number2().int(),
+      next_offset: number2().int()
+    }),
+    timeoutMs: 30000
+  },
+  deleteImportStaging: {
+    request: object({ job_id: string2().regex(/^imp_[A-Za-z0-9_-]{1,64}$/) }),
+    response: object({ deleted: boolean2() }),
+    timeoutMs: 1e4
+  },
   writeHeldDraft: {
     request: object({ draft_path: string2().min(1).max(2000), text: string2().min(1).max(200000) }),
     response: object({ ok: boolean2(), draft_path: string2().nullable(), message: string2().optional() }),
@@ -5963,6 +6004,7 @@ var profile = sqliteTable("profile", {
   answers: text("answers", { mode: "json" }).notNull().default({}),
   caps: text("caps", { mode: "json" }).notNull().default({}),
   replyTiers: text("reply_tiers", { mode: "json" }).notNull().default({}),
+  yearsMatrix: text("years_matrix", { mode: "json" }).notNull().default([]),
   updatedAt: integer2("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
 });
 var resumeVariants = sqliteTable("resume_variants", {
@@ -6182,6 +6224,21 @@ var purgeGuard = sqliteTable("purge_guard", {
   batchId: text("batch_id").primaryKey(),
   offenderCount: integer2("offender_count").notNull()
 });
+var datasetImportJobs = sqliteTable("dataset_import_jobs", {
+  jobId: text("job_id").primaryKey(),
+  dataset: text("dataset").notNull(),
+  totalRows: integer2("total_rows").notNull().default(0),
+  cursor: integer2("cursor").notNull().default(0),
+  processed: integer2("processed").notNull().default(0),
+  imported: integer2("imported").notNull().default(0),
+  skipped: integer2("skipped").notNull().default(0),
+  status: text("status", { enum: ["running", "done", "failed", "cancelled"] }).notNull().default("running"),
+  error: text("error"),
+  sourceUrl: text("source_url"),
+  sourceSha256: text("source_sha256"),
+  createdAt: integer2("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  updatedAt: integer2("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
 
 // src/actions.ts
 var jsonValue = unknown();
@@ -6243,7 +6300,8 @@ var profilePayload = object({
   start_date: string2().nullable(),
   answers: jsonValue,
   caps: jsonValue,
-  reply_tiers: jsonValue
+  reply_tiers: jsonValue,
+  years_matrix: array(object({ skill: string2().trim().min(1), category: string2().trim().optional(), years: number2().int().min(0), where_used: string2().trim().optional() })).optional()
 });
 var campaignPayload = record(string2().min(1), object({
   cadence: string2().min(1),
@@ -6281,7 +6339,8 @@ var strictProfile = object({
   start_date: string2().regex(/^\d{4}-\d{2}-\d{2}$/),
   answers: object({ relocate: string2().trim().min(1), covenants: string2().trim().min(1), drivers_license: string2().trim().min(1), degree_dates: string2().trim().min(1), home_zip: string2().trim().min(1), work_authorized_us: string2().trim().min(1) }).catchall(answerValue),
   caps: object({ per_run: number2().int().min(1), per_day: number2().int().min(1), appliers: number2().int().min(1) }).catchall(jsonValue),
-  reply_tiers: object({ auto_send: array(string2().regex(/^R[1-8]$/)).min(1), draft_for_review: array(string2().trim().min(1)).min(1), never: array(string2().trim().min(1)).min(1) }).catchall(jsonValue)
+  reply_tiers: object({ auto_send: array(string2().regex(/^R[1-8]$/)).min(1), draft_for_review: array(string2().trim().min(1)).min(1), never: array(string2().trim().min(1)).min(1) }).catchall(jsonValue),
+  years_matrix: array(object({ skill: string2().trim().min(1), category: string2().trim().optional(), years: number2().int().min(0), where_used: string2().trim().optional() })).optional()
 }).superRefine((value, ctx) => {
   const requiredStrings = [
     ...Object.entries(value.identity).filter(([key]) => ["name", "email", "phone", "location", "linkedin", "timezone"].includes(key)).map(([key, text]) => ({ path: ["identity", key], value: String(text) })),
@@ -6316,6 +6375,7 @@ var yamlProfileSchema = object({
   caps: object({ per_run: number2().int().min(1), per_day: number2().int().min(1), appliers: number2().int().min(1), linkedin_actions_per_hour: number2().int().min(1) }),
   reply_tiers: object({ auto_send: array(string2().regex(/^R[1-8]$/)).min(1), draft_for_review: array(string2()).min(1), never: array(string2()).min(1) }),
   resumes: object({ dir: string2().min(1), filename_rule: string2().min(1) }),
+  years_matrix: array(object({ skill: string2().min(1), category: string2().optional(), years: number2().int().min(0), where_used: string2().optional() })).optional(),
   campaigns: record(string2(), object({ cadence: string2().min(1), enabled: boolean2().optional() }).catchall(unknown()))
 });
 var q = (value) => JSON.stringify(value);
@@ -6368,6 +6428,102 @@ function deriveYamlLocations(locations, previous) {
   remote: ${q(remoteValue)}
   metros: ${yamlList(metroNames)}` };
 }
+var KNOWN_YAML_ROOTS = new Set(["identity", "work_auth", "role_types", "locations", "targeting", "comp", "start_date", "answers", "caps", "reply_tiers", "resumes", "campaigns", "years_matrix"]);
+function renderYearsMatrixYaml(entries) {
+  const lines = ["years_matrix:"];
+  for (const entry of entries) {
+    lines.push(`  - skill: ${q(entry.skill)}`);
+    if (entry.category !== undefined)
+      lines.push(`    category: ${q(entry.category)}`);
+    lines.push(`    years: ${entry.years}`);
+    if (entry.where_used !== undefined)
+      lines.push(`    where_used: ${q(entry.where_used)}`);
+  }
+  return lines.join(`
+`);
+}
+function spliceTopLevelSection(yamlText, name, sectionText) {
+  const lines = yamlText.split(`
+`);
+  const start = lines.findIndex((line) => line === `${name}:`);
+  if (start < 0)
+    return `${yamlText.trimEnd()}
+
+${sectionText.trim()}
+`;
+  let end = lines.length;
+  for (let index = start + 1;index < lines.length; index += 1) {
+    if (/^[A-Za-z_][A-Za-z0-9_-]*:/.test(lines[index] ?? "")) {
+      end = index;
+      break;
+    }
+  }
+  return [...lines.slice(0, start), sectionText.trim(), ...lines.slice(end)].join(`
+`).trimEnd() + `
+`;
+}
+function preservedExtensionSections(existing, existingParsed) {
+  const sections = [];
+  for (const key of Object.keys(existingParsed)) {
+    if (KNOWN_YAML_ROOTS.has(key))
+      continue;
+    const section = rootSection(existing, key);
+    if (section)
+      sections.push(section);
+  }
+  return sections;
+}
+function yamlInlineScalar(value) {
+  if (value === null || value === undefined)
+    return "null";
+  if (typeof value === "boolean" || typeof value === "number")
+    return String(value);
+  return q(String(value));
+}
+function yamlNestedLines(value, indent) {
+  if (Array.isArray(value)) {
+    if (value.length === 0)
+      return [`${indent}[]`];
+    return value.flatMap((item) => {
+      if (item !== null && typeof item === "object") {
+        const sub = yamlNestedLines(item, `${indent}  `);
+        return [`${indent}- ${sub[0]?.trimStart() ?? ""}`, ...sub.slice(1)];
+      }
+      return [`${indent}- ${yamlInlineScalar(item)}`];
+    });
+  }
+  if (value !== null && typeof value === "object") {
+    const entries = Object.entries(value);
+    if (entries.length === 0)
+      return [`${indent}{}`];
+    return entries.flatMap(([k, v]) => {
+      if (v !== null && typeof v === "object")
+        return [`${indent}${k}:`, ...yamlNestedLines(v, `${indent}  `)];
+      return [`${indent}${k}: ${yamlInlineScalar(v)}`];
+    });
+  }
+  return [`${indent}${yamlInlineScalar(value)}`];
+}
+function withUnknownNestedKeys(name, rendered, existingParsed, aliases = {}) {
+  const prev = jsonObject(existingParsed[name]);
+  const prevKeys = Object.keys(prev);
+  if (prevKeys.length === 0)
+    return rendered;
+  const renderedKeys = new Set(rendered.split(`
+`).map((line) => line.match(/^  ([A-Za-z_][A-Za-z0-9_-]*):/)?.[1]).filter((k) => !!k));
+  const extra = prevKeys.filter((k) => !renderedKeys.has(k) && !renderedKeys.has(aliases[k] ?? ""));
+  if (extra.length === 0)
+    return rendered;
+  const lines = extra.flatMap((k) => {
+    const v = prev[k];
+    if (v !== null && typeof v === "object")
+      return [`  ${k}:`, ...yamlNestedLines(v, "    ")];
+    return [`  ${k}: ${yamlInlineScalar(v)}`];
+  });
+  return `${rendered.trimEnd()}
+${lines.join(`
+`)}`;
+}
 function renderProfileYaml(profile2, existing, existingParsed) {
   const place = splitLocation(profile2.identity.location);
   if (!place)
@@ -6384,6 +6540,8 @@ function renderProfileYaml(profile2, existing, existingParsed) {
     throw new Error("resumes section is missing from the existing YAML.");
   if (!campaigns2)
     throw new Error("campaigns section is missing from the existing YAML.");
+  const matrix = profile2.years_matrix !== undefined ? profile2.years_matrix.length > 0 ? renderYearsMatrixYaml(profile2.years_matrix) : "years_matrix: []" : rootSection(existing, "years_matrix");
+  const extensions = preservedExtensionSections(existing, existingParsed);
   const locations = deriveYamlLocations(profile2.locations, rootSection(existing, "locations"));
   const answerLines = Object.entries(profile2.answers).map(([key, value]) => {
     const yamlKey = key === "covenants" ? "restrictive_covenants" : key;
@@ -6393,54 +6551,65 @@ function renderProfileYaml(profile2, existing, existingParsed) {
   const floor = profile2.comp.floor === null ? "null" : typeof profile2.comp.floor === "number" ? String(profile2.comp.floor) : q(profile2.comp.floor);
   const header = headerBlock(existing);
   const body = [
-    "identity:",
-    `  name: ${q(profile2.identity.name)}`,
-    `  email: ${q(profile2.identity.email)}`,
-    `  phone: ${q(profile2.identity.phone)}`,
-    `  city: ${q(place.city)}`,
-    `  state: ${q(place.state)}`,
-    `  linkedin_url: ${q(profile2.identity.linkedin)}`,
-    "",
-    "work_auth:",
-    `  status: ${q(profile2.work_auth.status)}`,
-    `  sponsor_required: ${profile2.work_auth.sponsor_required}`,
-    `  h1b_gate: ${q(profile2.work_auth.h1b_gate)}`,
-    "",
+    withUnknownNestedKeys("identity", [
+      "identity:",
+      `  name: ${q(profile2.identity.name)}`,
+      `  email: ${q(profile2.identity.email)}`,
+      `  phone: ${q(profile2.identity.phone)}`,
+      `  city: ${q(place.city)}`,
+      `  state: ${q(place.state)}`,
+      `  linkedin_url: ${q(profile2.identity.linkedin)}`,
+      `  timezone: ${q(profile2.identity.timezone)}`
+    ].join(`
+`), existingParsed),
+    withUnknownNestedKeys("work_auth", [
+      "work_auth:",
+      `  status: ${q(profile2.work_auth.status)}`,
+      `  sponsor_required: ${profile2.work_auth.sponsor_required}`,
+      `  h1b_gate: ${q(profile2.work_auth.h1b_gate)}`
+    ].join(`
+`), existingParsed),
     `role_types: ${yamlList(profile2.role_types)}`,
-    "",
-    locations.block,
-    "",
-    "targeting:",
-    `  tiers: ${yamlList(profile2.targeting.tiers)}`,
-    `  industries: ${yamlList(profile2.targeting.industries)}`,
-    `  seniority: ${yamlList(profile2.targeting.seniority)}`,
-    `  titles: ${yamlList(profile2.targeting.titles)}`,
-    "",
-    "comp:",
-    `  floor: ${floor}`,
-    `  negotiable_answer: ${q(profile2.comp.note)}`,
-    `  zero_ok: ${zeroOk}`,
-    "",
+    withUnknownNestedKeys("locations", locations.block, existingParsed),
+    withUnknownNestedKeys("targeting", [
+      "targeting:",
+      `  tiers: ${yamlList(profile2.targeting.tiers)}`,
+      `  industries: ${yamlList(profile2.targeting.industries)}`,
+      `  seniority: ${yamlList(profile2.targeting.seniority)}`,
+      `  titles: ${yamlList(profile2.targeting.titles)}`
+    ].join(`
+`), existingParsed),
+    withUnknownNestedKeys("comp", [
+      "comp:",
+      `  floor: ${floor}`,
+      `  negotiable_answer: ${q(profile2.comp.note)}`,
+      `  zero_ok: ${zeroOk}`
+    ].join(`
+`), existingParsed),
     `start_date: ${q(profile2.start_date)}`,
-    "",
-    "answers:",
-    ...answerLines,
-    "",
-    "caps:",
-    `  per_run: ${profile2.caps.per_run}`,
-    `  per_day: ${profile2.caps.per_day}`,
-    `  appliers: ${profile2.caps.appliers}`,
-    `  linkedin_actions_per_hour: ${linkedInActions}`,
-    "",
-    "reply_tiers:",
-    `  auto_send: ${yamlList(profile2.reply_tiers.auto_send)}`,
-    `  draft_for_review: ${yamlList(profile2.reply_tiers.draft_for_review)}`,
-    `  never: ${yamlList(profile2.reply_tiers.never)}`,
-    "",
+    withUnknownNestedKeys("answers", ["answers:", ...answerLines].join(`
+`), existingParsed, { covenants: "restrictive_covenants" }),
+    withUnknownNestedKeys("caps", [
+      "caps:",
+      `  per_run: ${profile2.caps.per_run}`,
+      `  per_day: ${profile2.caps.per_day}`,
+      `  appliers: ${profile2.caps.appliers}`,
+      `  linkedin_actions_per_hour: ${linkedInActions}`
+    ].join(`
+`), existingParsed),
+    withUnknownNestedKeys("reply_tiers", [
+      "reply_tiers:",
+      `  auto_send: ${yamlList(profile2.reply_tiers.auto_send)}`,
+      `  draft_for_review: ${yamlList(profile2.reply_tiers.draft_for_review)}`,
+      `  never: ${yamlList(profile2.reply_tiers.never)}`
+    ].join(`
+`), existingParsed),
     resumes,
-    "",
-    campaigns2
+    campaigns2,
+    ...matrix ? [matrix] : [],
+    ...extensions
   ].join(`
+
 `);
   return { text: `${header ? `${header}
 
@@ -6449,7 +6618,8 @@ function renderProfileYaml(profile2, existing, existingParsed) {
 }
 async function putProfileRow(ctx, args) {
   const updated = now();
-  await ctx.db().insert(profile).values({ id: 1, identity: args.identity, workAuth: args.work_auth, roleTypes: args.role_types, locations: args.locations, targeting: args.targeting, comp: args.comp, startDate: args.start_date, answers: args.answers, caps: args.caps, replyTiers: args.reply_tiers, updatedAt: updated }).onConflictDoUpdate({ target: profile.id, set: { identity: args.identity, workAuth: args.work_auth, roleTypes: args.role_types, locations: args.locations, targeting: args.targeting, comp: args.comp, startDate: args.start_date, answers: args.answers, caps: args.caps, replyTiers: args.reply_tiers, updatedAt: updated } });
+  const yearsMatrix = Array.isArray(args.years_matrix) ? args.years_matrix : [];
+  await ctx.db().insert(profile).values({ id: 1, identity: args.identity, workAuth: args.work_auth, roleTypes: args.role_types, locations: args.locations, targeting: args.targeting, comp: args.comp, startDate: args.start_date, answers: args.answers, caps: args.caps, replyTiers: args.reply_tiers, yearsMatrix, updatedAt: updated }).onConflictDoUpdate({ target: profile.id, set: { identity: args.identity, workAuth: args.work_auth, roleTypes: args.role_types, locations: args.locations, targeting: args.targeting, comp: args.comp, startDate: args.start_date, answers: args.answers, caps: args.caps, replyTiers: args.reply_tiers, yearsMatrix, updatedAt: updated } });
   ctx.invalidateQueries();
   return updated.toISOString();
 }
@@ -6496,7 +6666,7 @@ var scheduleTriggerMarkResponse = union([
   object({ ok: literal(true) }),
   object({ ok: literal(false), reason: string2() })
 ]);
-var SCHEDULE_CAMPAIGNS = ["morning_run", "linkedin_feed", "career_portal", "job_board", "email_scan", "linkedin_replies", "approval_judge", "daily_report", "token_usage", "weekly_review", "harness_doctor", "profile_watch"];
+var SCHEDULE_CAMPAIGNS = ["morning_run", "linkedin_feed", "career_portal", "job_board", "email_scan", "linkedin_replies", "approval_judge", "daily_report", "token_usage", "weekly_review", "harness_doctor", "profile_watch", "browser_watch", "schedule_trigger_dispatch"];
 var scheduleJobId = (campaign) => `harness-${campaign.replace(/_/g, "-")}`;
 function jobIdToCampaign(jobId) {
   if (!jobId.startsWith("harness-"))
@@ -6808,6 +6978,118 @@ async function csvTextFromArgs(args) {
   }
   throw new Error("Provide csv or csv_url.");
 }
+var IMPORT_CHUNK_ROWS = 2000;
+var IMPORT_UPSERT_BATCH = 500;
+var IMPORT_SYNC_ROW_LIMIT = 5000;
+function mapImportRow(dataset, r) {
+  if (dataset === "h1b") {
+    const company = r.company_norm || r.company || r.employer;
+    if (!company)
+      return null;
+    const stats = r.stats_by_year ? (() => {
+      try {
+        return JSON.parse(r.stats_by_year);
+      } catch {
+        return {};
+      }
+    })() : {};
+    const lca = Number(r.lca_count ?? 0);
+    const refreshed = r.last_refreshed ? new Date(r.last_refreshed) : now();
+    return { companyNorm: norm(company), statsByYear: stats, lcaCount: Number.isFinite(lca) ? lca : 0, lastRefreshed: refreshed };
+  }
+  if (dataset === "companies") {
+    const company = r.company_norm || r.company;
+    if (!company)
+      return null;
+    const tier = Number(r.tier || 3);
+    const parkCount = Number(r.park_count || 0);
+    return {
+      companyNorm: norm(company),
+      tier: Number.isFinite(tier) ? tier : 3,
+      industry: r.industry || null,
+      hqState: r.hq_state || null,
+      careersUrl: r.careers_url || null,
+      atsType: r.ats_type || null,
+      parkCount: Number.isFinite(parkCount) ? parkCount : 0,
+      skipFlag: ["1", "true", "yes"].includes((r.skip_flag ?? "").toLowerCase()),
+      skipReason: r.skip_reason || null
+    };
+  }
+  const name = r.vendor_name || r.vendor || r.name;
+  if (!name)
+    return null;
+  return {
+    vendorNorm: norm(name),
+    vendorName: name,
+    portalUrl: r.portal_url || null,
+    tier: r.tier || null,
+    category: r.category || null,
+    specialties: r.specialties || null,
+    engagementTypes: r.engagement_types || null,
+    h1bNote: r.h1b_note || null,
+    lastRefreshed: r.last_refreshed ? new Date(r.last_refreshed) : now()
+  };
+}
+async function upsertImportRows(ctx, dataset, rows) {
+  const db = ctx.db();
+  for (let i = 0;i < rows.length; i += IMPORT_UPSERT_BATCH) {
+    const group = rows.slice(i, i + IMPORT_UPSERT_BATCH);
+    if (dataset === "h1b") {
+      await db.insert(h1bSponsors).values(group).onConflictDoUpdate({
+        target: h1bSponsors.companyNorm,
+        set: {
+          statsByYear: sql`excluded.${sql.identifier("stats_by_year")}`,
+          lcaCount: sql`excluded.${sql.identifier("lca_count")}`,
+          lastRefreshed: sql`excluded.${sql.identifier("last_refreshed")}`
+        }
+      });
+    } else if (dataset === "companies") {
+      await db.insert(companies).values(group).onConflictDoUpdate({
+        target: companies.companyNorm,
+        set: {
+          tier: sql`excluded.${sql.identifier("tier")}`,
+          industry: sql`excluded.${sql.identifier("industry")}`,
+          hqState: sql`excluded.${sql.identifier("hq_state")}`,
+          careersUrl: sql`excluded.${sql.identifier("careers_url")}`,
+          atsType: sql`excluded.${sql.identifier("ats_type")}`,
+          parkCount: sql`excluded.${sql.identifier("park_count")}`,
+          skipFlag: sql`excluded.${sql.identifier("skip_flag")}`,
+          skipReason: sql`excluded.${sql.identifier("skip_reason")}`
+        }
+      });
+    } else {
+      await db.insert(primeVendors).values(group).onConflictDoUpdate({
+        target: primeVendors.vendorNorm,
+        set: {
+          vendorName: sql`excluded.${sql.identifier("vendor_name")}`,
+          portalUrl: sql`excluded.${sql.identifier("portal_url")}`,
+          tier: sql`excluded.${sql.identifier("tier")}`,
+          category: sql`excluded.${sql.identifier("category")}`,
+          specialties: sql`excluded.${sql.identifier("specialties")}`,
+          engagementTypes: sql`excluded.${sql.identifier("engagement_types")}`,
+          h1bNote: sql`excluded.${sql.identifier("h1b_note")}`,
+          lastRefreshed: sql`excluded.${sql.identifier("last_refreshed")}`
+        }
+      });
+    }
+  }
+}
+function mapImportRecords(dataset, records) {
+  const rows = [];
+  let skipped = 0;
+  for (const r of records) {
+    const mapped = mapImportRow(dataset, r);
+    if (!mapped) {
+      skipped += 1;
+      continue;
+    }
+    rows.push(mapped);
+  }
+  return { rows, skipped };
+}
+function newImportJobId() {
+  return `imp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
 var safeResumeFilenamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]*\.pdf$/i;
 var safeResumeVariantPattern = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 var resumeUploadResponse = union([
@@ -6840,12 +7122,67 @@ async function bytesSha256(bytes) {
 function profileYearsMatrix(row) {
   if (!row)
     return {};
+  const column = row.yearsMatrix;
+  if (Array.isArray(column)) {
+    const map = {};
+    for (const entry of column) {
+      const item = entry;
+      if (item && typeof item.skill === "string" && typeof item.years === "number")
+        map[item.skill] = item.years;
+    }
+    if (Object.keys(map).length)
+      return map;
+  } else if (column && typeof column === "object" && !Array.isArray(column)) {
+    return column;
+  }
   for (const section of [row.identity, row.workAuth, row.locations, row.targeting, row.comp, row.answers, row.caps, row.replyTiers]) {
     const candidate = jsonObject(section).years_matrix;
     if (candidate && typeof candidate === "object" && !Array.isArray(candidate))
       return candidate;
   }
   return {};
+}
+function yearsMatrixList(row) {
+  if (!row)
+    return [];
+  const column = row.yearsMatrix;
+  if (Array.isArray(column)) {
+    return column.filter((e) => e && typeof e.skill === "string").map((e) => ({
+      skill: String(e.skill),
+      ...typeof e.category === "string" ? { category: e.category } : {},
+      years: typeof e.years === "number" && e.years >= 0 ? Math.floor(e.years) : 0,
+      ...typeof e.where_used === "string" ? { where_used: e.where_used } : {}
+    }));
+  }
+  const legacy = profileYearsMatrix(row);
+  return Object.entries(legacy).filter(([, years]) => typeof years === "number").map(([skill, years]) => ({ skill, years: Math.max(0, Math.floor(years)) }));
+}
+var KEYWORD_STOPWORDS = new Set(["and", "or", "the", "of", "a", "an", "in", "on", "for", "with", "to", "at", "by", "from", "into", "ii", "iii"]);
+function keywordVectorFromMetadata(args) {
+  const tokens = new Set;
+  const add = (text) => {
+    for (const token of norm(text).split(" ").filter(Boolean)) {
+      if (token.length < 2 || KEYWORD_STOPWORDS.has(token))
+        continue;
+      tokens.add(token);
+    }
+  };
+  if (typeof args.role_family === "string")
+    add(args.role_family);
+  for (const tag of jsonArray(args.industry_tags))
+    if (typeof tag === "string")
+      add(tag);
+  const ym = args.years_matrix;
+  const skillNames = Array.isArray(ym) ? ym.flatMap((entry) => {
+    const map = jsonObject(entry);
+    return typeof map.skill === "string" ? [map.skill] : [];
+  }) : Object.keys(jsonObject(ym));
+  for (const skill of skillNames)
+    add(skill);
+  const vector = {};
+  for (const token of [...tokens].sort().slice(0, 200))
+    vector[token] = 1;
+  return vector;
 }
 var Actions = {
   profile_get: defineAction({
@@ -6855,14 +7192,16 @@ var Actions = {
       const row = (await ctx.db().select().from(profile).where(eq(profile.id, 1)).limit(1))[0];
       if (!row)
         return { profile: null, updated_at: null };
-      return { profile: { identity: row.identity, work_auth: row.workAuth, role_types: row.roleTypes, locations: row.locations, targeting: row.targeting, comp: row.comp, start_date: row.startDate, answers: row.answers, caps: row.caps, reply_tiers: row.replyTiers }, updated_at: row.updatedAt.toISOString() };
+      return { profile: { identity: row.identity, work_auth: row.workAuth, role_types: row.roleTypes, locations: row.locations, targeting: row.targeting, comp: row.comp, start_date: row.startDate, answers: row.answers, caps: row.caps, reply_tiers: row.replyTiers, years_matrix: yearsMatrixList(row) }, updated_at: row.updatedAt.toISOString() };
     }
   }),
   profile_put: defineAction({
     request: profilePutPayload,
     response: object({ ok: literal(true), updated_at: string2() }),
     async handler(ctx, args) {
-      const updatedAt = await putProfileRow(ctx, args);
+      const db0 = ctx.db();
+      const live = args.years_matrix === undefined ? (await db0.select().from(profile).where(eq(profile.id, 1)).limit(1))[0] : undefined;
+      const updatedAt = await putProfileRow(ctx, live ? { ...args, years_matrix: yearsMatrixList(live) } : args);
       const db = ctx.db();
       const caps = jsonObject(args.caps);
       const capPerRun = Number(caps.per_run);
@@ -6895,6 +7234,7 @@ var Actions = {
       } catch {
         return { ok: false, step: "validation", field: "profile.yaml", message: "The existing profile.yaml could not be read or parsed." };
       }
+      const existingRow = (await ctx.db().select().from(profile).where(eq(profile.id, 1)).limit(1))[0];
       let rendered;
       try {
         rendered = renderProfileYaml(checked.data, existingText, existingParsed);
@@ -6915,11 +7255,78 @@ var Actions = {
         return { ok: false, step: "yaml_write", field: "profile.yaml", message: "The YAML file could not be written. The database was not changed." };
       }
       try {
-        const updatedAt = await putProfileRow(ctx, checked.data);
+        const updatedAt = await putProfileRow(ctx, checked.data.years_matrix === undefined ? { ...checked.data, years_matrix: yearsMatrixList(existingRow) } : checked.data);
         return { ok: true, updated_at: updatedAt, yaml_bytes: bytes, warnings: rendered.warnings };
       } catch {
         return { ok: false, step: "database", field: "profile", message: "profile.yaml was written, but the live database update failed. The next compile-schedules run will restore convergence." };
       }
+    }
+  }),
+  years_matrix_import: defineAction({
+    request: object({ persona_path: string2().min(1).optional(), yaml_text: string2().min(1).optional() }).refine((v) => (v.persona_path ? 1 : 0) + (v.yaml_text ? 1 : 0) === 1, { message: "Provide exactly one of persona_path or yaml_text." }),
+    response: union([
+      object({ ok: literal(true), imported: number2().int(), updated_at: string2() }),
+      object({ ok: literal(false), message: string2() })
+    ]),
+    privileged: [privileged.readPersonaYaml, privileged.readProfileYaml, privileged.parseProfileYaml, privileged.writeProfileYaml],
+    async handler(ctx, args) {
+      let yamlText = args.yaml_text ?? undefined;
+      if (args.persona_path) {
+        const found = await ctx.executePrivileged(privileged.readPersonaYaml, { persona_path: args.persona_path });
+        if (!found.found || !found.yamlText)
+          return { ok: false, message: `Persona file '${args.persona_path}' was not found under workspace profiles/.` };
+        yamlText = found.yamlText;
+      }
+      let parsed;
+      try {
+        parsed = jsonObject((await ctx.executePrivileged(privileged.parseProfileYaml, { yamlText: yamlText ?? "" })).parsed);
+      } catch {
+        return { ok: false, message: "The persona YAML could not be parsed." };
+      }
+      const raw = parsed.years_matrix;
+      if (!Array.isArray(raw) || raw.length === 0)
+        return { ok: false, message: "The persona YAML has no years_matrix entries to import." };
+      const entrySchema = object({ skill: string2().trim().min(1), category: string2().trim().optional(), years: number2().int().min(0), where_used: string2().trim().optional() });
+      const entries = [];
+      for (const item of raw) {
+        const checked = entrySchema.safeParse(typeof item === "object" && item !== null ? {
+          skill: item.skill,
+          category: item.category,
+          years: typeof item.years === "number" ? item.years : Number(item.years),
+          where_used: item.where_used
+        } : item);
+        if (!checked.success)
+          return { ok: false, message: `A years_matrix entry is invalid: ${checked.error.issues[0]?.message ?? "bad entry"}.` };
+        entries.push(checked.data);
+      }
+      const db = ctx.db();
+      const updated = now();
+      let existingText;
+      try {
+        existingText = (await ctx.executePrivileged(privileged.readProfileYaml, {})).yamlText;
+      } catch {
+        return { ok: false, message: "profile.yaml could not be read. Nothing was changed." };
+      }
+      const next = spliceTopLevelSection(existingText, "years_matrix", renderYearsMatrixYaml(entries));
+      try {
+        const reparsed = jsonObject((await ctx.executePrivileged(privileged.parseProfileYaml, { yamlText: next })).parsed);
+        if (!yamlProfileSchema.safeParse(reparsed).success)
+          throw new Error("validation failed");
+      } catch {
+        return { ok: false, message: "The updated profile.yaml did not validate. Nothing was changed." };
+      }
+      try {
+        await ctx.executePrivileged(privileged.writeProfileYaml, { yaml_text: next });
+      } catch {
+        return { ok: false, message: "profile.yaml could not be written. Nothing was changed." };
+      }
+      try {
+        await db.insert(profile).values({ id: 1, yearsMatrix: entries, updatedAt: updated }).onConflictDoUpdate({ target: profile.id, set: { yearsMatrix: entries, updatedAt: updated } });
+      } catch {
+        return { ok: false, message: "profile.yaml was updated, but the database write failed. Re-run the import or the next compile-schedules sync to restore convergence." };
+      }
+      ctx.invalidateQueries();
+      return { ok: true, imported: entries.length, updated_at: updated.toISOString() };
     }
   }),
   posting_upsert: defineAction({
@@ -7196,7 +7603,9 @@ var Actions = {
     response: object({ ok: literal(true) }),
     async handler(ctx, args) {
       const db = ctx.db();
-      await db.insert(resumeVariants).values({ variantId: args.variant_id, path: args.path, sha256: args.sha256, roleFamily: args.role_family, industryTags: args.industry_tags, yearsMatrix: args.years_matrix, keywordVector: args.keyword_vector }).onConflictDoUpdate({ target: resumeVariants.variantId, set: { path: args.path, sha256: args.sha256, roleFamily: args.role_family, industryTags: args.industry_tags, yearsMatrix: args.years_matrix, keywordVector: args.keyword_vector } });
+      const provided = jsonObject(args.keyword_vector);
+      const vector = Object.keys(provided).length > 0 ? provided : keywordVectorFromMetadata(args);
+      await db.insert(resumeVariants).values({ variantId: args.variant_id, path: args.path, sha256: args.sha256, roleFamily: args.role_family, industryTags: args.industry_tags, yearsMatrix: args.years_matrix, keywordVector: vector }).onConflictDoUpdate({ target: resumeVariants.variantId, set: { path: args.path, sha256: args.sha256, roleFamily: args.role_family, industryTags: args.industry_tags, yearsMatrix: args.years_matrix, keywordVector: vector } });
       ctx.invalidateQueries();
       return { ok: true };
     }
@@ -7234,15 +7643,16 @@ var Actions = {
         return { ok: false, message: error instanceof Error ? error.message : "The PDF could not be saved to the resume library." };
       }
       const sha256 = await bytesSha256(bytes);
+      const industryTags = args.industry_tags ?? [];
       try {
         await db.insert(resumeVariants).values({
           variantId,
           path: written.path,
           sha256,
           roleFamily,
-          industryTags: args.industry_tags ?? [],
+          industryTags,
           yearsMatrix: profileYearsMatrix(profileRow),
-          keywordVector: {}
+          keywordVector: keywordVectorFromMetadata({ role_family: roleFamily, industry_tags: industryTags, years_matrix: yearsMatrixList(profileRow) })
         });
       } catch {
         try {
@@ -7300,9 +7710,29 @@ var Actions = {
         const days = row.lastPickedAt ? (Date.now() - row.lastPickedAt.getTime()) / 86400000 : 90;
         const recency = Math.max(0, Math.min(1, days / 30));
         const score = 0.45 * keyword + 0.25 * tag + 0.2 * approval + 0.1 * recency;
-        return { variant_id: row.variantId, score: Number(score.toFixed(4)), breakdown: { keyword: Number(keyword.toFixed(4)), tag: Number(tag.toFixed(4)), approval_rate: Number(approval.toFixed(4)), recency: Number(recency.toFixed(4)) } };
-      }).sort((a, b) => b.score - a.score).slice(0, 3);
+        const roleMatch = targetRole ? norm(row.roleFamily) === targetRole ? 1 : 0 : 0;
+        const pickedAtMs = row.lastPickedAt ? row.lastPickedAt.getTime() : 0;
+        return { variant_id: row.variantId, score: Number(score.toFixed(4)), roleMatch, approval: Number(approval.toFixed(4)), pickedAtMs, breakdown: { keyword: Number(keyword.toFixed(4)), tag: Number(tag.toFixed(4)), approval_rate: Number(approval.toFixed(4)), recency: Number(recency.toFixed(4)) } };
+      }).sort((a, b) => b.score - a.score || b.roleMatch - a.roleMatch || b.approval - a.approval || a.pickedAtMs - b.pickedAtMs || (a.variant_id < b.variant_id ? -1 : a.variant_id > b.variant_id ? 1 : 0)).map(({ variant_id, score, breakdown }) => ({ variant_id, score, breakdown })).slice(0, 3);
       return { results: scored };
+    }
+  }),
+  resume_reindex: defineAction({
+    request: emptyRequest,
+    response: object({ ok: literal(true), reindexed: number2().int(), total: number2().int() }),
+    async handler(ctx) {
+      const db = ctx.db();
+      const rows = await db.select().from(resumeVariants);
+      let reindexed = 0;
+      for (const row of rows) {
+        if (Object.keys(jsonObject(row.keywordVector)).length > 0)
+          continue;
+        const vector = keywordVectorFromMetadata({ role_family: row.roleFamily, industry_tags: row.industryTags, years_matrix: row.yearsMatrix });
+        await db.update(resumeVariants).set({ keywordVector: vector }).where(eq(resumeVariants.variantId, row.variantId));
+        reindexed += 1;
+      }
+      ctx.invalidateQueries();
+      return { ok: true, reindexed, total: rows.length };
     }
   }),
   h1b_lookup: defineAction({
@@ -7861,7 +8291,7 @@ var Actions = {
   snapshot: defineAction({
     request: object({ view: _enum(["overview", "applications", "resumes", "runs", "replies", "health", "ask"]), query: string2().optional() }),
     response: object({ view: string2(), generated_at: string2(), data: unknown() }),
-    privileged: [privileged.applicationEvidenceExists],
+    privileged: [privileged.applicationEvidenceExists, privileged.hiddenFilesDiskUsage],
     async handler(ctx, args) {
       const db = ctx.db();
       const generatedAt = now();
@@ -8018,7 +8448,25 @@ var Actions = {
         const stale = await db.select().from(applications).where(and(eq(applications.state, "applying"), lt(applications.updatedAt, cutoff24)));
         const drift = runRows.filter((r) => JSON.stringify(r.compiledConfig) !== JSON.stringify(r.liveConfig)).map((r) => ({ run_id: r.runId, campaign_id: r.campaignId, compiled: r.compiledConfig, live: r.liveConfig }));
         const last = runRows[0];
-        return { view: args.view, generated_at: generatedAt.toISOString(), data: { status: !last ? "no_runs" : last.status === "running" || last.ended && last.ended >= cutoff24 ? "healthy" : "attention", runs_24h: runRows.filter((r) => r.started >= cutoff24).length, drift, stale_intents: stale.map((a) => ({ app_id: a.appId, updated_at: a.updatedAt.toISOString(), intent_id: a.intentId })), aged_approvals: aged.map((a) => ({ approval_id: a.approvalId, question: a.question, created_at: a.createdAt.toISOString() })), state_edges: STATE_EDGE_DOCS, disk: { available: false, message: "Disk telemetry source unavailable." } } };
+        const parked = (await db.select().from(companies).where(gte(companies.parkCount, 3)).orderBy(desc(companies.parkCount)).limit(50)).map((c) => ({ company_norm: c.companyNorm, park_count: c.parkCount, skip_flag: c.skipFlag, skip_reason: c.skipReason }));
+        const h1bStats = (await db.select({ count: sql`count(*)`, oldest: sql`min(${h1bSponsors.lastRefreshed})`, newest: sql`max(${h1bSponsors.lastRefreshed})` }).from(h1bSponsors))[0];
+        const h1bNewestMs = h1bStats?.newest ? Number(h1bStats.newest) : null;
+        const h1bOldestMs = h1bStats?.oldest ? Number(h1bStats.oldest) : null;
+        const h1b = {
+          employers: countNumber(h1bStats?.count),
+          newest_refresh: h1bNewestMs ? new Date(h1bNewestMs).toISOString() : null,
+          oldest_refresh: h1bOldestMs ? new Date(h1bOldestMs).toISOString() : null,
+          age_days_newest: h1bNewestMs ? Number(((Date.now() - h1bNewestMs) / 86400000).toFixed(1)) : null,
+          age_days_oldest: h1bOldestMs ? Number(((Date.now() - h1bOldestMs) / 86400000).toFixed(1)) : null
+        };
+        let disk;
+        try {
+          const usage = await ctx.executePrivileged(privileged.hiddenFilesDiskUsage, { prune_candidates: 10 });
+          disk = { available: true, bytes_total: usage.bytes_total, folder_count: usage.folder_count, over_2gb: usage.bytes_total > 2 * 1024 * 1024 * 1024, prune_candidates: usage.oldest_folders };
+        } catch {
+          disk = { available: false, message: "Disk telemetry source unavailable." };
+        }
+        return { view: args.view, generated_at: generatedAt.toISOString(), data: { status: !last ? "no_runs" : last.status === "running" || last.ended && last.ended >= cutoff24 ? "healthy" : "attention", runs_24h: runRows.filter((r) => r.started >= cutoff24).length, drift, stale_intents: stale.map((a) => ({ app_id: a.appId, updated_at: a.updatedAt.toISOString(), intent_id: a.intentId })), aged_approvals: aged.map((a) => ({ approval_id: a.approvalId, question: a.question, created_at: a.createdAt.toISOString() })), state_edges: STATE_EDGE_DOCS, parked_companies: parked, h1b_refresh: h1b, disk } };
       }
       if (args.view === "overview") {
         const counts = await appCounts();
@@ -8062,8 +8510,14 @@ var Actions = {
         sources = ["campaigns"];
       } else if (route === "health") {
         const aged = await db.select({ count: sql`count(*)` }).from(approvals).where(and(isNull(approvals.resolvedAt), lt(approvals.createdAt, cutoff24)));
-        answer = `${countNumber(aged[0]?.count).toLocaleString()} approvals have been waiting more than 24 hours. Disk telemetry is unavailable.`;
-        sources = ["approvals", "runs"];
+        const parkedRows = await db.select({ count: sql`count(*)` }).from(companies).where(gte(companies.parkCount, 3));
+        let diskNote = "disk telemetry unavailable";
+        try {
+          const usage = await ctx.executePrivileged(privileged.hiddenFilesDiskUsage, { prune_candidates: 1 });
+          diskNote = `hidden_files uses ${(usage.bytes_total / 1073741824).toFixed(2)} GB across ${usage.folder_count} campaign folders`;
+        } catch {}
+        answer = `${countNumber(aged[0]?.count).toLocaleString()} approvals have been waiting more than 24 hours. ${countNumber(parkedRows[0]?.count)} companies have park_count >= 3. ${diskNote}.`;
+        sources = ["approvals", "companies", "hidden_files"];
       }
       return { view: args.view, generated_at: generatedAt.toISOString(), data: { route, answer, sources } };
     }
@@ -8228,86 +8682,146 @@ var Actions = {
     request: object({ csv: string2().min(1).optional(), csv_url: string2().url().optional() }).refine((v) => v.csv || v.csv_url, { message: "Provide csv or csv_url." }),
     response: object({ imported: number2(), skipped: number2() }),
     async handler(ctx, args) {
-      const db = ctx.db();
       const records = recordsFromCsv(await csvTextFromArgs(args));
-      let imported = 0;
-      let skipped = 0;
-      for (const r of records) {
-        const company = r.company_norm || r.company || r.employer;
-        if (!company) {
-          skipped += 1;
-          continue;
-        }
-        const stats = r.stats_by_year ? (() => {
-          try {
-            return JSON.parse(r.stats_by_year);
-          } catch {
-            return {};
-          }
-        })() : {};
-        const lca = Number(r.lca_count ?? 0);
-        await db.insert(h1bSponsors).values({ companyNorm: norm(company), statsByYear: stats, lcaCount: Number.isFinite(lca) ? lca : 0, lastRefreshed: r.last_refreshed ? new Date(r.last_refreshed) : now() }).onConflictDoUpdate({ target: h1bSponsors.companyNorm, set: { statsByYear: stats, lcaCount: Number.isFinite(lca) ? lca : 0, lastRefreshed: r.last_refreshed ? new Date(r.last_refreshed) : now() } });
-        imported += 1;
-      }
-      if (imported)
+      if (records.length > IMPORT_SYNC_ROW_LIMIT)
+        throw new Error(`CSV has ${records.length.toLocaleString()} rows \u2014 over the ${IMPORT_SYNC_ROW_LIMIT.toLocaleString()}-row synchronous limit. Use dataset_import_start + dataset_import_chunk for a resumable chunked import.`);
+      const { rows, skipped } = mapImportRecords("h1b", records);
+      await upsertImportRows(ctx, "h1b", rows);
+      if (rows.length)
         ctx.invalidateQueries();
-      return { imported, skipped };
+      return { imported: rows.length, skipped };
     }
   }),
   companies_import: defineAction({
     request: object({ csv: string2().min(1).optional(), csv_url: string2().url().optional() }).refine((v) => v.csv || v.csv_url, { message: "Provide csv or csv_url." }),
     response: object({ imported: number2(), skipped: number2() }),
     async handler(ctx, args) {
-      const db = ctx.db();
       const records = recordsFromCsv(await csvTextFromArgs(args));
-      let imported = 0;
-      let skipped = 0;
-      for (const r of records) {
-        const company = r.company_norm || r.company;
-        if (!company) {
-          skipped += 1;
-          continue;
-        }
-        await db.insert(companies).values({ companyNorm: norm(company), tier: Number(r.tier || 3), industry: r.industry || null, hqState: r.hq_state || null, careersUrl: r.careers_url || null, atsType: r.ats_type || null, parkCount: Number(r.park_count || 0), skipFlag: ["1", "true", "yes"].includes((r.skip_flag ?? "").toLowerCase()), skipReason: r.skip_reason || null }).onConflictDoUpdate({ target: companies.companyNorm, set: { tier: Number(r.tier || 3), industry: r.industry || null, hqState: r.hq_state || null, careersUrl: r.careers_url || null, atsType: r.ats_type || null, parkCount: Number(r.park_count || 0), skipFlag: ["1", "true", "yes"].includes((r.skip_flag ?? "").toLowerCase()), skipReason: r.skip_reason || null } });
-        imported += 1;
-      }
-      if (imported)
+      if (records.length > IMPORT_SYNC_ROW_LIMIT)
+        throw new Error(`CSV has ${records.length.toLocaleString()} rows \u2014 over the ${IMPORT_SYNC_ROW_LIMIT.toLocaleString()}-row synchronous limit. Use dataset_import_start + dataset_import_chunk for a resumable chunked import.`);
+      const { rows, skipped } = mapImportRecords("companies", records);
+      await upsertImportRows(ctx, "companies", rows);
+      if (rows.length)
         ctx.invalidateQueries();
-      return { imported, skipped };
+      return { imported: rows.length, skipped };
     }
   }),
   prime_vendors_import: defineAction({
     request: object({ csv: string2().min(1).optional(), csv_url: string2().url().optional() }).refine((v) => v.csv || v.csv_url, { message: "Provide csv or csv_url." }),
     response: object({ imported: number2(), skipped: number2() }),
     async handler(ctx, args) {
-      const db = ctx.db();
       const records = recordsFromCsv(await csvTextFromArgs(args));
-      let imported = 0;
-      let skipped = 0;
-      for (const r of records) {
-        const name = r.vendor_name || r.vendor || r.name;
-        if (!name) {
-          skipped += 1;
-          continue;
-        }
-        const values = {
-          vendorNorm: norm(name),
-          vendorName: name,
-          portalUrl: r.portal_url || null,
-          tier: r.tier || null,
-          category: r.category || null,
-          specialties: r.specialties || null,
-          engagementTypes: r.engagement_types || null,
-          h1bNote: r.h1b_note || null,
-          lastRefreshed: r.last_refreshed ? new Date(r.last_refreshed) : now()
-        };
-        const { vendorNorm: _pk, ...rest } = values;
-        await db.insert(primeVendors).values(values).onConflictDoUpdate({ target: primeVendors.vendorNorm, set: rest });
-        imported += 1;
-      }
-      if (imported)
+      if (records.length > IMPORT_SYNC_ROW_LIMIT)
+        throw new Error(`CSV has ${records.length.toLocaleString()} rows \u2014 over the ${IMPORT_SYNC_ROW_LIMIT.toLocaleString()}-row synchronous limit. Use dataset_import_start + dataset_import_chunk for a resumable chunked import.`);
+      const { rows, skipped } = mapImportRecords("vendors", records);
+      await upsertImportRows(ctx, "vendors", rows);
+      if (rows.length)
         ctx.invalidateQueries();
-      return { imported, skipped };
+      return { imported: rows.length, skipped };
+    }
+  }),
+  dataset_import_start: defineAction({
+    request: object({ dataset: _enum(["h1b", "companies", "vendors"]), csv: string2().min(1).max(20 * 1024 * 1024).optional(), csv_url: string2().url().optional() }).refine((v) => v.csv || v.csv_url, { message: "Provide csv or csv_url." }),
+    response: object({ job_id: string2(), dataset: string2(), total_rows: number2(), status: string2(), source_sha256: string2().nullable() }),
+    privileged: [privileged.stageImportCsv, privileged.deleteImportStaging],
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const jobId = newImportJobId();
+      const started = now();
+      await db.insert(datasetImportJobs).values({ jobId, dataset: args.dataset, status: "running", createdAt: started, updatedAt: started });
+      try {
+        const staged = await ctx.executePrivileged(privileged.stageImportCsv, { job_id: jobId, csv: args.csv, csv_url: args.csv_url });
+        await db.update(datasetImportJobs).set({ totalRows: staged.total_rows, sourceUrl: args.csv_url ?? null, sourceSha256: staged.source_sha256, updatedAt: now() }).where(eq(datasetImportJobs.jobId, jobId));
+        return { job_id: jobId, dataset: args.dataset, total_rows: staged.total_rows, status: "running", source_sha256: staged.source_sha256 };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        await db.update(datasetImportJobs).set({ status: "failed", error: message.slice(0, 500), updatedAt: now() }).where(eq(datasetImportJobs.jobId, jobId));
+        try {
+          await ctx.executePrivileged(privileged.deleteImportStaging, { job_id: jobId });
+        } catch {}
+        throw err;
+      }
+    }
+  }),
+  dataset_import_chunk: defineAction({
+    request: object({ job_id: string2().min(1), limit: number2().int().min(1).max(1e4).optional() }),
+    response: object({ job_id: string2(), dataset: string2(), status: string2(), processed: number2(), total_rows: number2(), imported: number2(), skipped: number2(), done: boolean2(), error: string2().nullable().optional() }),
+    privileged: [privileged.readImportCsvChunk, privileged.deleteImportStaging],
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const job = (await db.select().from(datasetImportJobs).where(eq(datasetImportJobs.jobId, args.job_id)).limit(1))[0];
+      if (!job)
+        throw new Error(`Import job '${args.job_id}' was not found.`);
+      const terminal = job.status !== "running";
+      const statusPayload = { job_id: job.jobId, dataset: job.dataset, status: job.status, processed: job.processed, total_rows: job.totalRows, imported: job.imported, skipped: job.skipped, done: job.status === "done", error: job.error ?? null };
+      if (terminal)
+        return statusPayload;
+      const limit = args.limit ?? IMPORT_CHUNK_ROWS;
+      try {
+        const chunk = await ctx.executePrivileged(privileged.readImportCsvChunk, { job_id: job.jobId, offset: job.cursor, limit });
+        const { rows, skipped } = mapImportRecords(job.dataset, chunk.rows);
+        await upsertImportRows(ctx, job.dataset, rows);
+        const nextCursor = chunk.next_offset;
+        const done = nextCursor >= chunk.total_rows;
+        const processed = job.processed + chunk.rows.length;
+        const imported = job.imported + rows.length;
+        const totalSkipped = job.skipped + skipped;
+        await db.update(datasetImportJobs).set({ cursor: nextCursor, processed, imported, skipped: totalSkipped, status: done ? "done" : "running", updatedAt: now() }).where(eq(datasetImportJobs.jobId, job.jobId));
+        if (done) {
+          try {
+            await ctx.executePrivileged(privileged.deleteImportStaging, { job_id: job.jobId });
+          } catch {}
+          ctx.invalidateQueries();
+        }
+        return { job_id: job.jobId, dataset: job.dataset, status: done ? "done" : "running", processed, total_rows: chunk.total_rows, imported, skipped: totalSkipped, done, error: null };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        await db.update(datasetImportJobs).set({ status: "failed", error: message.slice(0, 500), updatedAt: now() }).where(eq(datasetImportJobs.jobId, job.jobId));
+        throw err;
+      }
+    }
+  }),
+  dataset_import_status: defineAction({
+    request: object({ job_id: string2().min(1) }),
+    response: object({ job_id: string2(), dataset: string2(), status: string2(), processed: number2(), total_rows: number2(), imported: number2(), skipped: number2(), done: boolean2(), error: string2().nullable().optional(), source_url: string2().nullable().optional(), source_sha256: string2().nullable().optional(), updated_at: string2() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const job = (await db.select().from(datasetImportJobs).where(eq(datasetImportJobs.jobId, args.job_id)).limit(1))[0];
+      if (!job)
+        throw new Error(`Import job '${args.job_id}' was not found.`);
+      return { job_id: job.jobId, dataset: job.dataset, status: job.status, processed: job.processed, total_rows: job.totalRows, imported: job.imported, skipped: job.skipped, done: job.status === "done", error: job.error ?? null, source_url: job.sourceUrl ?? null, source_sha256: job.sourceSha256 ?? null, updated_at: job.updatedAt.toISOString() };
+    }
+  }),
+  dataset_import_retry: defineAction({
+    request: object({ job_id: string2().min(1) }),
+    response: object({ job_id: string2(), dataset: string2(), status: string2(), cursor: number2(), processed: number2(), total_rows: number2() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const job = (await db.select().from(datasetImportJobs).where(eq(datasetImportJobs.jobId, args.job_id)).limit(1))[0];
+      if (!job)
+        throw new Error(`Import job '${args.job_id}' was not found.`);
+      if (job.status !== "failed")
+        throw new Error(`Import job '${args.job_id}' is '${job.status}' \u2014 only failed jobs can be retried.`);
+      await db.update(datasetImportJobs).set({ status: "running", error: null, updatedAt: now() }).where(eq(datasetImportJobs.jobId, job.jobId));
+      return { job_id: job.jobId, dataset: job.dataset, status: "running", cursor: job.cursor, processed: job.processed, total_rows: job.totalRows };
+    }
+  }),
+  dataset_import_cancel: defineAction({
+    request: object({ job_id: string2().min(1) }),
+    response: object({ job_id: string2(), status: string2() }),
+    privileged: [privileged.deleteImportStaging],
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const job = (await db.select().from(datasetImportJobs).where(eq(datasetImportJobs.jobId, args.job_id)).limit(1))[0];
+      if (!job)
+        throw new Error(`Import job '${args.job_id}' was not found.`);
+      if (job.status === "running" || job.status === "failed") {
+        try {
+          await ctx.executePrivileged(privileged.deleteImportStaging, { job_id: job.jobId });
+        } catch {}
+        await db.update(datasetImportJobs).set({ status: "cancelled", updatedAt: now() }).where(eq(datasetImportJobs.jobId, job.jobId));
+      }
+      return { job_id: job.jobId, status: job.status === "running" || job.status === "failed" ? "cancelled" : job.status };
     }
   }),
   schedule_trigger: defineAction({

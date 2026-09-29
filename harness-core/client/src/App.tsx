@@ -1024,6 +1024,15 @@ const PROFILE_SAMPLES: Record<string, unknown> = {
     _allowed_values: ["full_time", "part_time", "w2_contract", "c2c_contract", "internship"],
     _downstream_effect: "The eligibility judge rejects any posting whose employment type is not selected.",
   },
+  years_matrix: {
+    _about: "The skills matrix (years of hands-on experience per skill). Used by fit-judge and resume-tailor; surfaced from the onboarding Excel import.",
+    years_matrix: [
+      { skill: "Python", category: "Languages", years: 9, where_used: "Data platforms at fintech" },
+      { skill: "Apache Spark", category: "Data engineering", years: 7, where_used: "Batch pipelines, Delta Lake" },
+      { skill: "LLM systems", category: "AI", years: 3, where_used: "RAG assistants, evals" },
+    ],
+    _allowed_values: { skill: "required text", category: "optional text", years: "integer >= 0", where_used: "optional text" },
+  },
   schedules: {
     job_id: "harness-morning-run", title: "Morning application run", campaign: "morning_run", cadence: "daily 07:00", enabled: true,
     _about: "Jobs are edited from the Schedules tab, not here: each row has an enable/disable toggle and an editable cadence. Edits write to profile.yaml campaigns.<campaign>; profile_watch recompiles within ~15 min.",
@@ -1045,16 +1054,28 @@ function ProfileSchedules({ onOpenSchedules }: { onOpenSchedules: () => void }) 
   const status = useQuery({ queryKey: ["schedules-status"], queryFn: () => api.schedules_status({}), refetchOnMount: "always", staleTime: 0 });
   const rows = status.data?.rows ?? [];
   return <ProfileSection title="Schedules" description="Compiled jobs that use this profile, with their current cadence and enabled state." sample={PROFILE_SAMPLES.schedules} className="profile-wide profile-schedules" action={<button type="button" className="schedule-link" onClick={onOpenSchedules}>Open drift details <Icon name="chevron" size={15} /></button>}>
-    <div className="profile-schedule-intro"><div><span className="section-index">10</span><p>Profile changes are validated and reconciled by the profile watcher.</p></div><button type="button" className="inline-refresh" onClick={() => void status.refetch()} disabled={status.isFetching}><Icon name="refresh" size={15} />{status.isFetching ? "Refreshing" : "Refresh"}</button></div>
+    <div className="profile-schedule-intro"><div><span className="section-index">11</span><p>Profile changes are validated and reconciled by the profile watcher.</p></div><button type="button" className="inline-refresh" onClick={() => void status.refetch()} disabled={status.isFetching}><Icon name="refresh" size={15} />{status.isFetching ? "Refreshing" : "Refresh"}</button></div>
     {status.isPending ? <div className="compact-loading">Reading schedules…</div> : status.isError ? <div className="compact-error"><b>Schedules unavailable</b><span>Retry here or open the full Schedules tab.</span></div> : status.data.manifest_missing ? <Empty title="No schedules manifest" body="Run compile-schedules to populate the registry." /> : rows.length === 0 ? <Empty title="No scheduled jobs" body="Compiled jobs will appear here." /> : <div className="profile-schedule-list" role="list" aria-label="Profile schedules">{rows.map((row) => <article key={row.job_id} role="listitem"><div><b>{row.title}</b><code>{row.job_id}</code></div><div className="profile-schedule-meta"><span>{row.campaign}</span><span>{row.cadence}</span></div><Status value={row.enabled ? "enabled" : "disabled"} /></article>)}</div>}
   </ProfileSection>;
 }
+
+function normalizeMatrixEntry(raw: AnyData): { skill: string; category: string; years: number; where_used: string } {
+  const entry = objectValue(raw);
+  const years = Number(entry.years);
+  return { skill: String(entry.skill ?? ""), category: String(entry.category ?? ""), years: Number.isFinite(years) && years >= 0 ? Math.floor(years) : 0, where_used: String(entry.where_used ?? "") };
+}
+const normalizeMatrix = (raw: unknown): Array<{ skill: string; category: string; years: number; where_used: string }> => Array.isArray(raw) ? raw.map(normalizeMatrixEntry) : [];
 
 function normalizeProfile(raw: AnyData): AnyData {
   const identity = objectValue(raw.identity); const answers = objectValue(raw.answers); const locations = objectValue(raw.locations);
   const metros = stringList(locations.metros); const remote = String(locations.remote ?? "");
   const priority = stringList(locations.priority);
   if (priority.length === 0) { priority.push(...metros); if (remote === "ok" || remote === "only") priority.push("Remote US"); }
+  // The draft may carry the legacy `restrictive_covenants` key alongside
+  // `covenants` (loaded from an older YAML); `covenants` already falls back
+  // to it below, so drop the legacy key — otherwise the server renders two
+  // `restrictive_covenants:` lines in profile.yaml.
+  const restAnswers = { ...answers }; delete restAnswers.restrictive_covenants;
   return {
     ...raw,
     identity: { ...identity, name: String(identity.name ?? ""), email: String(identity.email ?? ""), phone: String(identity.phone ?? ""), location: String(identity.location ?? [identity.city, identity.state].filter(Boolean).join(", ")), linkedin: String(identity.linkedin ?? identity.linkedin_url ?? ""), timezone: String(identity.timezone ?? "") },
@@ -1064,9 +1085,10 @@ function normalizeProfile(raw: AnyData): AnyData {
     targeting: { ...objectValue(raw.targeting), industries: stringList(objectValue(raw.targeting).industries), seniority: stringList(objectValue(raw.targeting).seniority), tiers: Array.isArray(objectValue(raw.targeting).tiers) ? objectValue(raw.targeting).tiers.map(Number) : [], titles: stringList(objectValue(raw.targeting).titles) },
     comp: { ...objectValue(raw.comp), floor: objectValue(raw.comp).floor ?? null, note: String(objectValue(raw.comp).note ?? objectValue(raw.comp).negotiable_answer ?? "") },
     start_date: String(raw.start_date ?? ""),
-    answers: { ...answers, relocate: String(answers.relocate ?? ""), covenants: String(answers.covenants ?? answers.restrictive_covenants ?? ""), drivers_license: String(answers.drivers_license ?? ""), degree_dates: String(answers.degree_dates ?? ""), home_zip: String(answers.home_zip ?? ""), work_authorized_us: String(answers.work_authorized_us ?? "") },
+    answers: { ...restAnswers, relocate: String(answers.relocate ?? ""), covenants: String(answers.covenants ?? answers.restrictive_covenants ?? ""), drivers_license: String(answers.drivers_license ?? ""), degree_dates: String(answers.degree_dates ?? ""), home_zip: String(answers.home_zip ?? ""), work_authorized_us: String(answers.work_authorized_us ?? "") },
     caps: { ...objectValue(raw.caps), per_run: Number(objectValue(raw.caps).per_run ?? 0), per_day: Number(objectValue(raw.caps).per_day ?? 0), appliers: Number(objectValue(raw.caps).appliers ?? 0) },
     reply_tiers: { ...objectValue(raw.reply_tiers), auto_send: stringList(objectValue(raw.reply_tiers).auto_send), draft_for_review: stringList(objectValue(raw.reply_tiers).draft_for_review), never: stringList(objectValue(raw.reply_tiers).never) },
+    years_matrix: normalizeMatrix(raw.years_matrix),
   };
 }
 
@@ -1097,6 +1119,11 @@ function validateProfile(profile: AnyData): Record<string, string> {
   if (placeholder(profile.start_date)) errors.start_date = "Replace the placeholder with the real value."; else if (!/^\d{4}-\d{2}-\d{2}$/.test(String(profile.start_date ?? "")) || Number.isNaN(new Date(`${String(profile.start_date)}T00:00:00`).getTime())) errors.start_date = "Enter a valid date";
   if (stringList(profile.role_types).length === 0) errors.role_types = "Select at least one employment type.";
   const reply = objectValue(profile.reply_tiers); if (stringList(reply.auto_send).length === 0 || stringList(reply.auto_send).some((code) => !/^R[1-8]$/.test(code))) errors["reply_tiers.auto_send"] = stringList(reply.auto_send).some(placeholder) ? "Replace placeholders with real values." : "Use one or more codes R1–R8"; requiredList("reply_tiers.draft_for_review", reply.draft_for_review, "Add at least one tier"); requiredList("reply_tiers.never", reply.never, "Add at least one tier");
+  const matrix = normalizeMatrix(profile.years_matrix);
+  matrix.forEach((entry, index) => {
+    if (!entry.skill.trim()) errors[`years_matrix.${index}.skill`] = "Skill name is required";
+    if (!Number.isInteger(entry.years) || entry.years < 0) errors[`years_matrix.${index}.years`] = "Use a whole number of 0 or more";
+  });
   return errors;
 }
 
@@ -1172,6 +1199,23 @@ function Onboarding({ onOpenDashboard }: { onOpenDashboard: () => void }) {
   </form></main></div>;
 }
 
+function MatrixEditor({ rows, errors, onChange }: { rows: Array<{ skill: string; category: string; years: number; where_used: string }>; errors: Record<string, string>; onChange: (rows: Array<{ skill: string; category: string; years: number; where_used: string }>) => void }) {
+  const updateRow = (index: number, key: string, value: unknown) => onChange(rows.map((row, i) => i === index ? { ...row, [key]: value } : row));
+  const addRow = () => onChange([...rows, { skill: "", category: "", years: 0, where_used: "" }]);
+  const removeRow = (index: number) => onChange(rows.filter((_, i) => i !== index));
+  return <div className="matrix-editor">
+    {rows.length === 0 && <p className="matrix-empty">No skills recorded yet. Add rows below, or import from a persona YAML.</p>}
+    {rows.map((row, index) => <div key={index} className="matrix-row">
+      <Field label="Skill" error={errors[`years_matrix.${index}.skill`]}><input value={row.skill} onChange={(e) => updateRow(index, "skill", e.target.value)} placeholder="e.g. Apache Spark" /></Field>
+      <Field label="Category"><input value={row.category} onChange={(e) => updateRow(index, "category", e.target.value)} placeholder="e.g. Data engineering" /></Field>
+      <Field label="Years" error={errors[`years_matrix.${index}.years`]}><input type="number" min={0} step={1} value={row.years} onChange={(e) => updateRow(index, "years", e.target.value === "" ? 0 : Number(e.target.value))} /></Field>
+      <Field label="Where used"><input value={row.where_used} onChange={(e) => updateRow(index, "where_used", e.target.value)} placeholder="e.g. Batch pipelines" /></Field>
+      <button type="button" className="matrix-remove" aria-label={`Remove ${row.skill || `row ${index + 1}`}`} onClick={() => removeRow(index)}>Remove</button>
+    </div>)}
+    <button type="button" className="matrix-add" onClick={addRow}>Add skill</button>
+  </div>;
+}
+
 function Profile({ onOpenSchedules }: { onOpenSchedules: () => void }) {
   const queryClient = useQueryClient();
   const profileQuery = useQuery({ queryKey: ["profile"], queryFn: () => api.profile_get({}), refetchOnMount: "always", staleTime: 0 });
@@ -1202,6 +1246,21 @@ function Profile({ onOpenSchedules }: { onOpenSchedules: () => void }) {
     const next = selected.includes(value) ? selected.filter((item) => item !== value) : [...selected, value];
     updateRoot("role_types", next);
     if (next.length > 0 && errors.role_types) setErrors((previous) => { const remaining = { ...previous }; delete remaining.role_types; return remaining; });
+  };
+  const matrixImport = useMutation({
+    mutationFn: (yaml_text: string) => api.years_matrix_import({ yaml_text }),
+    onSuccess: (result) => {
+      if (!result.ok) { setNotice({ tone: "error", text: `Skills-matrix import failed: ${result.message}` }); return; }
+      setDraft(null);
+      setNotice({ tone: "good", text: `Imported ${result.imported} skills into the matrix (database and profile.yaml).` });
+      void queryClient.invalidateQueries({ queryKey: ["profile"] });
+    },
+    onError: () => setNotice({ tone: "error", text: "The skills-matrix import could not be completed. No changes were recorded." }),
+  });
+  const matrixFileRef = useRef<HTMLInputElement | null>(null);
+  const chooseMatrixFile = (file: File | undefined | null) => {
+    if (!file) return;
+    file.text().then((text) => matrixImport.mutate(text)).catch(() => setNotice({ tone: "error", text: "The selected file could not be read." }));
   };
   const dirty = draft !== null;
   return <form className="profile-page" onSubmit={submit} noValidate>
@@ -1251,6 +1310,10 @@ function Profile({ onOpenSchedules }: { onOpenSchedules: () => void }) {
           <small id="employment-type-hint">Select one or more. The eligibility judge rejects postings whose employment type is not selected.</small>
           {errors.role_types && <p id="employment-type-error" className="inline-error" role="alert">{errors.role_types}</p>}
         </fieldset>
+      </ProfileSection>
+      <ProfileSection title="Skills matrix" description="Years of hands-on experience per skill. Feeds fit-judge and the resume tailor; imported once from the onboarding Excel converter and editable here." sample={PROFILE_SAMPLES.years_matrix} className="profile-wide" action={<><input ref={matrixFileRef} type="file" accept=".yaml,.yml" className="visually-hidden" aria-label="Choose persona YAML" onChange={(e) => void chooseMatrixFile(e.target.files?.[0])} /><button type="button" className="matrix-import" onClick={() => matrixFileRef.current?.click()} disabled={matrixImport.isPending}>{matrixImport.isPending ? "Importing…" : "Import from persona"}</button></>}>
+        <span className="section-index">10</span>
+        <MatrixEditor rows={normalizeMatrix(current.years_matrix)} errors={errors} onChange={(rows) => updateRoot("years_matrix", rows)} />
       </ProfileSection>
       <ProfileSchedules onOpenSchedules={onOpenSchedules} />
     </div>

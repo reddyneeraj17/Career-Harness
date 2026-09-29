@@ -2,13 +2,23 @@
 
 ---
 name: resume-picker
-version: "1.0.0"
+version: "1.1.0"
 description: Ranks resume variants against a job description and recommends the top 3 with scores.
 ---
 
 # Resume Picker
 
 Selects the best resume variant for a job description using the deterministic scoring formula, via the `resume_pick` action. Returns the top 3 with scores and reasons; the coordinator uses the top 1.
+
+## Keyword vectors
+
+Every registered variant carries a `keyword_vector` (lowercase single-token set) used for the 0.45-weighted keyword-overlap term:
+
+- `resume_register` keeps an explicit caller-supplied non-empty vector; otherwise it derives one from registration metadata (role family, industry tags, years-matrix skill names) — never invented from PDF bytes.
+- `resume_upload` always derives from metadata, so uploads can never register with an empty vector.
+- `resume_reindex` backfills empty vectors on older variants (idempotent; only touches empty vectors).
+
+If a variant's keyword term scores 0 despite a matching JD, run `resume_reindex` — an empty vector is the cause.
 
 ## Inputs
 
@@ -23,7 +33,8 @@ Selects the best resume variant for a job description using the deterministic sc
 
 ## Actions called
 
-- `resume_pick` — with `{jd_text, role_family?}`; returns ranked variants with component scores. The scoring formula lives in the action: `0.45·keyword overlap + 0.25·tag match + 0.20·historical approval rate + 0.10·variant recency`.
+- `resume_pick` — with `{jd_text, role_family?}`; returns ranked variants with component scores. The scoring formula lives in the action: `0.45·keyword overlap + 0.25·tag match + 0.20·historical approval rate + 0.10·variant recency`. Tie-breaks are deterministic: score → role-family match → approval rate → least recently picked → stable variant id, so equal scores never rank arbitrarily.
+- `resume_reindex` — idempotent backfill for variants with empty keyword vectors (run once after upgrades that introduced vector derivation).
 - `event_log` — one row on exit with the verdict, the picked `variant_id`, and token count. Nothing else.
 
 ## Output
@@ -51,3 +62,7 @@ Return ONLY the verdict envelope JSON:
 - The picked `variant_id` is recorded on the application row by the coordinator — this is what makes resume-usage stats exact instead of estimated.
 - No personal data lives in this file; resume content is referenced by `variant_id` only.
 - Append exactly one `event_log` row on exit. No state transitions — the coordinator owns them.
+
+## Changelog
+
+- 1.1.0 (2026-09-29): keyword vectors derived from registration metadata at register/upload (never empty, never invented); deterministic tie-break chain in resume_pick; resume_reindex backfill action.

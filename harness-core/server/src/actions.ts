@@ -51,6 +51,9 @@ const postingRow = z.object({
 const profilePayload = z.object({
   identity: jsonValue, work_auth: jsonValue, role_types: jsonValue, locations: jsonValue, targeting: jsonValue, comp: jsonValue,
   start_date: z.string().nullable(), answers: jsonValue, caps: jsonValue, reply_tiers: jsonValue,
+  // Skills matrix (optional): list of {skill, category?, years, where_used?}.
+  // First-class since v1.2.12 — no longer dropped on dashboard save.
+  years_matrix: z.array(z.object({ skill: z.string().trim().min(1), category: z.string().trim().optional(), years: z.number().int().min(0), where_used: z.string().trim().optional() })).optional(),
 });
 const campaignPayload = z.record(z.string().min(1), z.object({
   cadence: z.string().min(1), type: z.string().min(1).optional(), group: z.string().min(1).optional(),
@@ -81,6 +84,8 @@ const strictProfile = z.object({
   answers: z.object({ relocate: z.string().trim().min(1), covenants: z.string().trim().min(1), drivers_license: z.string().trim().min(1), degree_dates: z.string().trim().min(1), home_zip: z.string().trim().min(1), work_authorized_us: z.string().trim().min(1) }).catchall(answerValue),
   caps: z.object({ per_run: z.number().int().min(1), per_day: z.number().int().min(1), appliers: z.number().int().min(1) }).catchall(jsonValue),
   reply_tiers: z.object({ auto_send: z.array(z.string().regex(/^R[1-8]$/)).min(1), draft_for_review: z.array(z.string().trim().min(1)).min(1), never: z.array(z.string().trim().min(1)).min(1) }).catchall(jsonValue),
+  // Skills matrix: optional in the dashboard payload (absent = keep existing).
+  years_matrix: z.array(z.object({ skill: z.string().trim().min(1), category: z.string().trim().optional(), years: z.number().int().min(0), where_used: z.string().trim().optional() })).optional(),
 }).superRefine((value, ctx) => {
   const requiredStrings: Array<{ path: (string | number)[]; value: string }> = [
     ...Object.entries(value.identity).filter(([key]) => ["name", "email", "phone", "location", "linkedin", "timezone"].includes(key)).map(([key, text]) => ({ path: ["identity", key], value: String(text) })),
@@ -115,7 +120,10 @@ const yamlProfileSchema = z.object({
   caps: z.object({ per_run: z.number().int().min(1), per_day: z.number().int().min(1), appliers: z.number().int().min(1), linkedin_actions_per_hour: z.number().int().min(1) }),
   reply_tiers: z.object({ auto_send: z.array(z.string().regex(/^R[1-8]$/)).min(1), draft_for_review: z.array(z.string()).min(1), never: z.array(z.string()).min(1) }),
   resumes: z.object({ dir: z.string().min(1), filename_rule: z.string().min(1) }),
-  // All 12 campaign keys are accepted; cadence is required when an entry is
+  // Skills matrix: optional top-level section (list form). Round-tripped by
+  // renderProfileYaml — never silently dropped.
+  years_matrix: z.array(z.object({ skill: z.string().min(1), category: z.string().optional(), years: z.number().int().min(0), where_used: z.string().optional() })).optional(),
+  // All 13 job keys are accepted; cadence is required when an entry is
   // present and enabled is an optional boolean (absent = enabled).
   campaigns: z.record(z.string(), z.object({ cadence: z.string().min(1), enabled: z.boolean().optional() }).catchall(z.unknown())),
 });
@@ -167,6 +175,96 @@ function deriveYamlLocations(locations: ProfileInput["locations"], previous: str
   return { block: `locations:\n  us_only: ${outsideUs ? "false" : "true"}\n  remote: ${q(remoteValue)}\n  metros: ${yamlList(metroNames)}` };
 }
 
+const KNOWN_YAML_ROOTS = new Set(["identity", "work_auth", "role_types", "locations", "targeting", "comp", "start_date", "answers", "caps", "reply_tiers", "resumes", "campaigns", "years_matrix"]);
+
+function renderYearsMatrixYaml(entries: YearsMatrixEntry[]): string {
+  const lines = ["years_matrix:"];
+  for (const entry of entries) {
+    lines.push(`  - skill: ${q(entry.skill)}`);
+    if (entry.category !== undefined) lines.push(`    category: ${q(entry.category)}`);
+    lines.push(`    years: ${entry.years}`);
+    if (entry.where_used !== undefined) lines.push(`    where_used: ${q(entry.where_used)}`);
+  }
+  return lines.join("\n");
+}
+
+// Replace (or append) one top-level YAML section, preserving everything else
+// byte-for-byte. Used for years_matrix so an import never rewrites the file.
+function spliceTopLevelSection(yamlText: string, name: string, sectionText: string): string {
+  const lines = yamlText.split("\n");
+  const start = lines.findIndex((line) => line === `${name}:`);
+  if (start < 0) return `${yamlText.trimEnd()}\n\n${sectionText.trim()}\n`;
+  let end = lines.length;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (/^[A-Za-z_][A-Za-z0-9_-]*:/.test(lines[index] ?? "")) { end = index; break; }
+  }
+  return [...lines.slice(0, start), sectionText.trim(), ...lines.slice(end)].join("\n").trimEnd() + "\n";
+}
+
+// Top-level sections in the existing YAML that renderProfileYaml does not own
+// (custom extension keys): carried over verbatim so a dashboard save can never
+// silently drop them.
+function preservedExtensionSections(existing: string, existingParsed: Record<string, unknown>): string[] {
+  const sections: string[] = [];
+  for (const key of Object.keys(existingParsed)) {
+    if (KNOWN_YAML_ROOTS.has(key)) continue;
+    const section = rootSection(existing, key);
+    if (section) sections.push(section);
+  }
+  return sections;
+}
+
+function yamlInlineScalar(value: unknown): string {
+  if (value === null || value === undefined) return "null";
+  if (typeof value === "boolean" || typeof value === "number") return String(value);
+  return q(String(value));
+}
+
+function yamlNestedLines(value: unknown, indent: string): string[] {
+  if (Array.isArray(value)) {
+    if (value.length === 0) return [`${indent}[]`];
+    return value.flatMap((item) => {
+      if (item !== null && typeof item === "object") {
+        const sub = yamlNestedLines(item, `${indent}  `);
+        return [`${indent}- ${sub[0]?.trimStart() ?? ""}`, ...sub.slice(1)];
+      }
+      return [`${indent}- ${yamlInlineScalar(item)}`];
+    });
+  }
+  if (value !== null && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.length === 0) return [`${indent}{}`];
+    return entries.flatMap(([k, v]) => {
+      if (v !== null && typeof v === "object") return [`${indent}${k}:`, ...yamlNestedLines(v, `${indent}  `)];
+      return [`${indent}${k}: ${yamlInlineScalar(v)}`];
+    });
+  }
+  return [`${indent}${yamlInlineScalar(value)}`];
+}
+
+// Unknown nested keys inside a known section (hand-added extension keys):
+// appended to the rendered section so a dashboard save never silently drops
+// them. Rendered keys are detected from the section text, so fallback blocks
+// that already carry the previous text never duplicate keys. `aliases` maps an
+// old existing key to the rendered key it became (e.g. covenants ->
+// restrictive_covenants).
+function withUnknownNestedKeys(name: string, rendered: string, existingParsed: Record<string, unknown>, aliases: Record<string, string> = {}): string {
+  const prev = jsonObject(existingParsed[name]);
+  const prevKeys = Object.keys(prev);
+  if (prevKeys.length === 0) return rendered;
+  const renderedKeys = new Set(
+    rendered.split("\n").map((line) => line.match(/^  ([A-Za-z_][A-Za-z0-9_-]*):/)?.[1]).filter((k): k is string => !!k),
+  );
+  const extra = prevKeys.filter((k) => !renderedKeys.has(k) && !renderedKeys.has(aliases[k] ?? ""));
+  if (extra.length === 0) return rendered;
+  const lines = extra.flatMap((k) => {
+    const v = (prev as Record<string, unknown>)[k];
+    if (v !== null && typeof v === "object") return [`  ${k}:`, ...yamlNestedLines(v, "    ")];
+    return [`  ${k}: ${yamlInlineScalar(v)}`];
+  });
+  return `${rendered.trimEnd()}\n${lines.join("\n")}`;
+}
+
 function renderProfileYaml(profile: ProfileInput, existing: string, existingParsed: Record<string, unknown>): { text: string; warnings: ProfileWarning[] } {
   const place = splitLocation(profile.identity.location);
   if (!place) throw new Error("identity.location must use the format City, ST.");
@@ -178,6 +276,14 @@ function renderProfileYaml(profile: ProfileInput, existing: string, existingPars
   const resumes = rootSection(existing, "resumes"); const campaigns = rootSection(existing, "campaigns");
   if (!resumes) throw new Error("resumes section is missing from the existing YAML.");
   if (!campaigns) throw new Error("campaigns section is missing from the existing YAML.");
+  // Skills matrix: an explicitly supplied list wins — even an empty one
+  // (clear-all writes `years_matrix: []` so YAML and DB stay identical).
+  // When the payload omits the matrix, the existing YAML section is preserved
+  // verbatim — never dropped.
+  const matrix = profile.years_matrix !== undefined
+    ? (profile.years_matrix.length > 0 ? renderYearsMatrixYaml(profile.years_matrix) : "years_matrix: []")
+    : rootSection(existing, "years_matrix");
+  const extensions = preservedExtensionSections(existing, existingParsed);
   const locations = deriveYamlLocations(profile.locations, rootSection(existing, "locations"));
   const answerLines = Object.entries(profile.answers).map(([key, value]) => {
     const yamlKey = key === "covenants" ? "restrictive_covenants" : key;
@@ -186,26 +292,44 @@ function renderProfileYaml(profile: ProfileInput, existing: string, existingPars
   });
   const floor = profile.comp.floor === null ? "null" : typeof profile.comp.floor === "number" ? String(profile.comp.floor) : q(profile.comp.floor);
   const header = headerBlock(existing);
+  // Known sections are rebuilt from the payload; unknown nested keys inside
+  // them are appended verbatim (see withUnknownNestedKeys) so extension keys
+  // survive a dashboard save.
   const body = [
-    "identity:", `  name: ${q(profile.identity.name)}`, `  email: ${q(profile.identity.email)}`, `  phone: ${q(profile.identity.phone)}`, `  city: ${q(place.city)}`, `  state: ${q(place.state)}`, `  linkedin_url: ${q(profile.identity.linkedin)}`,
-    "", "work_auth:", `  status: ${q(profile.work_auth.status)}`, `  sponsor_required: ${profile.work_auth.sponsor_required}`, `  h1b_gate: ${q(profile.work_auth.h1b_gate)}`,
-    "", `role_types: ${yamlList(profile.role_types)}`,
-    "", locations.block,
-    "", "targeting:", `  tiers: ${yamlList(profile.targeting.tiers)}`, `  industries: ${yamlList(profile.targeting.industries)}`, `  seniority: ${yamlList(profile.targeting.seniority)}`, `  titles: ${yamlList(profile.targeting.titles)}`,
-    "", "comp:", `  floor: ${floor}`, `  negotiable_answer: ${q(profile.comp.note)}`, `  zero_ok: ${zeroOk}`,
-    "", `start_date: ${q(profile.start_date)}`,
-    "", "answers:", ...answerLines,
-    "", "caps:", `  per_run: ${profile.caps.per_run}`, `  per_day: ${profile.caps.per_day}`, `  appliers: ${profile.caps.appliers}`, `  linkedin_actions_per_hour: ${linkedInActions}`,
-    "", "reply_tiers:", `  auto_send: ${yamlList(profile.reply_tiers.auto_send)}`, `  draft_for_review: ${yamlList(profile.reply_tiers.draft_for_review)}`, `  never: ${yamlList(profile.reply_tiers.never)}`,
-    "", resumes, "", campaigns,
-  ].join("\n");
+    withUnknownNestedKeys("identity", [
+      "identity:", `  name: ${q(profile.identity.name)}`, `  email: ${q(profile.identity.email)}`, `  phone: ${q(profile.identity.phone)}`, `  city: ${q(place.city)}`, `  state: ${q(place.state)}`, `  linkedin_url: ${q(profile.identity.linkedin)}`, `  timezone: ${q(profile.identity.timezone)}`,
+    ].join("\n"), existingParsed),
+    withUnknownNestedKeys("work_auth", [
+      "work_auth:", `  status: ${q(profile.work_auth.status)}`, `  sponsor_required: ${profile.work_auth.sponsor_required}`, `  h1b_gate: ${q(profile.work_auth.h1b_gate)}`,
+    ].join("\n"), existingParsed),
+    `role_types: ${yamlList(profile.role_types)}`,
+    withUnknownNestedKeys("locations", locations.block, existingParsed),
+    withUnknownNestedKeys("targeting", [
+      "targeting:", `  tiers: ${yamlList(profile.targeting.tiers)}`, `  industries: ${yamlList(profile.targeting.industries)}`, `  seniority: ${yamlList(profile.targeting.seniority)}`, `  titles: ${yamlList(profile.targeting.titles)}`,
+    ].join("\n"), existingParsed),
+    withUnknownNestedKeys("comp", [
+      "comp:", `  floor: ${floor}`, `  negotiable_answer: ${q(profile.comp.note)}`, `  zero_ok: ${zeroOk}`,
+    ].join("\n"), existingParsed),
+    `start_date: ${q(profile.start_date)}`,
+    withUnknownNestedKeys("answers", ["answers:", ...answerLines].join("\n"), existingParsed, { covenants: "restrictive_covenants" }),
+    withUnknownNestedKeys("caps", [
+      "caps:", `  per_run: ${profile.caps.per_run}`, `  per_day: ${profile.caps.per_day}`, `  appliers: ${profile.caps.appliers}`, `  linkedin_actions_per_hour: ${linkedInActions}`,
+    ].join("\n"), existingParsed),
+    withUnknownNestedKeys("reply_tiers", [
+      "reply_tiers:", `  auto_send: ${yamlList(profile.reply_tiers.auto_send)}`, `  draft_for_review: ${yamlList(profile.reply_tiers.draft_for_review)}`, `  never: ${yamlList(profile.reply_tiers.never)}`,
+    ].join("\n"), existingParsed),
+    resumes, campaigns,
+    ...(matrix ? [matrix] : []),
+    ...extensions,
+  ].join("\n\n");
   return { text: `${header ? `${header}\n\n` : ""}${body.trim()}\n`, warnings: locations.warning ? [locations.warning] : [] };
 }
 
 async function putProfileRow(ctx: Ctx, args: ProfileRowInput): Promise<string> {
   const updated = now();
-  await ctx.db<typeof schema>().insert(schema.profile).values({ id: 1, identity: args.identity, workAuth: args.work_auth, roleTypes: args.role_types, locations: args.locations, targeting: args.targeting, comp: args.comp, startDate: args.start_date, answers: args.answers, caps: args.caps, replyTiers: args.reply_tiers, updatedAt: updated })
-    .onConflictDoUpdate({ target: schema.profile.id, set: { identity: args.identity, workAuth: args.work_auth, roleTypes: args.role_types, locations: args.locations, targeting: args.targeting, comp: args.comp, startDate: args.start_date, answers: args.answers, caps: args.caps, replyTiers: args.reply_tiers, updatedAt: updated } });
+  const yearsMatrix = Array.isArray(args.years_matrix) ? args.years_matrix : [];
+  await ctx.db<typeof schema>().insert(schema.profile).values({ id: 1, identity: args.identity, workAuth: args.work_auth, roleTypes: args.role_types, locations: args.locations, targeting: args.targeting, comp: args.comp, startDate: args.start_date, answers: args.answers, caps: args.caps, replyTiers: args.reply_tiers, yearsMatrix, updatedAt: updated })
+    .onConflictDoUpdate({ target: schema.profile.id, set: { identity: args.identity, workAuth: args.work_auth, roleTypes: args.role_types, locations: args.locations, targeting: args.targeting, comp: args.comp, startDate: args.start_date, answers: args.answers, caps: args.caps, replyTiers: args.reply_tiers, yearsMatrix, updatedAt: updated } });
   ctx.invalidateQueries();
   return updated.toISOString();
 }
@@ -252,9 +376,10 @@ const scheduleTriggerMarkResponse = z.union([
   z.object({ ok: z.literal(false), reason: z.string() }),
 ]);
 
-// The 12 compiled campaign jobs. job_id <-> campaign mapping is bijective:
+// The 13 compiled jobs (12 campaigns + the schedule-trigger-dispatch control
+// job). job_id <-> campaign mapping is bijective:
 // strip the `harness-` prefix and replace `-` with `_`.
-const SCHEDULE_CAMPAIGNS = ["morning_run", "linkedin_feed", "career_portal", "job_board", "email_scan", "linkedin_replies", "approval_judge", "daily_report", "token_usage", "weekly_review", "harness_doctor", "profile_watch"] as const;
+const SCHEDULE_CAMPAIGNS = ["morning_run", "linkedin_feed", "career_portal", "job_board", "email_scan", "linkedin_replies", "approval_judge", "daily_report", "token_usage", "weekly_review", "harness_doctor", "profile_watch", "browser_watch", "schedule_trigger_dispatch"] as const;
 type ScheduleCampaign = (typeof SCHEDULE_CAMPAIGNS)[number];
 const scheduleJobId = (campaign: string) => `harness-${campaign.replace(/_/g, "-")}`;
 function jobIdToCampaign(jobId: string): ScheduleCampaign | null {
@@ -516,6 +641,116 @@ async function csvTextFromArgs(args: { csv?: string; csv_url?: string }): Promis
   throw new Error("Provide csv or csv_url.");
 }
 
+// Resumable chunked imports (v1.2.12): the synchronous legacy import actions
+// wedge the action worker past ~80K rows (120s limit), so large CSVs are
+// staged once via the privileged contracts and upserted in bounded chunks
+// through dataset_import_start / dataset_import_chunk / dataset_import_status
+// / dataset_import_retry / dataset_import_cancel. The row mappers below are
+// shared by both paths so the two import styles always produce identical rows.
+// Progress is crash/replay-safe: cursor + counters advance in ONE update only
+// after a successful upsert, and upserts are idempotent by norm key, so a
+// failed chunk can be retried (or the whole job re-run) without duplicating
+// dataset rows.
+type ImportDataset = "h1b" | "companies" | "vendors";
+const IMPORT_CHUNK_ROWS = 2000;   // rows per dataset_import_chunk call
+const IMPORT_UPSERT_BATCH = 500;  // rows per multi-row upsert statement
+const IMPORT_SYNC_ROW_LIMIT = 5000; // legacy sync actions refuse above this
+
+function mapImportRow(dataset: ImportDataset, r: Record<string, string>): Record<string, unknown> | null {
+  if (dataset === "h1b") {
+    const company = r.company_norm || r.company || r.employer;
+    if (!company) return null;
+    const stats = r.stats_by_year ? (() => { try { return JSON.parse(r.stats_by_year); } catch { return {}; } })() : {};
+    const lca = Number(r.lca_count ?? 0);
+    const refreshed = r.last_refreshed ? new Date(r.last_refreshed) : now();
+    return { companyNorm: norm(company), statsByYear: stats, lcaCount: Number.isFinite(lca) ? lca : 0, lastRefreshed: refreshed };
+  }
+  if (dataset === "companies") {
+    const company = r.company_norm || r.company;
+    if (!company) return null;
+    const tier = Number(r.tier || 3); const parkCount = Number(r.park_count || 0);
+    return {
+      companyNorm: norm(company), tier: Number.isFinite(tier) ? tier : 3,
+      industry: r.industry || null, hqState: r.hq_state || null, careersUrl: r.careers_url || null,
+      atsType: r.ats_type || null, parkCount: Number.isFinite(parkCount) ? parkCount : 0,
+      skipFlag: ["1", "true", "yes"].includes((r.skip_flag ?? "").toLowerCase()), skipReason: r.skip_reason || null,
+    };
+  }
+  const name = r.vendor_name || r.vendor || r.name;
+  if (!name) return null;
+  return {
+    vendorNorm: norm(name), vendorName: name,
+    portalUrl: r.portal_url || null, tier: r.tier || null, category: r.category || null,
+    specialties: r.specialties || null, engagementTypes: r.engagement_types || null,
+    // Vendor's own sponsorship claim — surfaced as an "Unverified sponsorship note", never scored.
+    h1bNote: r.h1b_note || null, lastRefreshed: r.last_refreshed ? new Date(r.last_refreshed) : now(),
+  };
+}
+
+// Batched upserts: one multi-row INSERT .. ON CONFLICT DO UPDATE per 500 rows,
+// with per-row SET values taken from the excluded row so every row in the
+// batch updates to its own values.
+async function upsertImportRows(ctx: Ctx, dataset: ImportDataset, rows: Record<string, unknown>[]): Promise<void> {
+  const db = ctx.db<typeof schema>();
+  for (let i = 0; i < rows.length; i += IMPORT_UPSERT_BATCH) {
+    const group = rows.slice(i, i + IMPORT_UPSERT_BATCH);
+    if (dataset === "h1b") {
+      await db.insert(schema.h1bSponsors).values(group as (typeof schema.h1bSponsors.$inferInsert)[]).onConflictDoUpdate({
+        target: schema.h1bSponsors.companyNorm,
+        set: {
+          statsByYear: sql`excluded.${sql.identifier("stats_by_year")}`,
+          lcaCount: sql`excluded.${sql.identifier("lca_count")}`,
+          lastRefreshed: sql`excluded.${sql.identifier("last_refreshed")}`,
+        },
+      });
+    } else if (dataset === "companies") {
+      await db.insert(schema.companies).values(group as (typeof schema.companies.$inferInsert)[]).onConflictDoUpdate({
+        target: schema.companies.companyNorm,
+        set: {
+          tier: sql`excluded.${sql.identifier("tier")}`,
+          industry: sql`excluded.${sql.identifier("industry")}`,
+          hqState: sql`excluded.${sql.identifier("hq_state")}`,
+          careersUrl: sql`excluded.${sql.identifier("careers_url")}`,
+          atsType: sql`excluded.${sql.identifier("ats_type")}`,
+          parkCount: sql`excluded.${sql.identifier("park_count")}`,
+          skipFlag: sql`excluded.${sql.identifier("skip_flag")}`,
+          skipReason: sql`excluded.${sql.identifier("skip_reason")}`,
+        },
+      });
+    } else {
+      await db.insert(schema.primeVendors).values(group as (typeof schema.primeVendors.$inferInsert)[]).onConflictDoUpdate({
+        target: schema.primeVendors.vendorNorm,
+        set: {
+          vendorName: sql`excluded.${sql.identifier("vendor_name")}`,
+          portalUrl: sql`excluded.${sql.identifier("portal_url")}`,
+          tier: sql`excluded.${sql.identifier("tier")}`,
+          category: sql`excluded.${sql.identifier("category")}`,
+          specialties: sql`excluded.${sql.identifier("specialties")}`,
+          engagementTypes: sql`excluded.${sql.identifier("engagement_types")}`,
+          h1bNote: sql`excluded.${sql.identifier("h1b_note")}`,
+          lastRefreshed: sql`excluded.${sql.identifier("last_refreshed")}`,
+        },
+      });
+    }
+  }
+}
+
+// Maps a CSV record list through the dataset mapper, returning insert-ready
+// rows and a skip count. Shared by the sync and chunked import paths.
+function mapImportRecords(dataset: ImportDataset, records: Record<string, string>[]): { rows: Record<string, unknown>[]; skipped: number } {
+  const rows: Record<string, unknown>[] = []; let skipped = 0;
+  for (const r of records) {
+    const mapped = mapImportRow(dataset, r);
+    if (!mapped) { skipped += 1; continue; }
+    rows.push(mapped);
+  }
+  return { rows, skipped };
+}
+
+function newImportJobId(): string {
+  return `imp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
 const safeResumeFilenamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]*\.pdf$/i;
 const safeResumeVariantPattern = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const resumeUploadResponse = z.union([
@@ -548,8 +783,23 @@ async function bytesSha256(bytes: Uint8Array): Promise<string> {
   return Array.from(new Uint8Array(digest)).map((value) => value.toString(16).padStart(2, "0")).join("");
 }
 
+type YearsMatrixEntry = { skill: string; category?: string; years: number; where_used?: string };
+
+// Legacy scavenge: some installs embedded the matrix inside one of the profile
+// JSON columns before it became a first-class column (migration 0015).
 function profileYearsMatrix(row: typeof schema.profile.$inferSelect | undefined): Record<string, unknown> {
   if (!row) return {};
+  const column = (row as { yearsMatrix?: unknown }).yearsMatrix;
+  if (Array.isArray(column)) {
+    const map: Record<string, unknown> = {};
+    for (const entry of column) {
+      const item = entry as Partial<YearsMatrixEntry>;
+      if (item && typeof item.skill === "string" && typeof item.years === "number") map[item.skill] = item.years;
+    }
+    if (Object.keys(map).length) return map;
+  } else if (column && typeof column === "object" && !Array.isArray(column)) {
+    return column as Record<string, unknown>;
+  }
   for (const section of [row.identity, row.workAuth, row.locations, row.targeting, row.comp, row.answers, row.caps, row.replyTiers]) {
     const candidate = jsonObject(section).years_matrix;
     if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) return candidate as Record<string, unknown>;
@@ -557,9 +807,52 @@ function profileYearsMatrix(row: typeof schema.profile.$inferSelect | undefined)
   return {};
 }
 
+// List form of the matrix for YAML rendering and profile_get: new column
+// first, legacy map-scavenge converted to entries, else empty.
+function yearsMatrixList(row: typeof schema.profile.$inferSelect | undefined): YearsMatrixEntry[] {
+  if (!row) return [];
+  const column = (row as { yearsMatrix?: unknown }).yearsMatrix;
+  if (Array.isArray(column)) {
+    return (column as Partial<YearsMatrixEntry>[]).filter((e) => e && typeof e.skill === "string").map((e) => ({
+      skill: String(e.skill), ...(typeof e.category === "string" ? { category: e.category } : {}),
+      years: typeof e.years === "number" && e.years >= 0 ? Math.floor(e.years) : 0,
+      ...(typeof e.where_used === "string" ? { where_used: e.where_used } : {}),
+    }));
+  }
+  const legacy = profileYearsMatrix(row);
+  return Object.entries(legacy).filter(([, years]) => typeof years === "number").map(([skill, years]) => ({ skill, years: Math.max(0, Math.floor(years as number)) }));
+}
+
 // Draft file IO lives in the privileged handlers (they run on the host and may
 // touch the filesystem directly); sandboxed server actions reach it through
 // ctx.executePrivileged and never import host-only modules.
+
+// Keyword vector for resume_pick scoring. Derived ONLY from registration
+// metadata the operator/worker explicitly supplied (role family, industry
+// tags, years-matrix skill names) — never invented from the PDF bytes. Keys
+// are lowercase single tokens; resume_pick scores by key presence in the JD.
+const KEYWORD_STOPWORDS = new Set(["and", "or", "the", "of", "a", "an", "in", "on", "for", "with", "to", "at", "by", "from", "into", "ii", "iii"]);
+function keywordVectorFromMetadata(args: { role_family: string; industry_tags: unknown; years_matrix: unknown }): Record<string, number> {
+  const tokens = new Set<string>();
+  const add = (text: string) => {
+    for (const token of norm(text).split(" ").filter(Boolean)) {
+      if (token.length < 2 || KEYWORD_STOPWORDS.has(token)) continue;
+      tokens.add(token);
+    }
+  };
+  if (typeof args.role_family === "string") add(args.role_family);
+  for (const tag of jsonArray(args.industry_tags)) if (typeof tag === "string") add(tag);
+  // years_matrix arrives as a list from profile_get/years_matrix_import and
+  // as the legacy {skill: years} map on older resume variant rows.
+  const ym = args.years_matrix;
+  const skillNames: string[] = Array.isArray(ym)
+    ? ym.flatMap((entry) => { const map = jsonObject(entry); return typeof map.skill === "string" ? [map.skill] : []; })
+    : Object.keys(jsonObject(ym));
+  for (const skill of skillNames) add(skill);
+  const vector: Record<string, number> = {};
+  for (const token of [...tokens].sort().slice(0, 200)) vector[token] = 1;
+  return vector;
+}
 
 export const Actions = {
   profile_get: defineAction({
@@ -567,14 +860,18 @@ export const Actions = {
     async handler(ctx) {
       const row = (await ctx.db<typeof schema>().select().from(schema.profile).where(eq(schema.profile.id, 1)).limit(1))[0];
       if (!row) return { profile: null, updated_at: null };
-      return { profile: { identity: row.identity, work_auth: row.workAuth, role_types: row.roleTypes, locations: row.locations, targeting: row.targeting, comp: row.comp, start_date: row.startDate, answers: row.answers, caps: row.caps, reply_tiers: row.replyTiers }, updated_at: row.updatedAt.toISOString() };
+      return { profile: { identity: row.identity, work_auth: row.workAuth, role_types: row.roleTypes, locations: row.locations, targeting: row.targeting, comp: row.comp, start_date: row.startDate, answers: row.answers, caps: row.caps, reply_tiers: row.replyTiers, years_matrix: yearsMatrixList(row) }, updated_at: row.updatedAt.toISOString() };
     },
   }),
 
   profile_put: defineAction({
     request: profilePutPayload, response: z.object({ ok: z.literal(true), updated_at: z.string() }),
     async handler(ctx, args) {
-      const updatedAt = await putProfileRow(ctx, args);
+      // compile-schedules parses profile.yaml and may not carry years_matrix
+      // (older schema): never wipe the live matrix with an absent field.
+      const db0 = ctx.db<typeof schema>();
+      const live = args.years_matrix === undefined ? (await db0.select().from(schema.profile).where(eq(schema.profile.id, 1)).limit(1))[0] : undefined;
+      const updatedAt = await putProfileRow(ctx, live ? { ...args, years_matrix: yearsMatrixList(live) } : args);
       const db = ctx.db<typeof schema>(); const caps = jsonObject(args.caps); const capPerRun = Number(caps.per_run); const capPerDay = Number(caps.per_day);
       for (const [campaignId, campaign] of Object.entries(args.campaigns ?? {})) {
         const type = campaign.type ?? campaign.group ?? campaignId;
@@ -604,6 +901,9 @@ export const Actions = {
       } catch {
         return { ok: false, step: "validation", field: "profile.yaml", message: "The existing profile.yaml could not be read or parsed." };
       }
+      // Live DB row: the matrix carry-over source when the dashboard payload
+      // omits years_matrix (older clients), and the legacy-scavenge fallback.
+      const existingRow = (await ctx.db<typeof schema>().select().from(schema.profile).where(eq(schema.profile.id, 1)).limit(1))[0];
       let rendered: { text: string; warnings: ProfileWarning[] };
       try {
         rendered = renderProfileYaml(checked.data, existingText, existingParsed);
@@ -624,11 +924,90 @@ export const Actions = {
         return { ok: false, step: "yaml_write", field: "profile.yaml", message: "The YAML file could not be written. The database was not changed." };
       }
       try {
-        const updatedAt = await putProfileRow(ctx, checked.data);
+        const updatedAt = await putProfileRow(ctx, checked.data.years_matrix === undefined
+          // Dashboard payload omitted the matrix (older client): keep the live
+          // one — never wipe it with an empty write.
+          ? { ...checked.data, years_matrix: yearsMatrixList(existingRow) }
+          : checked.data);
         return { ok: true, updated_at: updatedAt, yaml_bytes: bytes, warnings: rendered.warnings };
       } catch {
         return { ok: false, step: "database", field: "profile", message: "profile.yaml was written, but the live database update failed. The next compile-schedules run will restore convergence." };
       }
+    },
+  }),
+
+  // Import the skills matrix from a client persona YAML (the onboarding Excel
+  // converter's output) into the profile — the "initial load" path. Writes the
+  // first-class DB column AND the profile.yaml years_matrix section, so later
+  // dashboard saves round-trip it instead of dropping it.
+  years_matrix_import: defineAction({
+    request: z.object({ persona_path: z.string().min(1).optional(), yaml_text: z.string().min(1).optional() })
+      .refine((v) => (v.persona_path ? 1 : 0) + (v.yaml_text ? 1 : 0) === 1, { message: "Provide exactly one of persona_path or yaml_text." }),
+    response: z.union([
+      z.object({ ok: z.literal(true), imported: z.number().int(), updated_at: z.string() }),
+      z.object({ ok: z.literal(false), message: z.string() }),
+    ]),
+    privileged: [privileged.readPersonaYaml, privileged.readProfileYaml, privileged.parseProfileYaml, privileged.writeProfileYaml],
+    async handler(ctx, args): Promise<{ ok: true; imported: number; updated_at: string } | { ok: false; message: string }> {
+      let yamlText: string | undefined = args.yaml_text ?? undefined;
+      if (args.persona_path) {
+        const found = await ctx.executePrivileged(privileged.readPersonaYaml, { persona_path: args.persona_path });
+        if (!found.found || !found.yamlText) return { ok: false, message: `Persona file '${args.persona_path}' was not found under workspace profiles/.` };
+        yamlText = found.yamlText;
+      }
+      let parsed: Record<string, unknown>;
+      try {
+        parsed = jsonObject((await ctx.executePrivileged(privileged.parseProfileYaml, { yamlText: yamlText ?? "" })).parsed);
+      } catch {
+        return { ok: false, message: "The persona YAML could not be parsed." };
+      }
+      const raw = parsed.years_matrix;
+      if (!Array.isArray(raw) || raw.length === 0) return { ok: false, message: "The persona YAML has no years_matrix entries to import." };
+      const entrySchema = z.object({ skill: z.string().trim().min(1), category: z.string().trim().optional(), years: z.number().int().min(0), where_used: z.string().trim().optional() });
+      const entries: YearsMatrixEntry[] = [];
+      for (const item of raw) {
+        const checked = entrySchema.safeParse(typeof item === "object" && item !== null ? {
+          skill: (item as Record<string, unknown>).skill,
+          category: (item as Record<string, unknown>).category,
+          years: typeof (item as Record<string, unknown>).years === "number" ? (item as Record<string, unknown>).years : Number((item as Record<string, unknown>).years),
+          where_used: (item as Record<string, unknown>).where_used,
+        } : item);
+        if (!checked.success) return { ok: false, message: `A years_matrix entry is invalid: ${checked.error.issues[0]?.message ?? "bad entry"}.` };
+        entries.push(checked.data);
+      }
+      const db = ctx.db<typeof schema>(); const updated = now();
+      // YAML first, then the database. Everything up to the YAML write is
+      // validated before anything is written, so a failure there leaves both
+      // stores untouched. If the DB write then fails, the YAML is ahead —
+      // re-running the import (or the next compile-schedules file→DB sync)
+      // converges the DB. The reverse order would be worse: a later
+      // file→DB sync could clobber the imported matrix.
+      let existingText: string;
+      try {
+        existingText = (await ctx.executePrivileged(privileged.readProfileYaml, {})).yamlText;
+      } catch {
+        return { ok: false, message: "profile.yaml could not be read. Nothing was changed." };
+      }
+      const next = spliceTopLevelSection(existingText, "years_matrix", renderYearsMatrixYaml(entries));
+      try {
+        const reparsed = jsonObject((await ctx.executePrivileged(privileged.parseProfileYaml, { yamlText: next })).parsed);
+        if (!yamlProfileSchema.safeParse(reparsed).success) throw new Error("validation failed");
+      } catch {
+        return { ok: false, message: "The updated profile.yaml did not validate. Nothing was changed." };
+      }
+      try {
+        await ctx.executePrivileged(privileged.writeProfileYaml, { yaml_text: next });
+      } catch {
+        return { ok: false, message: "profile.yaml could not be written. Nothing was changed." };
+      }
+      try {
+        await db.insert(schema.profile).values({ id: 1, yearsMatrix: entries, updatedAt: updated })
+          .onConflictDoUpdate({ target: schema.profile.id, set: { yearsMatrix: entries, updatedAt: updated } });
+      } catch {
+        return { ok: false, message: "profile.yaml was updated, but the database write failed. Re-run the import or the next compile-schedules sync to restore convergence." };
+      }
+      ctx.invalidateQueries();
+      return { ok: true, imported: entries.length, updated_at: updated.toISOString() };
     },
   }),
 
@@ -864,8 +1243,13 @@ export const Actions = {
     response: z.object({ ok: z.literal(true) }),
     async handler(ctx, args) {
       const db = ctx.db<typeof schema>();
-      await db.insert(schema.resumeVariants).values({ variantId: args.variant_id, path: args.path, sha256: args.sha256, roleFamily: args.role_family, industryTags: args.industry_tags, yearsMatrix: args.years_matrix, keywordVector: args.keyword_vector })
-        .onConflictDoUpdate({ target: schema.resumeVariants.variantId, set: { path: args.path, sha256: args.sha256, roleFamily: args.role_family, industryTags: args.industry_tags, yearsMatrix: args.years_matrix, keywordVector: args.keyword_vector } });
+      // An explicit non-empty caller vector wins (the tailoring worker knows
+      // the keywords it built the resume around); otherwise derive from
+      // registration metadata so the vector is never empty.
+      const provided = jsonObject(args.keyword_vector);
+      const vector = Object.keys(provided).length > 0 ? provided : keywordVectorFromMetadata(args);
+      await db.insert(schema.resumeVariants).values({ variantId: args.variant_id, path: args.path, sha256: args.sha256, roleFamily: args.role_family, industryTags: args.industry_tags, yearsMatrix: args.years_matrix, keywordVector: vector })
+        .onConflictDoUpdate({ target: schema.resumeVariants.variantId, set: { path: args.path, sha256: args.sha256, roleFamily: args.role_family, industryTags: args.industry_tags, yearsMatrix: args.years_matrix, keywordVector: vector } });
       ctx.invalidateQueries(); return { ok: true as const };
     },
   }),
@@ -896,15 +1280,18 @@ export const Actions = {
         return { ok: false, message: error instanceof Error ? error.message : "The PDF could not be saved to the resume library." };
       }
       const sha256 = await bytesSha256(bytes);
+      const industryTags = args.industry_tags ?? [];
       try {
         await db.insert(schema.resumeVariants).values({
           variantId,
           path: written.path,
           sha256,
           roleFamily,
-          industryTags: args.industry_tags ?? [],
+          industryTags,
           yearsMatrix: profileYearsMatrix(profileRow),
-          keywordVector: {},
+          // Uploads carry no explicit keyword list: derive from metadata so
+          // resume_pick's keyword term can never be silently zero.
+          keywordVector: keywordVectorFromMetadata({ role_family: roleFamily, industry_tags: industryTags, years_matrix: yearsMatrixList(profileRow) }),
         });
       } catch {
         try { await ctx.executePrivileged(privileged.trashResumeFile, { variant_id: variantId, filename: written.filename, location: "user_files" }); } catch { /* preserve the uploaded file if recovery trash is unavailable */ }
@@ -952,9 +1339,35 @@ export const Actions = {
         const approval = Math.max(0, Math.min(1, row.approvalRate > 1 ? row.approvalRate / 100 : row.approvalRate));
         const days = row.lastPickedAt ? (Date.now() - row.lastPickedAt.getTime()) / 86_400_000 : 90; const recency = Math.max(0, Math.min(1, days / 30));
         const score = 0.45 * keyword + 0.25 * tag + 0.20 * approval + 0.10 * recency;
-        return { variant_id: row.variantId, score: Number(score.toFixed(4)), breakdown: { keyword: Number(keyword.toFixed(4)), tag: Number(tag.toFixed(4)), approval_rate: Number(approval.toFixed(4)), recency: Number(recency.toFixed(4)) } };
-      }).sort((a, b) => b.score - a.score).slice(0, 3);
+        const roleMatch = targetRole ? (norm(row.roleFamily) === targetRole ? 1 : 0) : 0;
+        const pickedAtMs = row.lastPickedAt ? row.lastPickedAt.getTime() : 0;
+        return { variant_id: row.variantId, score: Number(score.toFixed(4)), roleMatch, approval: Number(approval.toFixed(4)), pickedAtMs, breakdown: { keyword: Number(keyword.toFixed(4)), tag: Number(tag.toFixed(4)), approval_rate: Number(approval.toFixed(4)), recency: Number(recency.toFixed(4)) } };
+      }).sort((a, b) =>
+        // Deterministic: score → role-family match → approval rate →
+        // least recently picked → stable variant id. No arbitrary ties.
+        b.score - a.score || b.roleMatch - a.roleMatch || b.approval - a.approval || a.pickedAtMs - b.pickedAtMs || (a.variant_id < b.variant_id ? -1 : a.variant_id > b.variant_id ? 1 : 0)
+      ).map(({ variant_id, score, breakdown }) => ({ variant_id, score, breakdown })).slice(0, 3);
       return { results: scored };
+    },
+  }),
+
+  // Backfill keyword vectors for variants registered before keyword
+  // derivation existed (empty vectors). Idempotent: only touches variants
+  // whose vector is empty or missing.
+  resume_reindex: defineAction({
+    request: emptyRequest, response: z.object({ ok: z.literal(true), reindexed: z.number().int(), total: z.number().int() }),
+    async handler(ctx) {
+      const db = ctx.db<typeof schema>();
+      const rows = await db.select().from(schema.resumeVariants);
+      let reindexed = 0;
+      for (const row of rows) {
+        if (Object.keys(jsonObject(row.keywordVector)).length > 0) continue;
+        const vector = keywordVectorFromMetadata({ role_family: row.roleFamily, industry_tags: row.industryTags, years_matrix: row.yearsMatrix });
+        await db.update(schema.resumeVariants).set({ keywordVector: vector }).where(eq(schema.resumeVariants.variantId, row.variantId));
+        reindexed += 1;
+      }
+      ctx.invalidateQueries();
+      return { ok: true as const, reindexed, total: rows.length };
     },
   }),
 
@@ -1560,7 +1973,7 @@ export const Actions = {
 
   snapshot: defineAction({
     request: z.object({ view: z.enum(["overview", "applications", "resumes", "runs", "replies", "health", "ask"]), query: z.string().optional() }), response: z.object({ view: z.string(), generated_at: z.string(), data: z.unknown() }),
-    privileged: [privileged.applicationEvidenceExists],
+    privileged: [privileged.applicationEvidenceExists, privileged.hiddenFilesDiskUsage],
     async handler(ctx, args) {
       const db = ctx.db<typeof schema>(); const generatedAt = now(); const cutoff24 = new Date(Date.now() - 86_400_000); const cutoff7 = new Date(Date.now() - 7 * 86_400_000); const cutoff30 = new Date(Date.now() - 30 * 86_400_000);
       const appCounts = async () => {
@@ -1673,7 +2086,31 @@ export const Actions = {
       if (args.view === "health") {
         const runRows = await db.select().from(schema.runs).orderBy(desc(schema.runs.started)).limit(100); const aged = await db.select().from(schema.approvals).where(and(isNull(schema.approvals.resolvedAt), lt(schema.approvals.createdAt, cutoff24))).orderBy(asc(schema.approvals.createdAt)); const stale = await db.select().from(schema.applications).where(and(eq(schema.applications.state, "applying"), lt(schema.applications.updatedAt, cutoff24)));
         const drift = runRows.filter((r) => JSON.stringify(r.compiledConfig) !== JSON.stringify(r.liveConfig)).map((r) => ({ run_id: r.runId, campaign_id: r.campaignId, compiled: r.compiledConfig, live: r.liveConfig })); const last = runRows[0];
-        return { view: args.view, generated_at: generatedAt.toISOString(), data: { status: !last ? "no_runs" : last.status === "running" || (last.ended && last.ended >= cutoff24) ? "healthy" : "attention", runs_24h: runRows.filter((r) => r.started >= cutoff24).length, drift, stale_intents: stale.map((a) => ({ app_id: a.appId, updated_at: a.updatedAt.toISOString(), intent_id: a.intentId })), aged_approvals: aged.map((a) => ({ approval_id: a.approvalId, question: a.question, created_at: a.createdAt.toISOString() })), state_edges: STATE_EDGE_DOCS, disk: { available: false, message: "Disk telemetry source unavailable." } } };
+        // Parked companies the doctor watches (park_count >= 3): skip flag +
+        // reason so the doctor can set the flag and enqueue operator review.
+        const parked = (await db.select().from(schema.companies).where(gte(schema.companies.parkCount, 3)).orderBy(desc(schema.companies.parkCount)).limit(50))
+          .map((c) => ({ company_norm: c.companyNorm, park_count: c.parkCount, skip_flag: c.skipFlag, skip_reason: c.skipReason }));
+        // H-1B dataset freshness: min/max refresh across all sponsor rows.
+        const h1bStats = (await db.select({ count: sql<number>`count(*)`, oldest: sql<number | null>`min(${schema.h1bSponsors.lastRefreshed})`, newest: sql<number | null>`max(${schema.h1bSponsors.lastRefreshed})` }).from(schema.h1bSponsors))[0];
+        const h1bNewestMs = h1bStats?.newest ? Number(h1bStats.newest) : null;
+        const h1bOldestMs = h1bStats?.oldest ? Number(h1bStats.oldest) : null;
+        const h1b = {
+          employers: countNumber(h1bStats?.count),
+          newest_refresh: h1bNewestMs ? new Date(h1bNewestMs).toISOString() : null,
+          oldest_refresh: h1bOldestMs ? new Date(h1bOldestMs).toISOString() : null,
+          age_days_newest: h1bNewestMs ? Number(((Date.now() - h1bNewestMs) / 86_400_000).toFixed(1)) : null,
+          age_days_oldest: h1bOldestMs ? Number(((Date.now() - h1bOldestMs) / 86_400_000).toFixed(1)) : null,
+        };
+        // Disk telemetry: real hidden_files usage via the privileged contract;
+        // explicit unavailable state (never silently omitted) when it fails.
+        let disk: Record<string, unknown>;
+        try {
+          const usage = await ctx.executePrivileged(privileged.hiddenFilesDiskUsage, { prune_candidates: 10 });
+          disk = { available: true, bytes_total: usage.bytes_total, folder_count: usage.folder_count, over_2gb: usage.bytes_total > 2 * 1024 * 1024 * 1024, prune_candidates: usage.oldest_folders };
+        } catch {
+          disk = { available: false, message: "Disk telemetry source unavailable." };
+        }
+        return { view: args.view, generated_at: generatedAt.toISOString(), data: { status: !last ? "no_runs" : last.status === "running" || (last.ended && last.ended >= cutoff24) ? "healthy" : "attention", runs_24h: runRows.filter((r) => r.started >= cutoff24).length, drift, stale_intents: stale.map((a) => ({ app_id: a.appId, updated_at: a.updatedAt.toISOString(), intent_id: a.intentId })), aged_approvals: aged.map((a) => ({ approval_id: a.approvalId, question: a.question, created_at: a.createdAt.toISOString() })), state_edges: STATE_EDGE_DOCS, parked_companies: parked, h1b_refresh: h1b, disk } };
       }
       if (args.view === "overview") {
         const counts = await appCounts(); const recentRuns = await db.select().from(schema.runs).where(gte(schema.runs.started, cutoff24)).orderBy(desc(schema.runs.started)); const pending = await db.select().from(schema.approvals).where(isNull(schema.approvals.resolvedAt)).orderBy(asc(schema.approvals.createdAt)).limit(20); const recentEvents = await db.select({ count: sql<number>`count(*)` }).from(schema.events).where(gte(schema.events.at, cutoff24));
@@ -1689,7 +2126,7 @@ export const Actions = {
       else if (route === "tokens") { const rows = await db.select({ total: sql<number>`coalesce(sum(${schema.tokenUsage.totalTokens}),0)` }).from(schema.tokenUsage); answer = `${countNumber(rows[0]?.total).toLocaleString()} total tokens are recorded.`; sources = ["token_usage"]; }
       else if (route === "blockers") { const apps = await db.select({ count: sql<number>`count(*)` }).from(schema.applications).where(or(eq(schema.applications.state, "blocked"), sql`${schema.applications.blocker} IS NOT NULL`)); const runs = await db.select({ count: sql<number>`count(*)` }).from(schema.runs).where(sql`${schema.runs.blocker} IS NOT NULL`); answer = `${countNumber(apps[0]?.count).toLocaleString()} application blockers and ${countNumber(runs[0]?.count).toLocaleString()} run blockers are recorded.`; sources = ["applications", "runs"]; }
       else if (route === "schedules") { const rows = await db.select().from(schema.campaigns); answer = rows.length ? rows.map((r) => `${r.campaignId}: ${r.cadence}`).join(" · ") : "The campaigns schedule ledger is available but empty."; sources = ["campaigns"]; }
-      else if (route === "health") { const aged = await db.select({ count: sql<number>`count(*)` }).from(schema.approvals).where(and(isNull(schema.approvals.resolvedAt), lt(schema.approvals.createdAt, cutoff24))); answer = `${countNumber(aged[0]?.count).toLocaleString()} approvals have been waiting more than 24 hours. Disk telemetry is unavailable.`; sources = ["approvals", "runs"]; }
+      else if (route === "health") { const aged = await db.select({ count: sql<number>`count(*)` }).from(schema.approvals).where(and(isNull(schema.approvals.resolvedAt), lt(schema.approvals.createdAt, cutoff24))); const parkedRows = await db.select({ count: sql<number>`count(*)` }).from(schema.companies).where(gte(schema.companies.parkCount, 3)); let diskNote = "disk telemetry unavailable"; try { const usage = await ctx.executePrivileged(privileged.hiddenFilesDiskUsage, { prune_candidates: 1 }); diskNote = `hidden_files uses ${(usage.bytes_total / 1073741824).toFixed(2)} GB across ${usage.folder_count} campaign folders`; } catch { /* keep the explicit unavailable note */ } answer = `${countNumber(aged[0]?.count).toLocaleString()} approvals have been waiting more than 24 hours. ${countNumber(parkedRows[0]?.count)} companies have park_count >= 3. ${diskNote}.`; sources = ["approvals", "companies", "hidden_files"]; }
       return { view: args.view, generated_at: generatedAt.toISOString(), data: { route, answer, sources } };
     },
   }),
@@ -1810,38 +2247,128 @@ export const Actions = {
 
   // Seed CSVs are too large for action args; callers may pass csv_url (a fetchable
   // URL) instead of pasting the CSV. Exactly one of csv / csv_url is required.
+  // Synchronous imports are capped at 5,000 rows: larger files must use the
+  // resumable dataset_import_start / dataset_import_chunk path below, because
+  // an 80K-row single-action import exceeds the 120s action limit and wedges
+  // the worker.
   h1b_import: defineAction({
     request: z.object({ csv: z.string().min(1).optional(), csv_url: z.string().url().optional() }).refine((v) => v.csv || v.csv_url, { message: "Provide csv or csv_url." }),
     response: z.object({ imported: z.number(), skipped: z.number() }),
-    async handler(ctx, args) { const db = ctx.db<typeof schema>(); const records = recordsFromCsv(await csvTextFromArgs(args)); let imported = 0; let skipped = 0; for (const r of records) { const company = r.company_norm || r.company || r.employer; if (!company) { skipped += 1; continue; } const stats = r.stats_by_year ? (() => { try { return JSON.parse(r.stats_by_year); } catch { return {}; } })() : {}; const lca = Number(r.lca_count ?? 0); await db.insert(schema.h1bSponsors).values({ companyNorm: norm(company), statsByYear: stats, lcaCount: Number.isFinite(lca) ? lca : 0, lastRefreshed: r.last_refreshed ? new Date(r.last_refreshed) : now() }).onConflictDoUpdate({ target: schema.h1bSponsors.companyNorm, set: { statsByYear: stats, lcaCount: Number.isFinite(lca) ? lca : 0, lastRefreshed: r.last_refreshed ? new Date(r.last_refreshed) : now() } }); imported += 1; } if (imported) ctx.invalidateQueries(); return { imported, skipped }; },
+    async handler(ctx, args) { const records = recordsFromCsv(await csvTextFromArgs(args)); if (records.length > IMPORT_SYNC_ROW_LIMIT) throw new Error(`CSV has ${records.length.toLocaleString()} rows — over the ${IMPORT_SYNC_ROW_LIMIT.toLocaleString()}-row synchronous limit. Use dataset_import_start + dataset_import_chunk for a resumable chunked import.`); const { rows, skipped } = mapImportRecords("h1b", records); await upsertImportRows(ctx, "h1b", rows); if (rows.length) ctx.invalidateQueries(); return { imported: rows.length, skipped }; },
   }),
 
   companies_import: defineAction({
     request: z.object({ csv: z.string().min(1).optional(), csv_url: z.string().url().optional() }).refine((v) => v.csv || v.csv_url, { message: "Provide csv or csv_url." }),
     response: z.object({ imported: z.number(), skipped: z.number() }),
-    async handler(ctx, args) { const db = ctx.db<typeof schema>(); const records = recordsFromCsv(await csvTextFromArgs(args)); let imported = 0; let skipped = 0; for (const r of records) { const company = r.company_norm || r.company; if (!company) { skipped += 1; continue; } await db.insert(schema.companies).values({ companyNorm: norm(company), tier: Number(r.tier || 3), industry: r.industry || null, hqState: r.hq_state || null, careersUrl: r.careers_url || null, atsType: r.ats_type || null, parkCount: Number(r.park_count || 0), skipFlag: ["1", "true", "yes"].includes((r.skip_flag ?? "").toLowerCase()), skipReason: r.skip_reason || null }).onConflictDoUpdate({ target: schema.companies.companyNorm, set: { tier: Number(r.tier || 3), industry: r.industry || null, hqState: r.hq_state || null, careersUrl: r.careers_url || null, atsType: r.ats_type || null, parkCount: Number(r.park_count || 0), skipFlag: ["1", "true", "yes"].includes((r.skip_flag ?? "").toLowerCase()), skipReason: r.skip_reason || null } }); imported += 1; } if (imported) ctx.invalidateQueries(); return { imported, skipped }; },
+    async handler(ctx, args) { const records = recordsFromCsv(await csvTextFromArgs(args)); if (records.length > IMPORT_SYNC_ROW_LIMIT) throw new Error(`CSV has ${records.length.toLocaleString()} rows — over the ${IMPORT_SYNC_ROW_LIMIT.toLocaleString()}-row synchronous limit. Use dataset_import_start + dataset_import_chunk for a resumable chunked import.`); const { rows, skipped } = mapImportRecords("companies", records); await upsertImportRows(ctx, "companies", rows); if (rows.length) ctx.invalidateQueries(); return { imported: rows.length, skipped }; },
   }),
 
   prime_vendors_import: defineAction({
     request: z.object({ csv: z.string().min(1).optional(), csv_url: z.string().url().optional() }).refine((v) => v.csv || v.csv_url, { message: "Provide csv or csv_url." }),
     response: z.object({ imported: z.number(), skipped: z.number() }),
+    async handler(ctx, args) { const records = recordsFromCsv(await csvTextFromArgs(args)); if (records.length > IMPORT_SYNC_ROW_LIMIT) throw new Error(`CSV has ${records.length.toLocaleString()} rows — over the ${IMPORT_SYNC_ROW_LIMIT.toLocaleString()}-row synchronous limit. Use dataset_import_start + dataset_import_chunk for a resumable chunked import.`); const { rows, skipped } = mapImportRecords("vendors", records); await upsertImportRows(ctx, "vendors", rows); if (rows.length) ctx.invalidateQueries(); return { imported: rows.length, skipped }; },
+  }),
+
+  // Resumable chunked dataset imports: stage the CSV once (host-side, outside
+  // action-arg limits), then process it in bounded chunks. A chunk call upserts
+  // at most IMPORT_CHUNK_ROWS rows in 500-row batches — always well under the
+  // 120s action limit. The job row persists cursor/progress, so a failed or
+  // timed-out chunk is simply retried; chunks are idempotent (upsert by norm
+  // key) and the worker drives start -> chunk* -> done in a loop.
+  dataset_import_start: defineAction({
+    request: z.object({ dataset: z.enum(["h1b", "companies", "vendors"]), csv: z.string().min(1).max(20 * 1024 * 1024).optional(), csv_url: z.string().url().optional() }).refine((v) => v.csv || v.csv_url, { message: "Provide csv or csv_url." }),
+    response: z.object({ job_id: z.string(), dataset: z.string(), total_rows: z.number(), status: z.string(), source_sha256: z.string().nullable() }),
+    privileged: [privileged.stageImportCsv, privileged.deleteImportStaging],
     async handler(ctx, args) {
-      const db = ctx.db<typeof schema>(); const records = recordsFromCsv(await csvTextFromArgs(args)); let imported = 0; let skipped = 0;
-      for (const r of records) {
-        const name = r.vendor_name || r.vendor || r.name;
-        if (!name) { skipped += 1; continue; }
-        const values = {
-          vendorNorm: norm(name), vendorName: name,
-          portalUrl: r.portal_url || null, tier: r.tier || null, category: r.category || null,
-          specialties: r.specialties || null, engagementTypes: r.engagement_types || null,
-          // Vendor's own sponsorship claim — surfaced as an "Unverified sponsorship note", never scored.
-          h1bNote: r.h1b_note || null, lastRefreshed: r.last_refreshed ? new Date(r.last_refreshed) : now(),
-        };
-        const { vendorNorm: _pk, ...rest } = values;
-        await db.insert(schema.primeVendors).values(values).onConflictDoUpdate({ target: schema.primeVendors.vendorNorm, set: rest });
-        imported += 1;
+      const db = ctx.db<typeof schema>(); const jobId = newImportJobId(); const started = now();
+      await db.insert(schema.datasetImportJobs).values({ jobId, dataset: args.dataset, status: "running", createdAt: started, updatedAt: started });
+      try {
+        const staged = await ctx.executePrivileged(privileged.stageImportCsv, { job_id: jobId, csv: args.csv, csv_url: args.csv_url });
+        await db.update(schema.datasetImportJobs).set({ totalRows: staged.total_rows, sourceUrl: args.csv_url ?? null, sourceSha256: staged.source_sha256, updatedAt: now() }).where(eq(schema.datasetImportJobs.jobId, jobId));
+        return { job_id: jobId, dataset: args.dataset, total_rows: staged.total_rows, status: "running", source_sha256: staged.source_sha256 };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        await db.update(schema.datasetImportJobs).set({ status: "failed", error: message.slice(0, 500), updatedAt: now() }).where(eq(schema.datasetImportJobs.jobId, jobId));
+        try { await ctx.executePrivileged(privileged.deleteImportStaging, { job_id: jobId }); } catch { /* staging may not exist */ }
+        throw err;
       }
-      if (imported) ctx.invalidateQueries(); return { imported, skipped };
+    },
+  }),
+
+  dataset_import_chunk: defineAction({
+    request: z.object({ job_id: z.string().min(1), limit: z.number().int().min(1).max(10000).optional() }),
+    response: z.object({ job_id: z.string(), dataset: z.string(), status: z.string(), processed: z.number(), total_rows: z.number(), imported: z.number(), skipped: z.number(), done: z.boolean(), error: z.string().nullable().optional() }),
+    privileged: [privileged.readImportCsvChunk, privileged.deleteImportStaging],
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const job = (await db.select().from(schema.datasetImportJobs).where(eq(schema.datasetImportJobs.jobId, args.job_id)).limit(1))[0];
+      if (!job) throw new Error(`Import job '${args.job_id}' was not found.`);
+      const terminal = job.status !== "running";
+      const statusPayload = { job_id: job.jobId, dataset: job.dataset, status: job.status, processed: job.processed, total_rows: job.totalRows, imported: job.imported, skipped: job.skipped, done: job.status === "done", error: job.error ?? null };
+      if (terminal) return statusPayload;
+      const limit = args.limit ?? IMPORT_CHUNK_ROWS;
+      try {
+        const chunk = await ctx.executePrivileged(privileged.readImportCsvChunk, { job_id: job.jobId, offset: job.cursor, limit });
+        const { rows, skipped } = mapImportRecords(job.dataset as ImportDataset, chunk.rows);
+        await upsertImportRows(ctx, job.dataset as ImportDataset, rows);
+        const nextCursor = chunk.next_offset; const done = nextCursor >= chunk.total_rows;
+        const processed = job.processed + chunk.rows.length; const imported = job.imported + rows.length; const totalSkipped = job.skipped + skipped;
+        await db.update(schema.datasetImportJobs).set({ cursor: nextCursor, processed, imported, skipped: totalSkipped, status: done ? "done" : "running", updatedAt: now() }).where(eq(schema.datasetImportJobs.jobId, job.jobId));
+        if (done) {
+          try { await ctx.executePrivileged(privileged.deleteImportStaging, { job_id: job.jobId }); } catch { /* best-effort cleanup */ }
+          ctx.invalidateQueries();
+        }
+        return { job_id: job.jobId, dataset: job.dataset, status: done ? "done" : "running", processed, total_rows: chunk.total_rows, imported, skipped: totalSkipped, done, error: null };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        await db.update(schema.datasetImportJobs).set({ status: "failed", error: message.slice(0, 500), updatedAt: now() }).where(eq(schema.datasetImportJobs.jobId, job.jobId));
+        throw err;
+      }
+    },
+  }),
+
+  dataset_import_status: defineAction({
+    request: z.object({ job_id: z.string().min(1) }),
+    response: z.object({ job_id: z.string(), dataset: z.string(), status: z.string(), processed: z.number(), total_rows: z.number(), imported: z.number(), skipped: z.number(), done: z.boolean(), error: z.string().nullable().optional(), source_url: z.string().nullable().optional(), source_sha256: z.string().nullable().optional(), updated_at: z.string() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const job = (await db.select().from(schema.datasetImportJobs).where(eq(schema.datasetImportJobs.jobId, args.job_id)).limit(1))[0];
+      if (!job) throw new Error(`Import job '${args.job_id}' was not found.`);
+      return { job_id: job.jobId, dataset: job.dataset, status: job.status, processed: job.processed, total_rows: job.totalRows, imported: job.imported, skipped: job.skipped, done: job.status === "done", error: job.error ?? null, source_url: job.sourceUrl ?? null, source_sha256: job.sourceSha256 ?? null, updated_at: job.updatedAt.toISOString() };
+    },
+  }),
+
+  // Retry a failed import job: the cursor never advances past a failed chunk
+  // (cursor + counters move in one UPDATE only after a successful upsert) and
+  // chunk upserts are idempotent by norm key, so resuming re-processes the
+  // failed chunk safely. Staging is kept on chunk failure precisely so retry
+  // has something to resume from; cancel/delete removes it.
+  dataset_import_retry: defineAction({
+    request: z.object({ job_id: z.string().min(1) }),
+    response: z.object({ job_id: z.string(), dataset: z.string(), status: z.string(), cursor: z.number(), processed: z.number(), total_rows: z.number() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const job = (await db.select().from(schema.datasetImportJobs).where(eq(schema.datasetImportJobs.jobId, args.job_id)).limit(1))[0];
+      if (!job) throw new Error(`Import job '${args.job_id}' was not found.`);
+      if (job.status !== "failed") throw new Error(`Import job '${args.job_id}' is '${job.status}' — only failed jobs can be retried.`);
+      await db.update(schema.datasetImportJobs).set({ status: "running", error: null, updatedAt: now() }).where(eq(schema.datasetImportJobs.jobId, job.jobId));
+      return { job_id: job.jobId, dataset: job.dataset, status: "running", cursor: job.cursor, processed: job.processed, total_rows: job.totalRows };
+    },
+  }),
+
+  dataset_import_cancel: defineAction({
+    request: z.object({ job_id: z.string().min(1) }),
+    response: z.object({ job_id: z.string(), status: z.string() }),
+    privileged: [privileged.deleteImportStaging],
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const job = (await db.select().from(schema.datasetImportJobs).where(eq(schema.datasetImportJobs.jobId, args.job_id)).limit(1))[0];
+      if (!job) throw new Error(`Import job '${args.job_id}' was not found.`);
+      if (job.status === "running" || job.status === "failed") {
+        try { await ctx.executePrivileged(privileged.deleteImportStaging, { job_id: job.jobId }); } catch { /* best-effort */ }
+        await db.update(schema.datasetImportJobs).set({ status: "cancelled", updatedAt: now() }).where(eq(schema.datasetImportJobs.jobId, job.jobId));
+      }
+      return { job_id: job.jobId, status: (job.status === "running" || job.status === "failed") ? "cancelled" : job.status };
     },
   }),
 

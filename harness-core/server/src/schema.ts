@@ -12,6 +12,9 @@ export const profile = sqliteTable("profile", {
   answers: text("answers", { mode: "json" }).notNull().default({}),
   caps: text("caps", { mode: "json" }).notNull().default({}),
   replyTiers: text("reply_tiers", { mode: "json" }).notNull().default({}),
+  // Skills matrix (migration 0015): first-class column so profile_save can no
+  // longer drop it when rewriting profile.yaml from fixed fields.
+  yearsMatrix: text("years_matrix", { mode: "json" }).notNull().default([]),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 });
 
@@ -144,4 +147,20 @@ export const purgeStage = sqliteTable("purge_stage", {
 
 export const purgeGuard = sqliteTable("purge_guard", {
   batchId: text("batch_id").primaryKey(), offenderCount: integer("offender_count").notNull(),
+});
+
+// Resumable chunked dataset imports (migration 0016): a staged CSV becomes a
+// job row; each dataset_import_chunk call processes a bounded row range so no
+// single action can exceed the 120s limit. cursor = next data-row offset.
+export const datasetImportJobs = sqliteTable("dataset_import_jobs", {
+  jobId: text("job_id").primaryKey(), dataset: text("dataset").notNull(),
+  totalRows: integer("total_rows").notNull().default(0), cursor: integer("cursor").notNull().default(0),
+  processed: integer("processed").notNull().default(0), imported: integer("imported").notNull().default(0),
+  skipped: integer("skipped").notNull().default(0),
+  status: text("status", { enum: ["running", "done", "failed", "cancelled"] }).notNull().default("running"),
+  error: text("error"),
+  sourceUrl: text("source_url"),
+  sourceSha256: text("source_sha256"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 });

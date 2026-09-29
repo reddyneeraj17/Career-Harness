@@ -28,7 +28,7 @@ The profile is the single human-editable rule source. Templates live at `~/works
 
 1. **Validate.** Validate `profile.yaml` against `templates/profile.schema.yaml` (required keys, enums). Fail loudly on any missing key. Never render a half-profile.
 2. **Sync.** `profile_put` — the DB and the bodies must agree; a compiled body rendered from stale facts is a bug.
-3. **Render.** Render each `templates/<campaign>.body.md` with `{{ }}` placeholders filled from the profile. A placeholder with no value FAILS the compile. `[FILL IN]` never ships.
+3. **Render.** Render each `templates/<campaign>.body.md` with `{{ }}` placeholders filled from the profile. A placeholder with no value FAILS the compile. `[FILL IN]` never ships. The campaign set is the `campaigns` map in `templates/profile.schema.yaml` — currently 13 entries: the 12 campaigns plus `schedule_trigger_dispatch`, the control-plane dispatcher for the dashboard's "Trigger now" buttons (default cadence `every 2m`, always compiled even when every campaign is disabled; without it, queued triggers sit unpicked forever).
 4. **Save.** `cron.update` for existing jobs whose rendered body actually changed
    (compare against `cron.view` first); `cron.add` if a job is missing, or on
    first install. Bodies are thin: invoke the run-coordinator skill with

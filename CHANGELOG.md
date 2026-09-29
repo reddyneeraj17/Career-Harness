@@ -4,7 +4,82 @@ All notable changes to the Job-Apply Harness kit are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.2.12] — 2026-09-28
+
+### Added
+- **Resumable chunked dataset imports.** Large seed CSVs (80K+ rows) exceeded
+  the 120s action limit and wedged the worker. New
+  `dataset_import_start` / `dataset_import_chunk` /
+  `dataset_import_status` / `dataset_import_retry` /
+  `dataset_import_cancel` actions: the CSV is staged once via new privileged
+  contracts (`stageImportCsv`, `readImportCsvChunk`, `deleteImportStaging`,
+  confined to a `.import-staging` dir) as one JSON chunk file per 2,000 rows,
+  then upserted in bounded chunks (2,000 rows/call, 500-row multi-row
+  `INSERT ... ON CONFLICT DO UPDATE` batches) — chunk reads touch only the
+  files the requested offset range spans, never the whole dataset. Job rows
+  in the new `dataset_import_jobs` table persist cursor, progress, and source
+  identity (`source_url`, `source_sha256` of the staged file). Progress is
+  crash/replay-safe: cursor + counters advance in one UPDATE only after a
+  successful upsert, and upserts are idempotent by norm key, so a failed
+  chunk is retried with `dataset_import_retry` (cursor preserved, failed
+  chunk re-processed, no duplicated dataset rows); staging is kept on chunk
+  failure precisely so retry has something to resume from. The legacy
+  synchronous `h1b_import` / `companies_import` / `prime_vendors_import`
+  actions now refuse files over 5,000 rows with a pointer to the chunked
+  path, and share the same row mappers so both paths produce identical rows.
+  Verified against the real 86,230-row companies seed: staged to 44 chunk
+  files, bounded reads at offsets 0 / 84,000 / last-chunk / past-end all
+  correct, re-reads stable, sha256 deterministic.
+- **Real health telemetry.** The `snapshot` health view now returns parked
+  companies (`park_count >= 3` with skip flag/reason), H-1B refresh
+  statistics (employer count, newest/oldest refresh timestamps and age in
+  days), and real `hidden_files` disk usage via the new confined
+  `hiddenFilesDiskUsage` privileged contract (bytes total, folder count,
+  over-2GB flag, oldest folders as prune candidates). Unavailable telemetry
+  is reported explicitly (`available: false`), never silently omitted. The
+  ask-route health answer reports the same figures. `harness-doctor`
+  1.0.0 → 1.1.0.
+- **`schedule_trigger_dispatch` control-plane template.** The missing 13th
+  schedule template (`templates/schedule_trigger_dispatch.body.md`) and its
+  optional `schedule_trigger_dispatch` campaign schema entry (default
+  `every 2m`) are now in the kit; `compile-schedules` requires all 13
+  schema-defined templates.
+
+### Fixed
+- **Profile saves no longer drop `years_matrix` or extension keys.**
+  `years_matrix` is a first-class profile column (migration 0015) and YAML
+  section: `profile_get` returns it, `profile_put`/`profile_save` carry the
+  live matrix forward when older callers omit it, and `renderProfileYaml`
+  round-trips it — including an explicit clear-all (`years_matrix: []`
+  writes an empty section so YAML and DB stay identical). Unknown top-level
+  extension sections are preserved verbatim, and unknown *nested* keys
+  inside known sections are now appended rather than dropped (idempotent —
+  a second save adds nothing twice). New `years_matrix_import` action loads
+  the matrix from the onboarding persona YAML (or raw YAML text) into both
+  the DB column and `profile.yaml`; it writes YAML first, then the DB — a
+  failure before/during the YAML write leaves both stores untouched, while
+  a later DB failure leaves the YAML ahead and the next import retry (or
+  compile-schedules file→DB sync) converges it. The dashboard Profile tab
+  has a matrix editor (add/edit/remove rows: skill, category, years, where
+  used) plus a persona-YAML import button.
+- **Resume ranking no longer ties on empty vectors.** `resume_register`
+  keeps an explicit caller vector but otherwise derives `keyword_vector`
+  from metadata (role family, industry tags, years-matrix skill names —
+  never invented from PDF bytes); `resume_upload` derives instead of
+  writing `{}`. `resume_pick` tie-breaks deterministically: total score →
+  exact role-family match → approval rate → least recently picked → variant
+  id. New idempotent `resume_reindex` backfills vectors for variants that
+  have none. `resume-picker` skill 1.0.0 → 1.1.0.
+- **Profile saves no longer revert `identity.timezone`.** `renderProfileYaml`
+  rebuilt the identity block without a `timezone:` line, so the file kept
+  the old value (or none) while the database took the new one — the next
+  file→database sync then reverted the change. The rendered block now
+  writes `timezone` from the payload like every other identity field.
+- **Profile saves no longer write a duplicate `restrictive_covenants` line.**
+  The dashboard payload carried both `covenants` and the legacy
+  `restrictive_covenants` key, and the server rendered both as
+  `restrictive_covenants:` in `profile.yaml`. The client now drops the
+  legacy key (`covenants` already falls back to its value).
 
 ## [1.2.11] — 2026-09-28
 

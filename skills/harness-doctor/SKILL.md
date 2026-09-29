@@ -2,7 +2,7 @@
 
 ---
 name: harness-doctor
-version: "1.0.0"
+version: "1.1.0"
 description: Hourly health check over schedules, intents, approvals, runs, and disk; verifies, never repairs by force.
 ---
 
@@ -18,7 +18,7 @@ No inputs. The doctor reads only `harness-core` (via `snapshot`) and the schedul
 
 ## Actions called
 
-- `snapshot` — read-only: `health` view (drift, stale intents, aged approvals, unclosed runs, parked companies, H-1B data age, disk usage) and `overview` for fleet status.
+- `snapshot` — read-only: `health` view (drift, stale intents, aged approvals, unclosed runs, parked companies, H-1B data age, disk usage) and `overview` for fleet status. The health view returns real telemetry for every check below: `parked_companies` rows (park_count >= 3 with skip flag/reason), `h1b_refresh` (employer count, newest/oldest refresh timestamps and age in days), and `disk` (`available: true` with bytes_total/folder_count/over_2gb/prune_candidates from the confined `hiddenFilesDiskUsage` contract; `available: false` with an explicit message only when telemetry fails — never silently omitted).
 - `event_log` — one exit row with the verdict and the full findings list (required of every skill).
 - Verify-only browser tasks — Muse platform primitives (not harness-core actions), spawned only for stuck `applying` rows: check the portal's applied-jobs list or the confirmation email, then transition to `submitted` or back to `reviewed`. Never click submit.
 
@@ -57,3 +57,7 @@ No inputs. The doctor reads only `harness-core` (via `snapshot`) and the schedul
 - The doctor reads; it does not tune, optimize, or "improve" the harness.
 - No personal data in this file.
 - Append one `event_log` row on exit, always.
+
+## Changelog
+
+- 1.1.0 (2026-09-29): health view now returns real parked-company rows, H-1B refresh min/max/age, and confined hidden_files disk usage (with explicit unavailable state on failure) — the checks this skill promised are backed by data.
