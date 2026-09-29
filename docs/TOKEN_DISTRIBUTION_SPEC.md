@@ -166,10 +166,22 @@ harness_auth_header() {
 }
 harness_fetch_release() {  # $1 = vX.Y.Z  $2 = target dir
   local header; header="$(harness_auth_header)"
-  git -c credential.helper= -c "http.extraHeader=$header" \
-    clone --quiet --depth 1 --branch "$1" \
-    https://github.com/reddyneeraj17/Career-Harness.git "$2" \
-    || { echo "[FAIL] fetch $1: token rejected or tag missing" >&2; exit 3; }
+  local err
+  if ! err="$(git -c credential.helper= -c "http.extraHeader=$header" \
+      clone --quiet --depth 1 --branch "$1" \
+      https://github.com/reddyneeraj17/Career-Harness.git "$2" 2>&1)"; then
+    # Never blame the token for a network problem — or vice versa.
+    # GitHub returns 404 for repos the token cannot see, so a missing
+    # *repository* counts as auth; a missing *branch* means a bad tag.
+    case "$err" in
+      *"401"*|*"403"*|*"Authentication failed"*|*"repository '"*"not found"*)
+        echo "[FAIL] token_rejected: license expired or revoked" >&2; exit 3 ;;
+      *"Remote branch"*"not found in upstream origin"*)
+        echo "[FAIL] fetch $1: tag not found" >&2; exit 5 ;;
+      *)
+        echo "[FAIL] fetch $1 failed: $err" >&2; exit 5 ;;
+    esac
+  fi
   rm -rf "$2/.git"   # no history, no remote, nothing token-shaped on disk
 }
 harness_newest_tag() {
@@ -266,6 +278,25 @@ directory rather than `~/workspace/skills`, and move `VERSION.installed`
 to `~/workspace/.harness/`. Its migration/seed steps remain the reference
 for what `update.sh` phase 1 prints as the agent runbook.
 
+### Error handling (all scripts)
+
+- **Concurrency.** `install.sh` and `update.sh` take a `mkdir`-based lock
+  at `.harness/.lock` (atomic on POSIX). A second invocation exits with
+  `[FAIL] another install/update is already running` instead of
+  interleaving. A stale lock (owning PID gone) is cleared with a warning
+  line, not silently.
+- **Idempotent activation.** `update.sh --activate` is safe to re-run: it
+  re-verifies the staged manifest, then flips each symlink with `ln -sfn`
+  (atomic per link). A crash between flips leaves a mixed-version box;
+  re-running `--activate` repairs it to the fully new release.
+- **Rollback with nothing to roll back to.** One release on disk →
+  `rollback.sh` exits 1 with `[FAIL] no previous release on disk` rather
+  than failing cryptically. Symlinks untouched.
+- **Honest fetch failures.** `harness_fetch_release` classifies the clone
+  error (see the snippet): auth problems → `token_rejected`, exit 3; bad
+  tag, network down, no disk space → exit 5 with git's message. The token
+  is never blamed for a transport problem.
+
 ## 5. Flows
 
 **First install (supervised or self-serve).**
@@ -338,6 +369,14 @@ on disk changes.
 11. Old-layout box (real `harness-kit/` dir, `VERSION.installed` = v1.3.0):
     first `update.sh` migrates to the new layout, fetches the new release,
     and ends with exactly two releases and a working `rollback.sh`.
+12. `--activate` killed mid-flip (mixed symlinks): re-running it completes
+    the flip; all three symlinks point at the new release; doctor green.
+13. Single release on disk: `rollback.sh` exits 1 with
+    `[FAIL] no previous release on disk`; symlinks untouched.
+14. Two concurrent `update.sh` runs: the second exits with the
+    already-running message; the first completes normally.
+15. Fetch with the network down: exit 5 with a transport message, never
+    `token_rejected`.
 
 ## 9. Phasing
 
