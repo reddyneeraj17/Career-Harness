@@ -7,6 +7,19 @@ versions follow [Semantic Versioning](https://semver.org/).
 ## [1.3.0] — 2026-09-28
 
 ### Added
+- **Profile tab shows every captured field.** `comp.zero_ok` and
+  `caps.linkedin_actions_per_hour` were captured in profile.yaml but
+  invisible and uneditable in the dashboard — both are now first-class
+  fields (the server accepts `zero_ok` in the save payload instead of only
+  preserving the YAML value). New read-only **Resume files** section shows
+  `resumes.dir` + `filename_rule` (profile_get now reads them from
+  profile.yaml via the existing privileged contract). The Location
+  preferences section shows a live "Saves as" preview of exactly what the
+  priority list maps to in YAML (`us_only` / `remote` / `metros`), mirroring
+  the server derivation. The onboarding wizard's final step carries the two
+  new fields as well.
+
+### Added
 - **Application reasons, enforced.** `app_transition` now derives a
   human-readable `status_reason` server-side when the caller omits
   `args.reason` on a terminal/attention transition (`blocked`, `rejected`,

@@ -91,6 +91,10 @@ const profilePayload = z.object({
   // Skills matrix (optional): list of {skill, category?, years, where_used?}.
   // First-class since v1.2.12 — no longer dropped on dashboard save.
   years_matrix: z.array(z.object({ skill: z.string().trim().min(1), category: z.string().trim().optional(), years: z.number().int().min(0), where_used: z.string().trim().optional() })).optional(),
+  // Resume-file config lives only in profile.yaml (no DB column); profile_get
+  // reads it so the dashboard can show every captured field in one place.
+  // Read-only from the dashboard — the server carries it verbatim on save.
+  resumes: z.object({ dir: z.string(), filename_rule: z.string() }).optional(),
 });
 const campaignPayload = z.record(z.string().min(1), z.object({
   cadence: z.string().min(1), type: z.string().min(1).optional(), group: z.string().min(1).optional(),
@@ -116,7 +120,7 @@ const strictProfile = z.object({
   role_types: z.array(roleType).min(1, "Select at least one employment type."),
   locations: z.object({ priority: z.array(z.string().trim().min(1)).min(1), relocation: z.string().trim().min(1) }).catchall(jsonValue),
   targeting: z.object({ industries: z.array(z.string().trim().min(1)).min(1), seniority: z.array(seniority).min(1), tiers: z.array(z.number().int().min(1).max(3)).min(1), titles: z.array(z.string().trim().min(1)).min(1) }).catchall(jsonValue),
-  comp: z.object({ floor: z.union([z.number().nonnegative(), z.string().trim().min(1), z.null()]), note: z.string().trim().min(1) }).catchall(jsonValue),
+  comp: z.object({ floor: z.union([z.number().nonnegative(), z.string().trim().min(1), z.null()]), note: z.string().trim().min(1), zero_ok: z.boolean().optional() }).catchall(jsonValue),
   start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   answers: z.object({ relocate: z.string().trim().min(1), covenants: z.string().trim().min(1), drivers_license: z.string().trim().min(1), degree_dates: z.string().trim().min(1), home_zip: z.string().trim().min(1), work_authorized_us: z.string().trim().min(1) }).catchall(answerValue),
   caps: z.object({ per_run: z.number().int().min(1), per_day: z.number().int().min(1), appliers: z.number().int().min(1) }).catchall(jsonValue),
@@ -307,7 +311,10 @@ function renderProfileYaml(profile: ProfileInput, existing: string, existingPars
   if (!place) throw new Error("identity.location must use the format City, ST.");
   const previousComp = jsonObject(existingParsed.comp);
   const previousCaps = jsonObject(existingParsed.caps);
-  const zeroOk = typeof previousComp.zero_ok === "boolean" ? previousComp.zero_ok : true;
+  // zero_ok is a first-class dashboard field (v1.3.0); the payload wins when
+  // present, otherwise the existing YAML value is preserved.
+  const zeroOk = typeof profile.comp.zero_ok === "boolean" ? profile.comp.zero_ok
+    : typeof previousComp.zero_ok === "boolean" ? previousComp.zero_ok : true;
   const linkedInActions = Number(profile.caps.linkedin_actions_per_hour ?? previousCaps.linkedin_actions_per_hour);
   if (!Number.isInteger(linkedInActions) || linkedInActions < 1) throw new Error("caps.linkedin_actions_per_hour is missing or invalid in both the profile and existing YAML.");
   const resumes = rootSection(existing, "resumes"); const campaigns = rootSection(existing, "campaigns");
@@ -894,10 +901,20 @@ function keywordVectorFromMetadata(args: { role_family: string; industry_tags: u
 export const Actions = {
   profile_get: defineAction({
     request: emptyRequest, response: z.object({ profile: profilePayload.nullable(), updated_at: z.string().nullable() }),
+    privileged: [privileged.readProfileYaml, privileged.parseProfileYaml],
     async handler(ctx) {
       const row = (await ctx.db<typeof schema>().select().from(schema.profile).where(eq(schema.profile.id, 1)).limit(1))[0];
       if (!row) return { profile: null, updated_at: null };
-      return { profile: { identity: row.identity, work_auth: row.workAuth, role_types: row.roleTypes, locations: row.locations, targeting: row.targeting, comp: row.comp, start_date: row.startDate, answers: row.answers, caps: row.caps, reply_tiers: row.replyTiers, years_matrix: yearsMatrixList(row) }, updated_at: row.updatedAt.toISOString() };
+      // resumes lives only in profile.yaml (no DB column) — read it so the
+      // dashboard can show every captured field in one place.
+      let resumes: { dir: string; filename_rule: string } | undefined;
+      try {
+        const { yamlText } = await ctx.executePrivileged(privileged.readProfileYaml, {});
+        const parsed = jsonObject((await ctx.executePrivileged(privileged.parseProfileYaml, { yamlText })).parsed);
+        const r = jsonObject(parsed.resumes);
+        if (typeof r.dir === "string" && typeof r.filename_rule === "string") resumes = { dir: r.dir, filename_rule: r.filename_rule };
+      } catch { /* resumes stays undefined; the tab renders without it */ }
+      return { profile: { identity: row.identity, work_auth: row.workAuth, role_types: row.roleTypes, locations: row.locations, targeting: row.targeting, comp: row.comp, start_date: row.startDate, answers: row.answers, caps: row.caps, reply_tiers: row.replyTiers, years_matrix: yearsMatrixList(row), ...(resumes ? { resumes } : {}) }, updated_at: row.updatedAt.toISOString() };
     },
   }),
 
