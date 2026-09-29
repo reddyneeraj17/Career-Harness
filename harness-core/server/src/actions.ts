@@ -38,6 +38,43 @@ function linkedinProfileUrl(row: typeof schema.profile.$inferSelect | undefined)
   const value = jsonObject(row?.identity).linkedin;
   return typeof value === "string" && value.startsWith("https://") ? value : null;
 }
+
+// States whose entry must always leave a human-readable reason on the
+// application row, even when the caller omits args.reason. Historical
+// transitions recorded the explanation only in the event payload's evidence;
+// deriveTransitionReason recovers it so the dashboard Reason column works.
+const REASON_TERMINAL_STATES = new Set(["blocked", "rejected", "parked", "needs_me", "submitted", "confirmed"]);
+const REASON_MAX = 280;
+
+function truncateReason(text: string): string {
+  const t = text.trim();
+  return t.length > REASON_MAX ? t.slice(0, REASON_MAX - 1).trimEnd() + "…" : t;
+}
+
+function deriveTransitionReason(evidence: string | null | undefined): string | null {
+  if (!evidence) return null;
+  const raw = evidence.trim();
+  if (!raw) return null;
+  if (raw.startsWith("{")) {
+    try {
+      const obj = JSON.parse(raw) as Record<string, unknown>;
+      const reason = typeof obj.reason === "string" ? obj.reason.trim() : "";
+      const detail = typeof obj.detail === "string" ? obj.detail.trim() : "";
+      if (reason && detail) return truncateReason(`${reason} — ${detail}`);
+      if (reason) return truncateReason(reason);
+      if (detail) return truncateReason(detail);
+      // Evidence without a reason field still carries a human explanation in
+      // "checkpoint" (portal-navigator) or "error" — use it as the reason.
+      const fallback = typeof obj.checkpoint === "string" ? obj.checkpoint.trim()
+        : typeof obj.error === "string" ? obj.error.trim() : "";
+      if (fallback) return truncateReason(fallback);
+      return null;
+    } catch {
+      return truncateReason(raw);
+    }
+  }
+  return truncateReason(raw);
+}
 const runMode = z.enum(["scheduled", "manual"]);
 const postingRow = z.object({
   posting_id: z.string().min(1), company: z.string().min(1), role: z.string().min(1), url: z.string().min(1), source: z.string().min(1),
@@ -1154,13 +1191,60 @@ export const Actions = {
           screenshotPath: evidence ? evidence.screenshot_path ?? null : row.screenshotPath,
           confirmation: evidence?.confirmation ?? row.confirmation,
           confirmationPath,
-          statusReason: args.reason ?? row.statusReason,
+          // Explicit reason wins; otherwise derive one from the transition
+          // evidence for terminal/attention states so the dashboard Reason
+          // column never goes blank when the worker omits args.reason.
+          statusReason: args.reason ?? (REASON_TERMINAL_STATES.has(args.to) ? deriveTransitionReason(args.evidence) : null) ?? row.statusReason,
           updatedAt: changed,
           submittedAt: args.to === "submitted" ? changed : row.submittedAt,
         }).where(and(eq(schema.applications.appId, args.app_id), eq(schema.applications.state, args.from))),
         db.insert(schema.events).values({ runId: row.runId, appId: row.appId, type: "state_transition", payload: { from: args.from, to: args.to, reason: args.reason ?? null, evidence: args.evidence, intent_id: args.intent_id ?? null }, at: changed }),
       ]);
       ctx.invalidateQueries(); return { ok: true };
+    },
+  }),
+
+  // Per-application event timeline for the dashboard's application detail
+  // view. Read-only: returns the app row (same shape as the applications
+  // ledger) plus its events in chronological order, with each event's
+  // from/to/reason/evidence extracted from the payload.
+  app_timeline: defineAction({
+    request: z.object({ app_id: z.string().min(1) }),
+    response: z.object({
+      found: z.boolean(),
+      app: z.record(z.string(), z.unknown()).nullable(),
+      timeline: z.array(z.object({
+        at: z.string(), type: z.string(),
+        from: z.string().nullable(), to: z.string().nullable(),
+        reason: z.string().nullable(), evidence: z.string().nullable(),
+      })),
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const a = (await db.select().from(schema.applications).where(eq(schema.applications.appId, args.app_id)).limit(1))[0];
+      if (!a) return { found: false, app: null, timeline: [] };
+      const p = a.postingId ? (await db.select().from(schema.postings).where(eq(schema.postings.postingId, a.postingId)).limit(1))[0] : undefined;
+      const eventRows = await db.select().from(schema.events).where(eq(schema.events.appId, args.app_id)).orderBy(asc(schema.events.at), asc(schema.events.id)).limit(500);
+      const timeline = eventRows.map((e) => {
+        const payload = (e.payload ?? {}) as Record<string, unknown>;
+        const evidenceRaw = payload.evidence;
+        return {
+          at: e.at.toISOString(), type: e.type,
+          from: typeof payload.from === "string" ? payload.from : null,
+          to: typeof payload.to === "string" ? payload.to : null,
+          reason: typeof payload.reason === "string" ? payload.reason : null,
+          evidence: typeof evidenceRaw === "string" ? evidenceRaw : evidenceRaw != null ? JSON.stringify(evidenceRaw) : null,
+        };
+      });
+      const app = {
+        app_id: a.appId, company: p?.company ?? a.companyNorm, role: p?.role ?? a.roleNorm, source: p?.source ?? "unavailable", url: p?.url ?? null,
+        state: a.state, campaign_id: a.campaignId, run_id: a.runId, variant_id: a.variantId,
+        resume_path: a.resumePath, resume_hash: a.resumeHash, screenshot_path: a.screenshotPath,
+        confirmation: a.confirmation, confirmation_path: a.confirmationPath,
+        blocker: a.blocker, outcome: a.outcome, created_at: a.createdAt.toISOString(), updated_at: a.updatedAt.toISOString(), submitted_at: iso(a.submittedAt),
+        reason: a.statusReason, talking_points_path: a.talkingPointsPath,
+      };
+      return { found: true, app, timeline };
     },
   }),
 
@@ -2069,7 +2153,10 @@ export const Actions = {
         }));
         const totalTokens = runRows.reduce((sum, r) => r.tokensReported ? sum + r.tokensTotal : sum, 0);
         const runIds = runRows.map((r) => r.runId);
-        const verdictRows = runIds.length ? await db.select().from(schema.postingVerdicts).where(inArray(schema.postingVerdicts.runId, runIds)).orderBy(desc(schema.postingVerdicts.at)).limit(2000) : [];
+        const verdictRows = runIds.length ? await db.select({
+          postingId: schema.postingVerdicts.postingId, runId: schema.postingVerdicts.runId, stage: schema.postingVerdicts.stage,
+          verdict: schema.postingVerdicts.verdict, reason: schema.postingVerdicts.reason, at: schema.postingVerdicts.at,
+        }).from(schema.postingVerdicts).where(inArray(schema.postingVerdicts.runId, runIds)).orderBy(desc(schema.postingVerdicts.at)).limit(2000) : [];
         const verdictsByRun = new Map<string, { posting_id: string; stage: string; verdict: string; reason: string; at: string }[]>();
         for (const v of verdictRows) {
           const list = verdictsByRun.get(v.runId ?? "") ?? []; list.push({ posting_id: v.postingId, stage: v.stage, verdict: v.verdict, reason: v.reason, at: v.at.toISOString() }); verdictsByRun.set(v.runId ?? "", list);

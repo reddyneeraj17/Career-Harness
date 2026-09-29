@@ -262,6 +262,11 @@ payloads.
   `submitted: confirmation captured`, `submitted: screenshot missing —
   confirmation text captured`, `parked: CAPTCHA checkpoint`. Never an empty
   string; when the cause is genuinely unknown, `held: under review`.
+  (v2.17 backstop: if `reason` is omitted on a terminal/attention transition
+  — `blocked`, `rejected`, `parked`, `needs_me`, `submitted`, `confirmed` —
+  the server derives it from the transition evidence, so the dashboard
+  Reason column never goes blank. Pass the reason anyway; the derivation is
+  a safety net, not the primary path.)
 - **`posting_verdict` per posting per stage.** Call for every posting the run
   touches:
   - At claim time (`app_claim`): `stage="scout"`, `verdict="passed"`,

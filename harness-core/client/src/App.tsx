@@ -244,11 +244,63 @@ function ProvenanceBreakdown({ title, counts, items }: { title: string; counts: 
   return <div className="provenance-dimension"><h3>{title}</h3><div>{[...items, ...extra].map((item) => <span key={item.key}><b>{fmt(counts?.[item.key])}</b>{item.label}</span>)}</div></div>;
 }
 
+function ApplicationDetailDialog({ appId, onClose }: { appId: string; onClose: () => void }) {
+  const timeline = useQuery({ queryKey: ["app-timeline", appId], queryFn: () => api.app_timeline({ app_id: appId }), staleTime: 30_000 });
+  const data = timeline.data as AnyData | undefined;
+  const app = data?.app as AnyData | undefined;
+  const events = Array.isArray(data?.timeline) ? data.timeline : [];
+  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <div className="confirm-dialog detail-dialog" role="dialog" aria-modal="true" aria-label="Application details">
+      <div className="detail-head">
+        <div><h2>{app ? `${String(app.role)}` : "Application"}</h2><p>{app ? `${String(app.company)} · ${titleCase(String(app.state ?? ""))}` : appId}</p></div>
+        <button type="button" className="dialog-close" onClick={onClose} aria-label="Close details">✕</button>
+      </div>
+      {timeline.isPending && <p className="muted">Loading timeline…</p>}
+      {timeline.isError && <p className="inline-error" role="alert">Could not load the timeline. Nothing changed.</p>}
+      {data && !data.found && <p className="inline-error" role="alert">Application not found.</p>}
+      {app && <>
+        <div className="detail-grid">
+          <div><span>Application</span><code>{String(app.app_id)}</code></div>
+          <div><span>Campaign</span><b>{String(app.campaign_id ?? "—")}</b></div>
+          <div><span>Run</span><code>{app.run_id ? String(app.run_id).slice(0, 13) + "…" : "—"}</code></div>
+          <div><span>Source</span><b>{String(app.source ?? "—")}</b></div>
+          <div><span>Updated</span><b>{chicagoWhen(app.updated_at)}</b></div>
+          <div><span>Submitted</span><b>{app.submitted_at ? chicagoWhen(app.submitted_at) : "—"}</b></div>
+        </div>
+        {app.reason && <div className="detail-reason"><span>Reason</span><p>{String(app.reason)}</p></div>}
+        {app.blocker && <p className="blocker">{String(app.blocker)}</p>}
+        {app.outcome && <p className="muted">Outcome: {String(app.outcome)}</p>}
+        {app.confirmation && <blockquote className="confirmation">“{String(app.confirmation)}”</blockquote>}
+        <div className="detail-evidence">
+          <span>Evidence</span>
+          <div>
+            {app.resume_path ? <WorkspaceFileButton fileRef={{ app_id: String(app.app_id), kind: "resume" }} label={fileName(String(app.resume_path))} displayName={fileName(String(app.resume_path))} /> : <b className="evidence-missing">no resume</b>}
+            {app.screenshot_path ? <ScreenshotEvidence appId={String(app.app_id)} path={String(app.screenshot_path)} /> : <b className="evidence-missing">no screenshot</b>}
+            {app.talking_points_path ? <WorkspaceFileButton fileRef={{ app_id: String(app.app_id), kind: "prep" }} label="Talking points" displayName={fileName(String(app.talking_points_path))} /> : null}
+          </div>
+        </div>
+        <div className="detail-timeline">
+          <span>Timeline · {events.length} event{events.length === 1 ? "" : "s"}</span>
+          {events.length === 0 ? <p className="muted">No events recorded for this application.</p> : <ol>
+            {events.map((e: AnyData, i: number) => <li key={i} className="timeline-event">
+              <div className="timeline-event-head"><b>{e.type === "state_transition" && e.from && e.to ? `${titleCase(String(e.from))} → ${titleCase(String(e.to))}` : titleCase(String(e.type ?? "event")).replaceAll("_", " ")}</b><time>{chicagoWhen(e.at)}</time></div>
+              {e.reason && <p className="timeline-reason">{String(e.reason)}</p>}
+              {e.evidence && <details className="timeline-evidence"><summary>Evidence</summary><pre>{String(e.evidence)}</pre></details>}
+            </li>)}
+          </ol>}
+        </div>
+      </>}
+      <div className="detail-actions"><button type="button" onClick={onClose}>Close</button></div>
+    </div>
+  </div>;
+}
+
 function Applications({ data, onRefresh, refreshing, onOpenOverview }: { data: AnyData; onRefresh: () => void; refreshing: boolean; onOpenOverview: () => void }) {
   const ledger = Array.isArray(data.ledger) ? data.ledger : [];
   const provenance = data.provenance_summary ?? {};
   const [filter, setFilter] = useState("all"); const [search, setSearch] = useState("");
   const [provenanceOpen, setProvenanceOpen] = useState(false);
+  const [detailAppId, setDetailAppId] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<DateRange>({ preset: "all", start: "", end: "" });
   const [resumeTarget, setResumeTarget] = useState<{ appId: string; label: string } | null>(null);
   const [resumeNote, setResumeNote] = useState("");
@@ -322,11 +374,13 @@ function Applications({ data, onRefresh, refreshing, onOpenOverview }: { data: A
         {a.confirmation && <blockquote className="confirmation">“{a.confirmation}”{a.confirmation_path && <small>{fileName(String(a.confirmation_path))}</small>}</blockquote>}
         {a.blocker && <p className="blocker">{a.blocker}</p>}
         <div className="application-actions">
+          <button type="button" className="text-link" onClick={() => setDetailAppId(String(a.app_id))}>Details & timeline</button>
           {a.url && <a className="text-link" href={a.url} target="_blank" rel="noreferrer">Open posting <Icon name="external" size={14} /></a>}
           {(a.state === "parked" || a.state === "needs_me") && <button type="button" className="resume-application" onClick={() => { setResumeTarget({ appId: String(a.app_id), label: `${String(a.role)} at ${String(a.company)}` }); setResumeNote(""); setResumeNotice(null); }}>Resume</button>}
         </div>
       </article>)}</div>}
     </Section>
+    {detailAppId && <ApplicationDetailDialog appId={detailAppId} onClose={() => setDetailAppId(null)} />}
     {resumeTarget && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !resume.isPending) setResumeTarget(null); }}>
       <form className="confirm-dialog resume-dialog" role="dialog" aria-modal="true" aria-labelledby="resume-dialog-title" onSubmit={(event) => { event.preventDefault(); resume.mutate(); }}>
         <h2 id="resume-dialog-title">Resume application</h2>

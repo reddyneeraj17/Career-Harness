@@ -169,7 +169,9 @@ def convert(form_path):
     e_rows = rows_of(wb, "4 Experience Matrix")
     eh = header_index(e_rows, "skill", "years")
     years_matrix = []
-    for vals in table_after(e_rows, eh, 5, require_int_first=True):
+    # Stop at the "Employment history" section below the skills table — its
+    # numbered rows would otherwise pollute years_matrix with 0-year entries.
+    for vals in table_after(e_rows, eh, 5, require_int_first=True, stop_words=("employment history",)):
         if not vals[1]:
             continue
         years_matrix.append({

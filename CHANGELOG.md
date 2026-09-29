@@ -4,6 +4,34 @@ All notable changes to the Job-Apply Harness kit are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Application reasons, enforced.** `app_transition` now derives a
+  human-readable `status_reason` server-side when the caller omits
+  `args.reason` on a terminal/attention transition (`blocked`, `rejected`,
+  `parked`, `needs_me`, `submitted`, `confirmed`): plain-text evidence is
+  used verbatim (280 chars), JSON evidence contributes its `reason` +
+  `detail` fields (falling back to `checkpoint` / `error`), so the
+  dashboard Reason column never goes blank because a worker skipped the
+  reason. New `app_timeline` action returns one application's row plus its
+  events in chronological order (from/to/reason/evidence per event). The
+  Applications tab gains a per-row "Details & timeline" dialog showing the
+  app's header, reason, blocker, outcome, confirmation, evidence links, and
+  full event timeline. Migration 0017 backfills blank reasons on
+  terminal-state rows from their latest terminal `state_transition` event
+  (never overwrites an explicitly recorded reason).
+
+### Fixed
+- **Runs view (dashboard + workers).** The snapshot `runs` view failed with
+  a swallowed "Failed query" error: the live `posting_verdicts` table was
+  created with the old composite-PK shape and lacks the `id` column the
+  drizzle schema expects, so the select-all query emitted `SELECT "id",
+  ...` against a table that has none (a schema drift predating v1.2.12, not
+  a code regression). The runs view now selects explicit columns
+  (`postingId`, `runId`, `stage`, `verdict`, `reason`, `at`) — the same
+  pattern the run-detail view already used — which the table actually has.
+
 ## [1.2.12] — 2026-09-28
 
 ### Added
