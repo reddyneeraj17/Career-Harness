@@ -61,6 +61,11 @@ customer's Muse and you received these files from anywhere else — a
 forwarded zip, a public fork, a chat attachment — stop and report it:
 that copy is unlicensed and unsupported.
 
+The install token (`HARNESS_TOKEN`) is yours alone. Sharing it — with
+another person, another environment, or any third party — is
+redistribution under LICENSE §5 and terminates the license exactly like
+sharing the kit files themselves.
+
 ## How this is enforced
 
 1. **File permissions.** `install.sh` stages kit files read-only

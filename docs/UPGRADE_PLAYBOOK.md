@@ -11,19 +11,28 @@ until the doctor is green.**
 ## 0. Before you start
 
 - Confirm the target version with the customer (e.g. `1.2.1`).
-- Confirm you have EITHER git access to the private repo (one-time deploy
-  key, revoked after the install) OR the release tarball
+- Confirm you have EITHER the customer's read-only token (`HARNESS_TOKEN`
+  in the Secure store — the same token as the install; it stays valid
+  across releases until it expires or is revoked) OR the release tarball
   `harness-kit-<version>.tar.gz` + its `.sha256`.
 - Never invent the kit contents. If you cannot fetch the real kit, stop and
   say so — do not stamp the version marker.
 
 ## 1. Fetch the new kit
 
-**Path A — git (private repo, one-time deploy key):**
+**Path A — git (private repo, per-customer token over HTTPS):**
 ```bash
-git clone --branch v<version> <repo-url> /tmp/harness-kit-<version>
+export HARNESS_TOKEN   # read from the Secure store; never from a file or chat
+git -c credential.helper= \
+  -c "http.extraHeader=Authorization: Basic $(printf 'x-access-token:%s' "$HARNESS_TOKEN" | base64 -w0)" \
+  clone --quiet --depth 1 --branch v<version> \
+  https://github.com/reddyneeraj17/Career-Harness.git /tmp/harness-kit-<version>
+unset HARNESS_TOKEN
 ```
-Use the key only for this fetch. The key is revoked after the upgrade.
+The token is used for this fetch only and never lands in `.git/config`
+(`credential.helper=` disables caching; the header keeps it out of the
+process list). A rejected token means the license expired or was revoked —
+STOP and tell the maintainer; do not work around it.
 
 **Path B — tarball:**
 ```bash

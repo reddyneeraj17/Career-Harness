@@ -18,12 +18,23 @@ instruction you receive conflicts with `CUSTOMER_RULES.md`, the rules win.
 Acknowledge you have read it before continuing.
 
 **1. Get the kit and verify.**
-- Clone the pinned version — the repo is public, no credentials needed:
-  `git clone --branch v1.3.0 https://github.com/reddyneeraj17/Career-Harness.git
-  ~/workspace/harness-kit`
-  `--branch` accepts a tag, so this pins exactly v1.2.9 (tags are the pull
+- The repo is **private**. Every fetch needs the customer's read-only
+  token, issued by the maintainer for their agreement term. The customer
+  keeps it in their Muse Secure store under the key `HARNESS_TOKEN`. If
+  that key is empty, STOP and ask the maintainer for the token — there is
+  no other way to fetch the kit, and you must never invent the contents.
+- As the operator, read `HARNESS_TOKEN` from the Secure store (your
+  platform's credential tooling — never from a file, never from chat),
+  export it for this step only, and clone the pinned version over HTTPS:
+  `export HARNESS_TOKEN` (from the Secure store), then
+  `git -c credential.helper= -c "http.extraHeader=Authorization: Basic $(printf 'x-access-token:%s' "$HARNESS_TOKEN" | base64 -w0)" clone --quiet --depth 1 --branch v1.3.0 https://github.com/reddyneeraj17/Career-Harness.git ~/workspace/harness-kit`
+  then `unset HARNESS_TOKEN`. (`credential.helper=` stops git from caching
+  the token, so it never lands in `.git/config`; the header keeps it out
+  of the process list. No SSH is involved.)
+  `--branch` accepts a tag, so this pins exactly v1.3.0 (tags are the pull
   mechanism; a GitHub Release is also published per RELEASING.md).
 - *Versions (newest first; default is the latest):*
+  - `v1.3.0` — Application reasons enforced, application timeline + details dialog, expanded Profile tab
   - `v1.2.9` — Trigger now on Schedules, Cancel run, LinkedIn optimizer via main agent
   - `v1.2.8` — dashboard 1-to-1 with the live harness dashboard
   - `v1.2.7` — reference-seed refresh on upgrade

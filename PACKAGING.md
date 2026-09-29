@@ -8,9 +8,9 @@
 `harness-kit` is the single shippable artifact of the Job-Apply Harness.
 One repo, versioned with semver (`VERSION` file, git tags `vX.Y.Z`).
 The maintainer edits here; customers receive it only through the channels
-in DISTRIBUTION.md (managed service, or supervised self-host install from
-the private repo with a one-time deploy key). Customers never pull from
-this repo on their own.
+in DISTRIBUTION.md (managed service, or licensed self-host install from
+the private repo with a per-customer read-only token over HTTPS).
+Customers never fetch from this repo without a valid token.
 
 ## Layout
 
@@ -61,12 +61,17 @@ needs, and the doctor reports drift.
 Path A — git works in the customer's VM:
 
 ```sh
-git clone --branch v1.3.0 <repo-with-one-time-deploy-key> ~/workspace/harness-kit  # private repo; key revoked after install
+export HARNESS_TOKEN   # read from the Secure store; never from a file or chat
+git -c credential.helper= \
+  -c "http.extraHeader=Authorization: Basic $(printf 'x-access-token:%s' "$HARNESS_TOKEN" | base64 -w0)" \
+  clone --quiet --depth 1 --branch v1.3.0 \
+  https://github.com/reddyneeraj17/Career-Harness.git ~/workspace/harness-kit  # private repo; per-customer token
+unset HARNESS_TOKEN
 cd ~/workspace/harness-kit && ./install/install.sh
 ```
 
 Tags are the version pin: `--branch` accepts a tag, so this checks out
-exactly v1.2.0. A GitHub Release is also published on each tag for
+exactly v1.3.0. A GitHub Release is also published on each tag for
 visibility (see RELEASING.md). Bump the `--branch` tag (e.g. `v1.3.0`)
 when you cut a new version.
 

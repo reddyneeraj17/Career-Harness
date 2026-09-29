@@ -41,18 +41,25 @@ never hold a single skill file. Nothing to leak, nothing to maintain.
 
 For customers who must run it in their own Muse environment:
 
-- The maintainer installs it for them (or supervises the install) from
-  the private repo using a **single-use, read-only deploy key** that is
-  revoked the moment the install completes.
-- The install is pinned to the exact release tag in their agreement.
-- Upgrades arrive only as new supervised installs from the maintainer.
-- The customer never keeps repo credentials, never pulls updates
-  themselves, and never copies the kit elsewhere. CUSTOMER_RULES.md
+- The maintainer issues the customer a **per-customer read-only token**
+  (a GitHub fine-grained personal access token: Contents read-only,
+  scoped to this repository only, expiring at the end of the agreement
+  term). The customer stores it in their Muse **Secure store** under the
+  key `HARNESS_TOKEN` — it is never written to a file, a script, or a
+  chat log.
+- The install is pinned to the exact release tag in their agreement and
+  fetched over plain **HTTPS** with that token. No SSH, no new network
+  permission toggles, nothing outside `~/workspace`.
+- Upgrades arrive as new releases fetched with the same token (see
+  `docs/UPGRADE_PLAYBOOK.md`); the token stays valid across releases
+  until it expires or is revoked.
+- The customer never copies the kit elsewhere. CUSTOMER_RULES.md
   (read-only kit code, drift detection via MANIFEST.sha256) is enforced
   in their environment from day one.
 
-`git pull` by the customer is **not** a distribution channel. There is no
-standing credential a customer can use to fetch the code on their own.
+Revoking the token is offboarding: the installed kit keeps running on
+its pinned release, but it can never fetch another release. There is no
+other credential a customer can use to fetch the code on their own.
 
 ## What customers may and may not do
 
@@ -71,7 +78,8 @@ copies.
 1. Confirm the service agreement covers the environments in scope.
 2. Cut or pick the release tag; verify `install.sh --check` is green.
 3. Managed: provision and hand over dashboard access only.
-   Self-host: supervised install with a one-time deploy key; revoke the
-   key when the installer finishes.
+   Self-host: issue the per-customer read-only token, supervise the
+   install, and record the token name, issue date, and expiry in the
+   private ledger (kept outside this repo).
 4. Confirm CUSTOMER_RULES.md is in place and drift detection is armed.
 5. Record the install (customer, environments, release tag, date).

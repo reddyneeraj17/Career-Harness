@@ -4,6 +4,20 @@ All notable changes to the Job-Apply Harness kit are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- **Token-gated distribution docs (1.3.1).** All customer-facing docs now
+  tell one story: the repo is private and every fetch needs the
+  per-customer read-only token (`HARNESS_TOKEN` in the Secure store) over
+  HTTPS. Removed the public/private contradiction (DISTRIBUTION.md said
+  private, SETUP_PROMPT.md said public), replaced every "deploy key"
+  (SSH — unusable with Muse's outbound-SSH-off default) with the token
+  flow, and added the token-sharing rule to CUSTOMER_RULES.md (sharing
+  the token is redistribution under LICENSE §5). Docs only; no script
+  changes. The versioned-install layout (`update.sh` / `rollback.sh`,
+  `install.sh --version`) ships in 1.4.0.
+
 ## [1.3.0] — 2026-09-28
 
 ### Added
