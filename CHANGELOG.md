@@ -6,6 +6,8 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.3] — 2026-09-30
+
 ### Added
 - **interview-prep-pack skill (new).** One command builds the 10-page A4
   Interview Prep Pack PDF in the house style (dark cover, red rule, 01–07
@@ -15,6 +17,16 @@ versions follow [Semantic Versioning](https://semver.org/).
   — from the run folder, LinkedIn, or email — then renders and validates
   the PDF and hands it over in chat. Shipped with `assets/template.html`
   + `assets/prep-pack.css`; also synced to the live skills dir.
+
+### Changed
+- **Onboarding defaults settled (maintainer, 2026-09-30).**
+  `skip_no_sponsorship_postings` is always Yes — postings that explicitly
+  rule out sponsorship are always skipped. Essay questions are decided with
+  the client on the setup call (auto-send vs draft-for-approval); where a
+  prompt is ambiguous the harness derives from the resume — infer and
+  write, don't hold (the one exception to "no match → hold, never
+  invent"). `max_travel` defaults to 50% when the client gives nothing.
+  `max_per_run` raised 10 → 50, matching `max_per_day`.
 
 ### Fixed
 - **Shadow week removed (maintainer decision 2026-09-30).** The mandated
@@ -27,7 +39,7 @@ versions follow [Semantic Versioning](https://semver.org/).
   and 1.3.2; Step 2 no longer claims seed files are staged (they are read
   from the kit in place); Step 7 order is compile → smoke test → doctor,
   matching the install runbook. INSTALL_LAYOUT: skill count corrected to
-  31. OPERATOR: onboarding now names `profiles/<client_id>.yaml` plus the
+  32. OPERATOR: onboarding now names `profiles/<client_id>.yaml` plus the
   mandatory Profile-tab load, and the 20-minute figure is qualified as the
   dashboard-wizard path (agent-led setup: 30–60 min). UPGRADE_PLAYBOOK:
   example version 1.2.1 → 1.3.2; migrations described as "every file in
