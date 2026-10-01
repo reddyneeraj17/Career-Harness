@@ -6,6 +6,16 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **interview-prep-pack skill (new).** One command builds the 10-page A4
+  Interview Prep Pack PDF in the house style (dark cover, red rule, 01–07
+  sections, answer/story banks, day-of checklist, verbatim JD appendix):
+  gathers the invite, the JD (saved verbatim from the application run, or
+  the live posting), the application record, and confirmed candidate facts
+  — from the run folder, LinkedIn, or email — then renders and validates
+  the PDF and hands it over in chat. Shipped with `assets/template.html`
+  + `assets/prep-pack.css`; also synced to the live skills dir.
+
 ### Fixed
 - **Shadow week removed (maintainer decision 2026-09-30).** The mandated
   review-only first week is gone from SETUP_PROMPT and OPERATOR. From day

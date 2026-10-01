@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{PACK_TITLE}}</title>
+<link rel="stylesheet" href="prep-pack.css">
+</head>
+<body>
+
+<!-- PAGE 1: COVER (dark). Fill cover-grid with Interview / Interviewer / Format / Requisition / Location-or-Territory / Compensation. End with .alert stating the primary objective. -->
+<section class="page cover">
+  <div class="brand">Interview prep pack</div>
+  <h1>{{COMPANY}}<br>{{ROLE}}</h1>
+  <div class="subtitle">{{SCREEN_TYPE}} briefing for {{CANDIDATE_NAME}}</div>
+  <div class="rule"></div>
+  <div class="cover-grid">
+    <div class="cover-item"><div class="label">Interview</div><div class="value">{{DATE_TIME}}</div></div>
+    <div class="cover-item"><div class="label">{{INTERVIEWER_LABEL}}</div><div class="value">{{INTERVIEWER}}</div></div>
+    <div class="cover-item"><div class="label">Format</div><div class="value">{{FORMAT}}</div></div>
+    <div class="cover-item"><div class="label">Requisition</div><div class="value">{{REQ_ID}}<br>{{JOB_ID}}</div></div>
+    <div class="cover-item"><div class="label">{{LOCATION_LABEL}}</div><div class="value">{{LOCATION}}</div></div>
+    <div class="cover-item"><div class="label">Compensation</div><div class="value">{{COMP}}</div></div>
+  </div>
+  <div class="alert"><strong style="color:#fff">Primary objective:</strong> {{PRIMARY_OBJECTIVE}}</div>
+  <div class="footer"><span>Prepared {{PREP_DATE}}</span><span>Confidential interview preparation</span></div>
+</section>
+
+<!-- PAGE 2: 01 / Call sheet. Stats row (3 .stat), callout mechanics, grid-2: likely topics + core message/don't-overclaim, suggested time-flow table. -->
+<section class="page compact">
+  <div class="topline">
+    <div><div class="brand">01 / Call sheet</div><div class="page-title">{{CALL_SHEET_TITLE}}</div></div>
+    <div class="page-kicker">{{CALL_SHEET_KICKER}}</div>
+  </div>
+  <div class="grid-3">
+    <div><div class="stat">{{STAT1}}</div><div class="stat-label">{{STAT1_LABEL}}</div></div>
+    <div><div class="stat">{{STAT2}}</div><div class="stat-label">{{STAT2_LABEL}}</div></div>
+    <div><div class="stat">{{STAT3}}</div><div class="stat-label">{{STAT3_LABEL}}</div></div>
+  </div>
+  <div class="callout"><strong>Call mechanics:</strong> {{CALL_MECHANICS}}</div>
+  <div class="grid-2">
+    <div>
+      <h2>What {{INTERVIEWER_FIRST}} will likely cover</h2>
+      <ul>{{LIKELY_TOPICS}}</ul>
+    </div>
+    <div>
+      <h2>Your core message</h2>
+      <div class="card accent"><p><strong>{{CORE_MESSAGE}}</strong></p><p class="small">{{CORE_MESSAGE_DETAIL}}</p></div>
+      <div class="card dark"><h3>Do not overclaim</h3><p class="small" style="color:#dbe2e3">{{OVERCLAIM_NOTES}}</p></div>
+    </div>
+  </div>
+  <h2 style="margin-top:6mm">Suggested {{DURATION}}-minute flow</h2>
+  <table class="table">
+    <tr><th>Time</th><th>Focus</th><th>Your move</th></tr>
+    {{FLOW_ROWS}}
+  </table>
+  <div class="footer"><span>{{COMPANY}} interview prep</span><span>2</span></div>
+</section>
+
+<!-- PAGE 3: 02 / Role brief. Mission + operating model cards, success list, competencies table, territory callout. -->
+<section class="page compact">
+  <div class="topline">
+    <div><div class="brand">02 / Role brief</div><div class="page-title">{{ROLE_BRIEF_TITLE}}</div></div>
+    <div class="page-kicker">{{ROLE_BRIEF_KICKER}}</div>
+  </div>
+  <div class="grid-2">
+    <div class="card accent"><h3>Mission</h3><p>{{MISSION}}</p></div>
+    <div class="card"><h3>Operating model</h3><p>{{OPERATING_MODEL}}</p></div>
+  </div>
+  <h2 style="margin-top:6mm">Success in the role</h2>
+  <div class="grid-2"><div><ul>{{SUCCESS_LIST_A}}</ul></div><div><ul>{{SUCCESS_LIST_B}}</ul></div></div>
+  <h2 style="margin-top:6mm">Competencies the interviewer is screening for</h2>
+  <table class="table">
+    <tr><th>Need</th><th>What it means in conversation</th></tr>
+    {{COMPETENCY_ROWS}}
+  </table>
+  <div class="callout"><strong>{{CALLOUT_LABEL}}:</strong> {{CALLOUT_TEXT}}</div>
+  <div class="footer"><span>Role: {{ROLE_FULL}}</span><span>3</span></div>
+</section>
+
+<!-- PAGE 4: 03 / Resume. Uploaded-file dark card + review-status accent card, positioning paragraph, fit table, 3 gap cards. -->
+<section class="page compact">
+  <div class="topline">
+    <div><div class="brand">03 / Resume</div><div class="page-title">The exact resume used</div></div>
+    <div class="page-kicker">The portal displayed the upload as {{UPLOAD_FILENAME}}. Submission was confirmed.</div>
+  </div>
+  <div class="grid-2">
+    <div class="card dark">
+      <h3>Uploaded file</h3>
+      <p><strong style="color:#fff">{{UPLOAD_FILENAME}}</strong></p>
+      <p class="small" style="color:#dbe2e3">Source variant: {{RESUME_VARIANT}}</p>
+      <p class="micro" style="color:#aeb8bc">SHA-256 starts: {{RESUME_HASH12}}</p>
+    </div>
+    <div class="card accent">
+      <h3>Review status</h3>
+      <p><strong>{{REVIEW_VERDICT}}</strong></p>
+      <p class="small">{{REVIEW_NOTES}}</p>
+    </div>
+  </div>
+  <h2 style="margin-top:6mm">How the resume positions you</h2>
+  <p>{{POSITIONING}}</p>
+  <div class="callout"><strong>{{POSITIONING_CALLOUT_LABEL}}:</strong> {{POSITIONING_CALLOUT}}</div>
+  <h2>Strongest matches to the job</h2>
+  <table class="table">
+    <tr><th>Job need</th><th>Resume evidence</th></tr>
+    {{FIT_ROWS}}
+  </table>
+  <h2>Known gaps to handle honestly</h2>
+  <div class="grid-3">{{GAP_CARDS}}</div>
+  <div class="footer"><span>{{APPLICATION_ANSWERS_LINE}}</span><span>4</span></div>
+</section>
+
+<!-- PAGE 5: 04 / Answer bank. Six .qa blocks. Answers ~45-90 seconds spoken, natural/direct voice, no em dashes. -->
+<section class="page">
+  <div class="topline">
+    <div><div class="brand">04 / Answer bank</div><div class="page-title">Open strong and stay concise</div></div>
+    <div class="page-kicker">Use these as natural answer angles. Do not memorize every word.</div>
+  </div>
+  {{QA_BLOCKS}}
+  <div class="footer"><span>Keep each answer to roughly 45 to 90 seconds</span><span>5</span></div>
+</section>
+
+<!-- PAGE 6: 05 / Story bank. Four .story blocks: Situation / Action / Result / Use-for. Grounded in resume only. -->
+<section class="page">
+  <div class="topline">
+    <div><div class="brand">05 / Story bank</div><div class="page-title">Four proof stories to have ready</div></div>
+    <div class="page-kicker">Use situation, action, result. Keep one outcome at the center of each story.</div>
+  </div>
+  {{STORY_BLOCKS}}
+  <div class="callout"><strong>Before the call:</strong> {{STORY_CALLOUT}}</div>
+  <div class="footer"><span>Choose two primary stories and keep the other two as backup</span><span>6</span></div>
+</section>
+
+<!-- PAGE 7: 06 / Logistics and questions. Logistics Q&As, numbered interviewer questions, watch-outs two-column. -->
+<section class="page">
+  <div class="topline">
+    <div><div class="brand">06 / Logistics and questions</div><div class="page-title">Handle the practical topics directly</div></div>
+    <div class="page-kicker">Clear answers here can determine whether the interviewer advances the conversation.</div>
+  </div>
+  {{LOGISTICS_QA}}
+  <h2>Questions for {{INTERVIEWER_FIRST}}</h2>
+  <ol>{{INTERVIEWER_QUESTIONS}}</ol>
+  <div class="callout"><strong>If time is short:</strong> {{PRIORITY_QUESTIONS}}</div>
+  <h2>Watch-outs</h2>
+  <div class="grid-2">
+    <ul class="tight">{{WATCHOUTS_A}}</ul>
+    <ul class="tight">{{WATCHOUTS_B}}</ul>
+  </div>
+  <div class="footer"><span>Natural, direct, conversational</span><span>7</span></div>
+</section>
+
+<!-- PAGE 8: 07 / Day-of checklist. 10-min checklist, numbers dark card, one-line close callout, notes table. -->
+<section class="page compact">
+  <div class="topline">
+    <div><div class="brand">07 / Day-of checklist</div><div class="page-title">{{CHECKLIST_TITLE}}</div></div>
+    <div class="page-kicker">{{CHECKLIST_KICKER}}</div>
+  </div>
+  <div class="grid-2">
+    <div>
+      <h2>{{CHECKLIST_TIME_LABEL}}</h2>
+      {{CHECKLIST_ITEMS}}
+    </div>
+    <div class="card dark">
+      <h3>Numbers to remember</h3>
+      {{NUMBERS_CARD}}
+    </div>
+  </div>
+  <h2 style="margin-top:7mm">Your one-line close</h2>
+  <div class="callout">{{ONE_LINE_CLOSE}}</div>
+  <h2>Notes during the call</h2>
+  <table class="table">
+    <tr><th>Capture</th><th>Notes</th></tr>
+    {{NOTES_ROWS}}
+  </table>
+  <div class="footer"><span>{{INTERVIEWER_CONTACT}}</span><span>8</span></div>
+</section>
+
+<!-- PAGE 9: Appendix / Verbatim posting, part 1. -->
+<section class="page">
+  <div class="topline">
+    <div><div class="brand">Appendix / Verbatim posting</div><div class="page-title">Full job description, part 1</div></div>
+    <div class="page-kicker">Saved text for {{JOB_ID_LINE}}.</div>
+  </div>
+  <div class="verbatim">{{JD_PART1}}</div>
+  <div class="footer"><span>Verbatim job description from the saved application record</span><span>9</span></div>
+</section>
+
+<!-- PAGE 10: Appendix / Verbatim posting, part 2. Competencies, special statements, application record table, mismatch callout if any. -->
+<section class="page">
+  <div class="topline">
+    <div><div class="brand">Appendix / Verbatim posting</div><div class="page-title">Full job description, part 2</div></div>
+    <div class="page-kicker">{{JD_PART2_KICKER}}</div>
+  </div>
+  <div class="verbatim">{{JD_PART2}}</div>
+  {{MISMATCH_CALLOUT}}
+  <div class="footer"><span>Prepared from the verified interview invite, application confirmation, JD, resume, and reviewer record</span><span>10</span></div>
+</section>
+
+</body>
+</html>
