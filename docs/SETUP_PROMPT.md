@@ -44,7 +44,7 @@ this step only, clone the pinned version over HTTPS, then unset it:
 export HARNESS_TOKEN   # value comes from the Secure store
 git -c credential.helper= \
   -c "http.extraHeader=Authorization: Basic $(printf 'x-access-token:%s' "$HARNESS_TOKEN" | base64 -w0)" \
-  clone --quiet --depth 1 --branch v1.3.1 \
+  clone --quiet --depth 1 --branch v1.3.2 \
   https://github.com/reddyneeraj17/Career-Harness.git ~/workspace/harness-kit
 unset HARNESS_TOKEN
 ```
