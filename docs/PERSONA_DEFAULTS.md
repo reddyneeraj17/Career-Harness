@@ -43,7 +43,7 @@ customer confirms aloud), security clearance (default None), languages
 |---|---|---|
 | h1b_gate | `prefer` — “Prefer sponsors but apply everywhere” | Soft gate; never strict unless customer chooses it |
 | apply_without_sponsorship_mention | Yes | |
-| skip_no_sponsorship_postings | Yes | Employer-side hard rejection; skipping saves budget |
+| skip_no_sponsorship_postings | Yes — always | Settled 2026-09-30 (maintainer): postings that explicitly rule out sponsorship are always skipped; not a per-client option |
 | sponsorship_sentence | Generated: “I am authorized to work in the US and {will / will not} require sponsorship in the future.” | Built from the MUST ASK answers; engineer reviews wording |
 
 ### Resumes
