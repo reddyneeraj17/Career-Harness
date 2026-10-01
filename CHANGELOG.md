@@ -4,6 +4,39 @@ All notable changes to the Job-Apply Harness kit are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- **Documentation factual review (2026-09-30).** SETUP_PROMPT: clone prose
+  pinned the right tag (`v1.3.2`) and the version list now includes 1.3.1
+  and 1.3.2; Step 2 no longer claims seed files are staged (they are read
+  from the kit in place); Step 7 order is compile → smoke test → doctor,
+  matching the install runbook. INSTALL_LAYOUT: skill count corrected to
+  31. OPERATOR: onboarding now names `profiles/<client_id>.yaml` plus the
+  mandatory Profile-tab load, and the 20-minute figure is qualified as the
+  dashboard-wizard path (agent-led setup: 30–60 min). UPGRADE_PLAYBOOK:
+  example version 1.2.1 → 1.3.2; migrations described as "every file in
+  `harness-core/drizzle/` in filename order" (17 as of v1.3.2). RELEASING:
+  example `release.sh 1.3.0` → `1.3.2`. PERSONA_DEFAULTS: veteran default
+  now defers to "I don't wish to answer" on portals unless confirmed on
+  the setup call, matching PORTAL_QUESTION_BANK. install.sh runbook
+  numbering fixed (step 6, no skip) and migration line no longer pins a
+  stale range.
+- **Fresh installs now stamp `VERSION.installed`.** install.sh writes the
+  kit version to `~/workspace/harness-kit/VERSION.installed` on fresh
+  install (previously only upgrade.sh wrote it), so the OPERATIONS_PROMPT
+  done-checklist passes on first install too.
+
+### Changed
+- **client-onboarding: the playbook is now the procedure.** The skill's
+  inline step list was replaced with a single pointer to
+  `workspace/user/files/add-onboarding-playbook.md` (Excel → parse →
+  persona → resumes → logins → portal checks → compile & verify), executed
+  as written — one source of truth for the onboarding steps instead of a
+  duplicated copy. The persona read contract, the extra-question lookup
+  order, and the hard limits stay in the skill. Mirrored to the live skill
+  copy.
+
 ## [1.3.2] — 2026-09-30
 
 ### Added

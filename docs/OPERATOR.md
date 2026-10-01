@@ -27,7 +27,8 @@ code (see CUSTOMER_RULES.md).
 3. **About 20 minutes** for the guided setup: a 6-step wizard in the dashboard
    covers your target roles, locations, work authorization, screening answers
    (relocation, licenses, covenants), and how many applications per day
-   you want.
+   you want. (The full agent-led setup, including the Excel form path,
+   takes 30–60 minutes.)
 4. **Your accounts** stay yours: email and LinkedIn connect through
    Muse's normal secure flows when the installer asks. Passwords are never
    typed into chat or stored in files.
@@ -42,9 +43,10 @@ Your Muse does the work; you answer questions. The sequence:
    builds your private dashboard.
 3. It onboards you with the Excel form (primary path): you fill in the
    client onboarding workbook and upload it in chat; your Muse converts it
-   into your `profile.yaml` — the one file that describes your job search.
-   (A guided setup wizard is the fallback.) Everything the harness does
-   derives from it. You can change any answer later on the Profile tab.
+   into `profiles/<your-id>.yaml` and loads it into the app, so your
+   Profile tab shows your real data. (A guided setup wizard is the
+   fallback.) Everything the harness does derives from it. You can change
+   any answer later on the Profile tab.
 4. It connects your schedules (job feeds, email scans, reply handling),
    runs a dry-run test with **zero real applications**, and shows you the
    dashboard.

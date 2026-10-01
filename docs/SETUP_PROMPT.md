@@ -52,10 +52,12 @@ unset HARNESS_TOKEN
 Why this shape: `credential.helper=` stops git from caching the token, so
 it never lands in `.git/config`; the header keeps it out of the process
 list; HTTPS means no SSH and no permission changes. `--branch` accepts a
-tag, so this pins exactly v1.3.0. (A GitHub Release is also published per
+tag, so this pins exactly v1.3.2. (A GitHub Release is also published per
 tag — see RELEASING.md.)
 
 *Versions (newest first; install the latest unless the agreement names one):*
+- `v1.3.2` — Onboarding defaults, portal question bank, challenge-solver, submission quality gates, resume story-crafting
+- `v1.3.1` — Portal walls playbook, schedule/preferences reliability, profile hash ownership
 - `v1.3.0` — Application reasons enforced, application timeline + details dialog, expanded Profile tab
 - `v1.2.9` — Trigger now on Schedules, Cancel run, LinkedIn optimizer via main agent
 - `v1.2.8` — dashboard 1-to-1 with the live harness dashboard
@@ -71,9 +73,11 @@ and report it.
 ## Step 2 — Stage the kit
 
 Run `./install/install.sh` (full staging). It scaffolds the goal
-directories, stages skills, templates, and seed files, bootstraps
+directories, stages skills, templates, goal-skeletons, and the onboarding
+converter, stamps `VERSION.installed`, bootstraps
 `~/workspace/profile.yaml` from the example if absent, and locks kit code
-read-only. Every step is idempotent — re-running is always safe.
+read-only. Seed CSVs are not staged — they are read from the kit in place.
+Every step is idempotent — re-running is always safe.
 
 **Verify:** `~/workspace/skills/` and `~/workspace/templates/` exist and
 are read-only; `install.sh --check` still reports 0 failures.
@@ -148,11 +152,11 @@ transcript.
 1. Run the `compile-schedules` skill against the filled profile. It
    renders every campaign template, saves the cron bodies, and writes
    `schedules_manifest.json`. Verify the manifest.
-2. **Doctor green:** run the `harness-doctor` skill — status must be
-   `green`.
-3. **Dry-run scout:** run the scout chain with zero submits. It must
+2. **Smoke test:** run the scout chain with zero submits. It must
    produce **≥ 5 discovered rows** — proving scouts, judges, and claiming
    work end-to-end without applying anywhere.
+3. **Doctor green:** run the `harness-doctor` skill — status must be
+   `green`.
 4. Show the customer the dashboard.
 
 ## Step 8 — Shadow week

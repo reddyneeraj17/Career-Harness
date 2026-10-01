@@ -114,7 +114,7 @@ customer confirms aloud), security clearance (default None), languages
 | 12 | 18 or older | Yes |
 | 13 | Previously worked here | No |
 | 14 | Relatives at company | No |
-| 15 | Veteran | Not a veteran (confirm on call) |
+| 15 | Veteran | Not a veteran (confirm on call; portals get "I don't wish to answer" unless confirmed) |
 | 16 | Disability | Prefer not to say |
 | 17 | Gender/race/ethnicity | Prefer not to say |
 | 18 | Felony | No (**confirm aloud** on setup call) |

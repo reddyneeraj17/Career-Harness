@@ -14,35 +14,21 @@ it exists, no agent ever asks the client for anything already in it.
 - Output: `~/workspace/profiles/<client_id>.yaml`
   (`client_id` = slug of the client's full name, e.g. `jordan-a-patel`).
 
-## Procedure
+## Procedure — the playbook is the steps
 
-1. **Receive and place the upload.** The client sends the filled Excel as a
-   file upload in chat — they never touch the filesystem. Save it to
-   `~/workspace/profiles/inbox/` (the upload drop folder), keeping the
-   original filename. Then run the converter — never hand-write the YAML:
-   `python3 ~/workspace/client-onboarding-form/excel_to_persona_yaml.py ~/workspace/profiles/inbox/<form.xlsx>`
-   It reads every sheet, writes `~/workspace/profiles/<client_id>.yaml`, and
-   prints warnings for missing required fields (identity name/email,
-   work_auth status, ≥1 resume, ≥1 target role, sign-off name/date).
-   After a successful conversion, move the processed form to
-   `~/workspace/profiles/inbox/done/`.
-2. **Refuse secrets.** The converter aborts if any prompt-style label asks
-   for a password, code, or payment detail. If it aborts, stop and tell the
-   operator which label tripped it — do not work around it.
-3. **Resolve warnings with the client.** Every warning is a real gap
-   (usually sign-off or a blank required field). Do not invent the value;
-   ask the client and re-run the converter.
-4. **Validate.** Check the YAML against
-   `~/workspace/harness-kit/templates/client-persona.schema.yaml`
-   (required keys, types, enums). A half-persona never ships.
-5. **Register resumes.** For each row in `resumes`, confirm the attached
-   file exists, compute its SHA-256, and register it as a variant via the
-   harness `resume_register` action (label, file_name, hash, role_family,
-   industry_tags). The persona's `resumes[].file_name` must match the
-   registered file exactly.
-6. **Report.** One concise summary to the operator: client_id, resume
-   variants registered (with hashes), target roles loaded, warnings
-   resolved, and anything still blank that agents will hold on.
+The canonical procedure lives in exactly one place and is never duplicated:
+
+  `~/workspace/user/files/add-onboarding-playbook.md`
+
+Read it top to bottom and execute it as written: Excel upload → parse →
+persona → base resumes → logins → portal checks → compile & refresh →
+verify everything on. Its conversation rules (one question at a time,
+never invent, refuse secrets) govern the whole flow; its hard limits are
+this skill's hard limits — the same contract.
+
+Do not restate, paraphrase, or renumber the playbook's steps here. When
+the playbook changes, this skill follows it — there is one copy of the
+steps, and it lives in the markdown.
 
 ## Persona read contract
 

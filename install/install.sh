@@ -12,7 +12,8 @@
 #   1. prereq checks (bash, python3; git optional)
 #   2. verifies kit integrity (VERSION + required dirs/files present)
 #   3. verifies sha256 checksums against install/MANIFEST.sha256 when present
-#   4. copies skills/, templates/, seed/, goal-skeletons/, client-onboarding-form/ into place
+#   4. copies skills/, templates/, goal-skeletons/, client-onboarding-form/ into place
+#      (seed CSVs are NOT staged — they are read from the kit in place)
 #   5. prints the agent runbook (artifact build, migrations, intake, compile)
 #
 # What it does NOT do (the agent does these, see INSTALL.md):
@@ -135,10 +136,16 @@ echo "-- lockdown (kit code is read-only in customer environments) --"
 chmod -R a-w "$WS/skills" "$WS/templates" "$WS/client-onboarding-form" 2>/dev/null && pass "staged skills/templates/converter set read-only" || echo "  [..] chmod skipped (non-POSIX fs?)"
 echo "  rule: the customer's Muse never edits kit code; see $KIT_DIR/CUSTOMER_RULES.md"
 
+# 6b. version marker (OPERATIONS_PROMPT done-checklist; upgrade.sh maintains it after)
+if [[ -d "$HOME/workspace/harness-kit" ]]; then
+  echo "$VERSION" > "$HOME/workspace/harness-kit/VERSION.installed"
+  pass "VERSION.installed stamped ($VERSION)"
+fi
+
 echo ""
 echo "== staging complete. Agent runbook (see INSTALL.md): =="
 echo " 1. Build the harness-core artifact (web_fullstack) from $KIT_DIR/harness-core/"
-echo " 2. Run drizzle migrations in filename order (harness-core/drizzle/0001..0005+)"
+echo " 2. Run drizzle migrations in filename order (harness-core/drizzle/)"
 echo " 3. Import seeds: h1b_import <- seed/h1b_employer_hub.csv, companies_import <- seed/companies_seed.csv, prime_vendors_import <- seed/prime_vendors.csv"
 echo " 4. ONBOARDING EXCEL: customer fills templates/Client_Onboarding_Form_v2.xlsx"
 echo "    (12 sheets: About You, Work Authorization, Resumes, Experience Matrix,"
@@ -150,4 +157,4 @@ echo " 5. CONNECT ACCOUNTS: run the account-connector skill with the customer in
 echo "    Muse client (secure login cards render in chat, never in this terminal)."
 echo "    LinkedIn, Dice, Indeed, ZipRecruiter, Glassdoor + Outlook/Gmail connector."
 echo "    Credentials go ONLY in the customer's Secure Vault — never in files."
-echo " 7. Run compile-schedules, then the smoke test, then the doctor"
+echo " 6. Run compile-schedules, then the smoke test, then the doctor"

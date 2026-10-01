@@ -15,7 +15,7 @@ no shortcuts, no improvising.
 ## 2. Cut the release (script does the mechanical work)
 
 ```sh
-cd ~/workspace/harness-kit && ./install/release.sh 1.3.0
+cd ~/workspace/harness-kit && ./install/release.sh 1.3.2
 ```
 
 The script verifies: clean tree, tag not reused, changelog entry exists.

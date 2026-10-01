@@ -10,7 +10,7 @@ until the doctor is green.**
 
 ## 0. Before you start
 
-- Confirm the target version with the customer (e.g. `1.2.1`).
+- Confirm the target version with the customer (e.g. `1.3.2`).
 - Confirm you have EITHER the customer's read-only token (`HARNESS_TOKEN`
   in the Secure store — the same token as the install; it stays valid
   across releases until it expires or is revoked) OR the release tarball
@@ -58,7 +58,8 @@ For each NEW file in `<kit>/harness-core/drizzle/*.sql` (filename order)
 that is not yet applied to the live database: apply it through the
 artifact's migration path, then verify with `snapshot()`.
 
-- Migrations are additive and ordered (`0001` → `0007` …). Never skip one.
+- Migrations are additive and ordered (17 files as of v1.3.2 — apply every
+  file in `harness-core/drizzle/` in filename order). Never skip one.
 - After the last migration, confirm the new tables/columns exist
   (e.g. `posting_verdicts`, `applications.status_reason`).
 
