@@ -4,7 +4,7 @@ All notable changes to the Job-Apply Harness kit are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.3.2] — 2026-09-30
 
 ### Added
 - **New `challenge-solver` skill (1.0.0).** Invoked by portal-navigator mid-application: checkbox CAPTCHAs auto-clicked, image-select one vision attempt, email OTPs read from the authorized mailbox and entered in-session (one resend), verification links opened in the same browser session. Text CAPTCHAs, bot-walls, and SMS park with evidence — never bypassed, never third-party solving services. OTP codes are transient, never persisted.
@@ -12,9 +12,13 @@ versions follow [Semantic Versioning](https://semver.org/).
 - **`docs/PERSONA_DEFAULTS.md`.** Default rules for every persona field: 7 must-ask items, everything else pre-filled (broad search defaults, 24 pre-filled screening answers, resume-extracted years matrix).
 - **Onboarding converter upgrades.** Employment-type labels normalized to lane slugs (`Full-time + W2 + C2C` → `full_time, w2_contract, c2c_contract`); new `company_targeting` extraction (tier preference, industries to avoid, never-apply list, dream companies); new `preferred_lane` and `hold_policy` fields. Schema updated.
 - **Consumer wiring.** eligibility-judge rejects never-apply companies; run-coordinator prioritizes dream companies within their tier.
+- **Submission quality gates (portal-navigator 1.7.0).** Posting-live check before intent, ATS-readable PDF requirement (text-layer preflight), pre-submit persona-consistency check, numeric salary `0` only as a forced-field last resort, 60-second minimum pacing between submits on the same portal domain.
+- **Resume story-crafting (resume-tailor 1.5.0).** Every bullet built as industry → problem → tools → story from variant facts, with per-bullet `story_provenance` in evidence; company-stack injection from company-read sources (documented patterns may frame real work; equivalent tools named honestly, never renamed); domain-based experience selection; recruiter scan structure; two-page substance target — thin histories emit `resume_gaps` for the customer instead of padding.
 
 ### Changed
 - **fit-judge default threshold 60 → 25 (1.4.1).** Per operator tuning: `score >= 25` now passes. Fit bands unchanged (labels only). Shipped live in the operator's runtime alongside the v1.3.1 skill sync.
+- **screening-answerer 1.4.1.** Cross-question consistency guard: answers on one application must not contradict each other (or the persona); contradictions hold for review.
+- **resume-reviewer 1.5.0.** New story-provenance check: every crafted bullet's industry/problem/tools/impact must trace to a variant fact — unsourced story elements are rejected, however plausible they read.
 
 ## [1.3.1] — 2026-09-30
 
