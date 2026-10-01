@@ -91,7 +91,7 @@ customer confirms aloud), security clearance (default None), languages
 | employment_types | **All five**: full_time, part_time, w2_contract, c2c_contract, internship | |
 | preferred_lane | full_time | Used when a posting doesn’t state its type |
 | agencies_ok | Yes | Vendors are the primary W2/C2C source |
-| max_travel | Up to 25% | |
+| max_travel | Up to 50% | Default when the client gives nothing (settled 2026-09-30) |
 | min_base_salary_usd | Blank (no floor) | Apply broadly, evaluate offers later |
 | desired_salary_answer | Negotiable | |
 | salary_number_fallback | 0 | Portals that require a number |
