@@ -64,7 +64,7 @@ Path A — git works in the customer's VM:
 export HARNESS_TOKEN   # read from the Secure store; never from a file or chat
 git -c credential.helper= \
   -c "http.extraHeader=Authorization: Basic $(printf 'x-access-token:%s' "$HARNESS_TOKEN" | base64 -w0)" \
-  clone --quiet --depth 1 --branch v1.3.0 \
+  clone --quiet --depth 1 --branch v1.3.1 \
   https://github.com/reddyneeraj17/Career-Harness.git ~/workspace/harness-kit  # private repo; per-customer token
 unset HARNESS_TOKEN
 cd ~/workspace/harness-kit && ./install/install.sh
@@ -78,7 +78,7 @@ when you cut a new version.
 Path B — no network: upload the release tarball, then
 
 ```sh
-tar xzf harness-kit-1.3.0.tar.gz -C ~/workspace/
+tar xzf harness-kit-1.3.1.tar.gz -C ~/workspace/
 cd ~/workspace/harness-kit && ./install/install.sh
 ```
 
@@ -91,7 +91,7 @@ complete Excel-first onboarding (or the dashboard setup wizard), connect account
 ## Upgrade / rollback
 
 ```sh
-cd ~/workspace/harness-kit && ./install/upgrade.sh v1.3.0
+cd ~/workspace/harness-kit && ./install/upgrade.sh v1.3.1
 ```
 
 `upgrade.sh` checks the current `VERSION` against the target, runs pending
