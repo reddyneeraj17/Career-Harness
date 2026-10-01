@@ -2,12 +2,15 @@
 
 ---
 name: resume-reviewer
-version: "1.4.0"
+version: "1.5.0"
 description: Gates tailored resumes and cover letters — cached verdicts, mechanical anti-fabrication checks against the variant and years matrix, company-term provenance and drift checks, forbidden-term enforcement — before anything ships.
 ---
 
 # Resume Reviewer
 
+> Changelog 1.5.0 (2026-09-30): Story-provenance check — every crafted
+> bullet's industry/problem/tools/impact must trace to a variant fact via
+> the tailor's `story_provenance`; unsourced story elements → `rejected`.
 > Changelog 1.4.0: Tool-claim check now distinguishes **fabrication** (value invented — in none of variant, JD, years matrix, or company_terms, or a verbatim term with an inflated claim attached → `rejected`) from **mechanical mismatch** (term verbatim in the JD or verbatim in the variant, carried through as-is → note at most, never a rejection). Verbatim passthrough is not fabrication.
 
 The review gate: judges a tailored resume PDF (or a cover letter) against the job description before it may be submitted. Verdicts are cached on `(jd_hash, artifact_hash)` so identical work is never reviewed twice. This is a verdict-only skill: it judges, the coordinator transitions.
@@ -90,6 +93,11 @@ Return ONLY the verdict envelope JSON, with `verdict` mapped to the review outco
 - **Company-term provenance.** Every company-specific term in the tailored PDF
   (check the tailor's `lexicon_applied` list) must trace to a `company_terms`
   row with a `source_url`. Unsourced jargon → `rejected`, naming the term.
+- **Story provenance.** Every crafted bullet's industry / problem / tools /
+  impact (check the tailor's `story_provenance` list) must trace to a
+  variant fact. A story element with no variant source — however plausible
+  it reads — is fabrication → `rejected`, quoting the unsourced element.
+  Problems may not be grander than the source supports.
 - **Lexicon drift.** The mapped phrasing must denote the same capability as the
   variant source bullet it rewrites. A rename that materially changes what the
   candidate did — "used Spark" becoming "designed their platform", "ran

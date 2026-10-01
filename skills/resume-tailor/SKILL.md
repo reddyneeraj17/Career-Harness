@@ -2,12 +2,19 @@
 
 ---
 name: resume-tailor
-version: "1.4.0"
+version: "1.5.0"
 description: Tailors one resume variant to a job description with bounded edits, speaking the company's own vocabulary from company-read terms. Accepts reviewer_notes to close the review loop.
 ---
 
 # resume-tailor
 
+> Changelog 1.5.0 (2026-09-30): Real-story crafting — every bullet built
+> as industry → problem → tools → story from variant facts, never invented;
+> company-stack injection from company-read sources (documented patterns
+> may frame real work, never claim their product); two-page substance
+> target; weak-resume protocol emitting `evidence.resume_gaps` for the
+> customer instead of padding; domain-based experience selection;
+> story provenance in evidence for the reviewer.
 > Changelog 1.4.0 (2026-09-27): ATS keyword placement priority + density
 > (consumes fit-judge `keyword_frequency`), prefer-JD-exact-phrasing rule,
 > technical bullet formula with technology slot, metrics taxonomy, DE
@@ -80,7 +87,98 @@ When `company_terms` is non-empty, the tailor may speak the company's language:
 - **May NOT** convert a capability into a materially different one (having used
   Spark is not having authored a Unity Catalog governance model).
 
-## Keyword strategy (ATS)
+## Story crafting (real use cases)
+
+Every bullet is built as **industry → problem → tools → story** — and every
+element must trace to a variant/persona fact:
+
+1. **Industry.** Name the domain the work lived in (fintech, healthcare,
+   retail, logistics…) from the variant's employer/project context.
+2. **Problem.** State the real business or engineering problem the work
+   solved — found in the variant, never invented. If the variant gives
+   duties but no problem ("maintained ETL pipelines"), the honest problem
+   is the duty's purpose at its most concrete ("kept daily risk-reporting
+   pipelines reliable") — not a grander problem the source doesn't
+   support. If no honest problem exists, flag it (see weak-resume
+   protocol) — do not invent one.
+3. **Tools.** The actual stack from the variant/years_matrix. Never a tool
+   the candidate lacks.
+4. **Story.** Compose as `[strong verb] + [problem solved] + [technical
+   action] + [scale/impact] + [technology]`. The impact is verbatim from
+   the variant when present; when absent, state scope honestly ("across
+   12 pipelines", "serving the risk team") only from variant facts —
+   never a fabricated number.
+
+**Provenance.** Record per-bullet provenance in
+`evidence.story_provenance`: which variant fact each of industry,
+problem, tools, impact traces to. The reviewer checks this — a story
+element with no source is fabrication, however plausible it reads.
+
+## Company-stack injection
+
+`company_terms` (from company-read, with source URLs) lets the tailor
+speak the company's language — extended in 1.5.0:
+
+- **Documented patterns may frame real work.** When a company-read source
+  documents an integration or architecture pattern (their blog on CDC
+  ingestion, their docs on a connector), and the candidate did equivalent
+  real work, the bullet may reference the pattern honestly: *"Built CDC
+  ingestion mirroring the Debezium→warehouse pattern in <company>'s
+  engineering blog"* — the work is real, the pattern reference shows
+  fluency. Record the source URL in `evidence.lexicon_applied`.
+- **Equivalent-tool honesty.** If the JD requires integration with tool X
+  and the candidate integrated with equivalent tool Y: name Y, state the
+  transferable pattern explicitly — *"Built real-time integrations on Y;
+  same event-driven pattern the role requires on X."* Never rename Y to X.
+- All 1.4.0 prohibitions stand: never name a company tool/product the
+  candidate lacks, never imply use of the company's product, never convert
+  a capability into a materially different one.
+
+## Domain-based selection
+
+Foreground the experience matching the JD's domain: for a fintech posting,
+the fintech roles and bullets lead; retail history leads for a retail
+posting. Reorder roles' bullets and the skills-section grouping by the
+JD's domain — selection and ordering, never rewriting history. A role's
+facts don't change; its prominence does.
+
+## Recruiter scan structure (eye-catching, still ATS-safe)
+
+- **6-second scan:** bold role titles; a one-line scope under each —
+  `[Title] — [domain/platform], [scale]` (e.g. "Staff Data Engineer —
+  real-time payments platform, 40 engineers"); bullets lead with strong
+  verbs and front-loaded numbers.
+- **Summary:** the 1.4.0 formula stands (`[Title] + [Years] + [Key Skills]
+  + [Value Prop]`), now domain-tuned to the posting.
+- **Skills section:** grouped and ordered by the JD's stack, not
+  alphabetical — the hiring manager sees their stack first.
+- All within the 1.4.0 ATS format-preservation rule: single column,
+  standard headers, no tables/columns/text boxes.
+
+## Page target: two pages of substance
+
+- **Target two full pages** — ~650–900 words, 4–6 bullets per recent role,
+  2–3 for older roles. Most variants under-sell: two vague bullets often
+  hide five real stories. Story-crafting (§ above) extracts the full
+  honest value before anything is called complete.
+- **Never exceed two pages. Never pad.** If full honest extraction still
+  leaves under two pages, ship what is real and emit
+  `evidence.resume_gaps` (weak-resume protocol) — a thin page with gaps
+  flagged beats a fat page of fiction.
+
+## Weak-resume protocol
+
+When the variant is thin (few bullets, no metrics, vague duties):
+
+1. Elevate what's real: scope, scale, tools, domain, tenure — the honest
+   material, fully extracted via story-crafting.
+2. Do **not** invent problems, numbers, or tools to fill the page.
+3. Emit `evidence.resume_gaps`: a concrete list ("Role 2 (2021–2023):
+   no quantified impact — ask customer for pipeline volume or team
+   size", "No stated business problem for the ETL role — ask what broke
+   without it"). The coordinator takes these to the customer; real
+   answers come back as variant updates, and the next tailor run uses
+   them. The loop improves the resume instead of fabricating it.
 
 - **Placement priority** for true capabilities already on the variant:
   professional summary line first, skills-section labels second, experience
@@ -144,7 +242,9 @@ The verdict envelope:
              "resume_hash":"<sha256(PDF bytes)[:12]>",
              "lexicon_applied":["medallion architecture"],
              "keywords_added":["exactly-once semantics","data contracts"],
-             "match_delta":{"before":58,"after":74}},
+             "match_delta":{"before":58,"after":74},
+             "story_provenance":[{"bullet":"Built CDC ingestion…","industry":"variant: employer fintech","problem":"variant: 'kept risk reports reliable'","tools":"years_matrix: Debezium 3y","impact":"variant: '40M events/day'"}],
+             "resume_gaps":["Role 2 (2021–2023): no quantified impact — ask customer for volume or team size"]},
  "tokens":1234}
 ```
 
@@ -162,8 +262,14 @@ The verdict envelope:
   headers, contact info in the body (never headers/footers), no tables, no
   text boxes, no columns. If an edit would break parseability, drop the
   edit.
-- **Never add** employers, roles, dates, degrees, certifications, or metrics that are not in the variant source. Never invent experience. If the JD asks for something the variant lacks, omit it — do not fabricate it.
-- **Page count:** one page, unless the variant source is two pages — then at most two. Never exceed the variant's page count.
+- **Never add** employers, roles, dates, degrees, certifications, metrics,
+  business problems, or tools that are not in the variant source. Never
+  invent experience — or a grander problem than the source supports. If
+  the JD asks for something the variant lacks, omit it and flag it in
+  `resume_gaps` — do not fabricate it.
+- **Page count:** target two full pages of substance (§ above); never
+  exceed two pages; never pad a thin history — emit `resume_gaps`
+  instead.
 - **Bullet shape** — see "Bullet shape" above: `[action verb] + [technical
   what] + [scale/impact] + [technology used]`, metric verbatim from the
   variant or omitted, never invented.
