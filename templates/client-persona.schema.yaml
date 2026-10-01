@@ -100,6 +100,15 @@ target_roles:
       keywords:    {required: false, type: string}
       avoid_titles: {required: false, type: string}
 
+company_targeting:
+  required: false
+  type: map
+  fields:
+    tier_preference:       {required: false, type: string}
+    industries_to_avoid:   {required: false, type: list, items: {type: string}}
+    never_apply_companies: {required: false, type: list, items: {type: string}}
+    dream_companies:        {required: false, type: list, items: {type: string}}
+
 preferences:
   required: false
   type: map
@@ -109,6 +118,7 @@ preferences:
     preferred_metros:      {required: false, type: list, items: {type: string}}
     us_only:               {required: false, type: boolean}
     employment_types:      {required: false, type: list, items: {type: string}}
+    preferred_lane:        {required: false, type: string}
     agencies_ok:           {required: false, type: string}
     max_travel:            {required: false, type: string}
     min_base_salary_usd:   {required: false, type: integer, min: 0, null-ok: true}
@@ -196,6 +206,7 @@ automation:
         immediate_on_interview:  {required: false, type: string}
     do_not_contact: {required: false, type: list, items: {type: string}}
     tone_notes:     {required: false, type: string}
+    hold_policy:    {required: false, type: string}
 
 signoff:
   required: true

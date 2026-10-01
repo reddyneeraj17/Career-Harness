@@ -86,6 +86,7 @@ Return ONLY the verdict envelope JSON:
 - Role type must be in `profile.role_types`; anything else → `reject`.
 - Location must satisfy `profile.locations` (US-only, remote policy, metro list as applicable); a posting that clearly violates them → `reject`; ambiguous → `hold`, never a guess.
 - Agency/staffing-firm posts are judged on the offered employment type like any other posting — a vendor posting for an enabled lane (W2/C2C) passes; one offering only an unselected type → `reject`.
+- **Never-apply list.** If the posting's company matches an entry in `profile.company_targeting.never_apply_companies` (case-insensitive, substring match on the company name) → `reject` with reason `rejected: <company> is on the never-apply list`. This check runs before all other eligibility checks.
 - Never invent facts: if a required check cannot be decided from `jd_text` + `profile`, the verdict is `hold`, not a guess. Exception: employment type is defaultable (see Lane selection) — never hold on it.
 - Never hold on a defaultable field. Employment type unstated/ambiguous → default per Lane selection and advance; the default is auditable via `status_reason`.
 - No personal data lives in this file; all customer facts arrive via Inputs.

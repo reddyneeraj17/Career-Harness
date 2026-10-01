@@ -2,10 +2,16 @@
 
 ---
 name: portal-navigator
-version: "1.5.0"
+version: "1.6.0"
 description: Drives one job application through an ATS portal with intent-before-submit, upload hash verification, and screenshot evidence.
 ---
 
+> Changelog 1.6.0: Challenge handling via the `challenge-solver` skill —
+> CAPTCHA/OTP/verification-link challenges are handed to challenge-solver
+> (checkbox auto-click, image-select one vision attempt, email-OTP retrieval
+> from the authorized mailbox, verification-link activation in-session);
+> only genuinely unsolvable challenges park. Form filling now answers from
+> `docs/PORTAL_QUESTION_BANK.md` (canonical questions, defaults, risk tiers).
 > Changelog 1.5.0: Portal walls playbook (§9) — reCAPTCHA/CAPTCHA/bot-walls park, never bypass; expired OTP / no-resend → evidence note + park, never fail; Workday/Taleo walls → park with the specific reason, never hold; Easy Apply timeouts → evidence note + one backoff retry, then park, never fail. New `playbooks/taleo.md`; `taleo` added to `ats_type`.
 > Changelog 1.4.0: Intent is minted server-side via `intent_create(app_id)` — the navigator never generates its own UUID; `reviewed → applying` requires the returned intent_id.
 
@@ -61,7 +67,11 @@ disk and the confirmation text file is written. Before the transition, append th
 ### Intent-before-submit protocol (follow exactly, in order)
 
 1. **Write intent first.** Call `intent_create(app_id)` — the server mints the `intent_id` (never generate your own UUID). Then call `app_transition(app_id, reviewed → applying, intent_id=<returned>, evidence={url})`. **If the row is not in `reviewed` state, the transition is refused — stop immediately.** This is the double-claim guard; do not open the browser.
-2. **Fill the form** per `playbooks/<ats_type>.md`. Screenshot every page before and after filling.
+2. **Fill the form** per `playbooks/<ats_type>.md`. Every field is answered
+   from `screening-answerer` and the canonical `docs/PORTAL_QUESTION_BANK.md`
+   (question → default answer, answer source, risk tier); LOW/MEDIUM fields
+   fill automatically, HIGH fields hold. Screenshot every page before and
+   after filling.
 3. **Re-verify the upload.** Hash the exact file bytes about to be uploaded and compare to the input `resume_hash`. Mismatch → `app_transition(app_id, applying → blocked, evidence={reason: "hash_mismatch"})` and **stop**.
 4. **Click submit exactly once.** Never click twice. Never re-submit while an intent is unresolved.
 5. **Capture evidence.** Read the confirmation string on the confirmation page and take a screenshot.
@@ -77,9 +87,18 @@ disk and the confirmation text file is written. Before the transition, append th
 
 - Unknown mandatory question → `approval_enqueue` (kind `screening_question`, with `app_id`), then `app_transition(app_id, applying → needs_me, evidence={approval_id, field})`. Never guess.
 - **Mandatory cover-letter field** → if `cover_letter_path` + `cover_letter_hash` were supplied (reviewer-approved), hash-verify the file bytes and attach/upload per the ATS playbook; record `cover_letter_path` in the submitted evidence. If no approved letter was supplied, treat it like any unknown mandatory field: `approval_enqueue` → `needs_me`. Never write a letter at the portal.
-- CAPTCHA / reCAPTCHA / SMS / bot-wall → `app_transition(app_id, applying → parked, evidence={reason, checkpoint_path})`. **Never bypass.** Park the URL + filled-field snapshot so a human can resume.
-- **Expired OTP / no resend option** → evidence note (`otp_expired` or `otp_no_resend`, which step, timestamp) + `app_transition(app_id, applying → parked, evidence={reason, checkpoint_path})`. Transient — the operator requests a fresh code and resumes. Never `blocked`/`failed` for an OTP expiry.
-- **Workday / Taleo walls** (account-creation wall, SSO-only login, "sign in to continue" with no usable path, tenant blocks) → `app_transition(app_id, applying → parked, evidence={reason: "workday_wall: <specific>" | "taleo_wall: <specific>", checkpoint_path})`. **Park with the reason, not hold** — these are portal-side blocks for the operator, not missing profile facts for `needs_me`.
+- **Challenge (CAPTCHA / OTP / verification link / account wall)** →
+  invoke the `challenge-solver` skill with `app_id`, the challenge type, the
+  portal domain, and this browser session. On `solved`, resume the form
+  from the challenge point. On `parked`, `app_transition(app_id,
+  applying → parked, evidence={reason: <solver park_reason>, checkpoint_path})`
+  with the solver's checkpoint (URL + filled-field snapshot). On `held`,
+  route to `needs_me` with the solver's `approval_id`. **Never bypass** a
+  bot-wall or use a third-party solving service — the solver parks those.
+- **Workday / Taleo walls** (account-creation wall, SSO-only login, "sign in to continue" with no usable path, tenant blocks) → first offer to
+  `challenge-solver` as `account_creation` (only when
+  `accounts.portal_creation.may_create` is true); if the solver parks it,
+  `app_transition(app_id, applying → parked, evidence={reason: "workday_wall: <specific>" | "taleo_wall: <specific>", checkpoint_path})`. **Park with the reason, not hold** — these are portal-side blocks for the operator, not missing profile facts for `needs_me`.
 - **Easy Apply timeouts** → evidence note (`easy_apply_timeout`, which modal step) + back off: wait, retry the step **once**. Still timing out → `parked` with checkpoint. Never `blocked`/`failed` for a timeout alone; never hammer the modal with retries.
 - "Already applied" banner → `app_transition(app_id, applying → blocked, evidence={reason: "duplicate_portal", screenshot_path})`.
 - Newly discovered ATS quirks (wrong `ats_type` detected, new banner text, new park cause) → `companies_update` with the correction or `park_count` increment.
@@ -103,7 +122,8 @@ The verdict envelope:
 
 - Intent before submit, always. No submit click without a recorded `applying` row carrying this run's `intent_id`.
 - Never click submit twice for one `app_id`. Never re-submit while a previous intent is unresolved.
-- Never bypass CAPTCHA, SMS verification, or bot-walls — park instead.
+- Never bypass a bot-wall or use a third-party CAPTCHA-solving service — hand challenges to `challenge-solver`, which parks what it cannot safely solve.
+- SMS verification the solver cannot complete → park with the checkpoint, never fail.
 - Never guess a form answer — enqueue it.
 - Screenshot every page of the flow, including the confirmation page.
 - Report ATS quirks via `companies_update`; do not silently work around the same quirk twice.

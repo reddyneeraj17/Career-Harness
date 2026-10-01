@@ -205,6 +205,13 @@ Resumed work re-enters at APPLY — it already passed TAILOR + REVIEW GATE.
   cover-letter mode, and passes the approved `cover_letter_path` +
   `cover_letter_hash` to `portal-navigator` — which attaches it only if the
   form actually demands one. No approved letter, no attachment, no guessing.
+- **Challenge handling in APPLY.** `portal-navigator` invokes the
+  `challenge-solver` skill when an application hits a CAPTCHA, email OTP,
+  verification link, or account-creation wall: checkbox CAPTCHAs are
+  clicked, email OTPs are read from the authorized mailbox and entered
+  in-session, verification links are opened in the same browser session.
+  Image/text CAPTCHAs, bot-walls, and SMS codes park with evidence —
+  never bypassed, never solved via third-party services.
 - **The sweep list grows.** After SCOUT, the coordinator invokes
   `company-discovery` with the companies observed in new postings (sightings
   ≥ 2): genuinely-new names enter the companies table at tier 3 for
@@ -224,6 +231,16 @@ present is an enabled lane for the run — e.g. `full_time`, `w2_contract`,
     portals for direct-hire C2C listings.
 - Part-time / internship, if enabled, sweep companies + boards with the soft
   H-1B policy by default — never invent a different rule for them.
+
+### Dream-company prioritization
+
+When building the ordered company list for `career-portal-sweep`, names
+matching `profile.company_targeting.dream_companies` (case-insensitive,
+substring match on the company name) move to the front of their own tier —
+dream tier-1 companies before other tier-1, dream tier-2 before other
+tier-2, and so on. The tier-ascending order is never broken: a dream
+tier-2 company still waits behind tier 1. Dream status affects sweep
+priority only; every posting still runs the full screening chain.
 
 ### Lane-balanced tier rotation — fair rotation, not a quota
 

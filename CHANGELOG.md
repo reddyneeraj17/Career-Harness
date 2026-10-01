@@ -6,6 +6,13 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **New `challenge-solver` skill (1.0.0).** Invoked by portal-navigator mid-application: checkbox CAPTCHAs auto-clicked, image-select one vision attempt, email OTPs read from the authorized mailbox and entered in-session (one resend), verification links opened in the same browser session. Text CAPTCHAs, bot-walls, and SMS park with evidence — never bypassed, never third-party solving services. OTP codes are transient, never persisted.
+- **`docs/PORTAL_QUESTION_BANK.md`.** Canonical bank of every question portals ask (~70 entries): default answer, answer source, and risk tier (LOW auto-fill / MEDIUM fill+log / HIGH hold / NEVER hold+alert). screening-answerer 1.4.0 consults it before holding; portal-navigator 1.6.0 fills from it.
+- **`docs/PERSONA_DEFAULTS.md`.** Default rules for every persona field: 7 must-ask items, everything else pre-filled (broad search defaults, 24 pre-filled screening answers, resume-extracted years matrix).
+- **Onboarding converter upgrades.** Employment-type labels normalized to lane slugs (`Full-time + W2 + C2C` → `full_time, w2_contract, c2c_contract`); new `company_targeting` extraction (tier preference, industries to avoid, never-apply list, dream companies); new `preferred_lane` and `hold_policy` fields. Schema updated.
+- **Consumer wiring.** eligibility-judge rejects never-apply companies; run-coordinator prioritizes dream companies within their tier.
+
 ### Changed
 - **fit-judge default threshold 60 → 25 (1.4.1).** Per operator tuning: `score >= 25` now passes. Fit bands unchanged (labels only). Shipped live in the operator's runtime alongside the v1.3.1 skill sync.
 

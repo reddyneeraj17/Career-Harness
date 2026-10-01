@@ -2,12 +2,17 @@
 
 ---
 name: screening-answerer
-version: "1.3.0"
+version: "1.4.0"
 description: Answers one application screening question from the client persona (Excel-loaded) first, then standing profile answers, honoring the posting's selected employment lane; holds anything unknown for user review.
 ---
 
 # screening-answerer
 
+> Changelog 1.4.0 (2026-09-30): Question-bank lookup — before holding, the
+> skill consults the canonical `docs/PORTAL_QUESTION_BANK.md`: LOW-risk
+> questions fill automatically from the bank default or the mapped persona
+> field, MEDIUM-risk fill with the choice logged in evidence, HIGH-risk
+> still hold. Fewer holds, same safety.
 > Changelog 1.2.0 (2026-09-27): Accepts `selected_lane` (the posting's canonical employment lane from eligibility); lane context only selects among profile-stated facts — it never invents lane-specific claims. Unknown or lane-ambiguous questions still hold.
 > Changelog 1.3.0 (2026-09-27): "Answer shaping" — per-type composition formats and length calibration for the DERIVED-answers path only; verbatim persona/profile answers are never reshaped, unknowns still hold.
 
@@ -54,7 +59,16 @@ the right profile facts.
    - name, email, phone, city/state → `persona.identity`.
 3. **`profile_answers`** — the standing answers from `profile_get`, as
    before (exact key, then unambiguous meaning).
-4. **Unknown → hold for user review.** `approval_enqueue` kind
+4. **`docs/PORTAL_QUESTION_BANK.md`** — the canonical question bank.
+   Match the question to a bank entry (canonical key or listed phrasing):
+   - LOW-risk → `pass` with the bank answer (persona-mapped field or bank
+     default). `evidence.source` = `question-bank:<key>`, `evidence.risk` = `low`.
+   - MEDIUM-risk → `pass` with the bank answer, and the deliberate choice
+     (decline / Negotiable / 0 / consent accepted) is recorded in
+     `evidence`. `evidence.risk` = `medium`.
+   - HIGH-risk or no bank entry → hold (step 5).
+   The bank never overrides a persona or profile value found in steps 1–3.
+5. **Unknown → hold for user review.** `approval_enqueue` kind
    `screening_question` with `app_id`, the exact `question`, and
    `field_name`. The user reviews and the answer is recorded once — never
    asked twice, never guessed.
@@ -151,7 +165,9 @@ The verdict envelope:
 - **Verbatim means verbatim.** Screening answers and the sponsorship
   sentence ship exactly as the client wrote them — no rephrasing, no
   softening.
-- **Unknown → `approval_enqueue`, never a guess.** No years, no salary, no
+- **Unknown → question bank → `approval_enqueue`, never a guess.** An
+  unmatched question is checked against `docs/PORTAL_QUESTION_BANK.md`
+  first (LOW/MEDIUM fill, HIGH holds). No years, no salary, no
   dates, no "probably".
 - **"Decline to answer" is a valid answer** when the profile says so (e.g., `degree_dates: decline`) — return it verbatim as `pass`, not as a hold.
 - A recorded answer must never be asked twice — persistence is the coordinator's job; this skill only reports `held` with the `approval_id`.

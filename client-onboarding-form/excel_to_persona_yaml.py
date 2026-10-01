@@ -63,6 +63,42 @@ def slug(name):
     return t or "client-unknown"
 
 
+# Canonical employment-lane slugs used by eligibility_judge (`profile.role_types`).
+LANE_SLUGS = ("full_time", "part_time", "w2_contract", "c2c_contract", "internship")
+
+def normalize_employment_types(v):
+    """Map the form's display labels ('Full-time + W2 + C2C') to canonical
+    lane slugs. Keyword-based so both dropdown values and free-typed answers
+    work. Returns [] when nothing recognizable is present."""
+    t = s(v).lower()
+    if not t:
+        return []
+    if "all" in t and "type" in t:
+        return list(LANE_SLUGS)
+    lanes = []
+    if "full-time" in t or "full time" in t:
+        lanes.append("full_time")
+    if "part-time" in t or "part time" in t:
+        lanes.append("part_time")
+    if re.search(r"\bw2\b", t):
+        lanes.append("w2_contract")
+    if "c2c" in t:
+        lanes.append("c2c_contract")
+    if "intern" in t:
+        lanes.append("internship")
+    if not lanes and "contract" in t:
+        # "Contract only" with no finer detail -> both contract lanes.
+        lanes = ["w2_contract", "c2c_contract"]
+    # Preserve canonical order, drop dupes.
+    return [l for l in LANE_SLUGS if l in lanes]
+
+
+def normalize_lane(v):
+    """Single lane slug for `preferred_lane` ('W2 contract' -> 'w2_contract')."""
+    lanes = normalize_employment_types(v)
+    return lanes[0] if lanes else ""
+
+
 def rows_of(wb, name):
     ws = wb[name]
     return list(ws.iter_rows(values_only=True))
@@ -194,6 +230,15 @@ def convert(form_path):
         })
     target_roles.sort(key=lambda r: r["priority"])
 
+    # ---- 5b Company targeting (label/value rows below the roles table) ----
+    corp = field_map(t_rows)
+    company_targeting = {
+        "tier_preference": pick(corp, "company size", "tier preference"),
+        "industries_to_avoid": split_list(pick(corp, "industries to avoid")),
+        "never_apply_companies": split_list(pick(corp, "never apply")),
+        "dream_companies": split_list(pick(corp, "dream companies")),
+    }
+
     # ---- 7 Screening Answers ----
     sc_rows = rows_of(wb, "7 Screening Answers")
     sch = header_index(sc_rows, "#", "question", "your standard answer")
@@ -271,12 +316,16 @@ def convert(form_path):
         "resumes": resumes,
         "years_matrix": years_matrix,
         "target_roles": target_roles,
+        "company_targeting": company_targeting,
         "preferences": {
             "work_mode": pick(prefs, "work mode"),
             "open_to_relocation": pick(prefs, "open to relocation"),
             "preferred_metros": split_list(pick(prefs, "preferred cities")),
             "us_only": to_bool(pick(prefs, "us only?")),
-            "employment_types": split_list(pick(prefs, "employment types you will accept")),
+            "employment_types": normalize_employment_types(
+                pick(prefs, "employment types you will accept")),
+            "preferred_lane": normalize_lane(
+                pick(prefs, "preferred employment lane")),
             "agencies_ok": pick(prefs, "staffing agencies"),
             "max_travel": pick(prefs, "maximum travel"),
             "min_base_salary_usd": to_int(pick(prefs, "minimum base salary"), None)
@@ -324,6 +373,7 @@ def convert(form_path):
             },
             "do_not_contact": split_list(pick(auto, "never reply to")),
             "tone_notes": pick(auto, "tone or style"),
+            "hold_policy": pick(auto, "when the system is unsure", "hold policy"),
         },
         "signoff": {
             "confirmations": confirmations,

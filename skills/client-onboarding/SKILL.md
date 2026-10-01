@@ -58,12 +58,15 @@ the client. Section → consumer mapping:
 | `resumes` | resume_picker | Which base variant to tailor per JD |
 | `years_matrix` | fit_judge, resume_tailor, screening_answerer | Fit scoring; the truth boundary for tailoring — never claim more years than listed; every "years of X" screening answer |
 | `target_roles` | run_coordinator (scouts), fit_judge, resume_picker | Search queries, fit scoring, variant choice |
+| `company_targeting` | run_coordinator, eligibility_judge | Dream companies jump to the front of their tier in portal sweeps; `never_apply_companies` is a hard reject at eligibility; `industries_to_avoid` filters targeting |
 | `preferences` | eligibility_judge | Hard filters: work mode, locations, employment types, salary floor, travel |
+| `preferences.preferred_lane` | eligibility_judge | Default lane when a posting doesn't state its employment type (soft default; never a hold reason) |
 | `screening.answers` | screening_answerer | Verbatim answers to application questions; `notes` carry exceptions |
 | `screening.essay_policy` | screening_answerer | Essay questions → draft for approval, never auto-send |
 | `accounts` | portal_navigator, email_replier, linkedin_replier | Which mailbox to scan, which portals exist, Muse account state; `mailbox_never_scan` is a hard rule |
 | `automation.auto_send` | email_replier, linkedin_replier | What sends automatically vs waits for approval |
 | `automation.notifications`, `tone_notes`, `do_not_contact` | email_replier, linkedin_replier | Update cadence, message tone, never-reply list |
+| `automation.hold_policy` | run_coordinator, harness_doctor | What to do with held items: auto-retry actionable holds vs surface to the client |
 
 ## Answering "extra questions" from the persona
 
