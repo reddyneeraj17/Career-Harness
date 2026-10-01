@@ -2,12 +2,13 @@
 
 ---
 name: fit-judge
-version: "1.4.0"
+version: "1.4.1"
 description: Scores job-description fit against targeting and the years matrix; below threshold it rejects. Emits the structured stack tags the tailor consumes.
 ---
 
 # Fit Judge
 
+> Changelog 1.4.1: default `threshold` lowered 60 → 25 per operator tuning — `score >= 25` passes. Fit bands unchanged (labels only).
 > Changelog 1.4.0: At-threshold with no flag advances — `score >= threshold` and no other flag → `pass` (no more operator-review holds on bare at-threshold scores). Holds are reserved for flag situations only: at/above threshold with a flag, or below threshold with a flag worth a human look. Every `hold` carries its retry/advance path in `reasons` (`retry_path: ...`).
 > Changelog 1.1.0: `years_matrix` null/absent → verdict `hold` ("years_matrix absent from profile — cannot score fairly"); never score against an empty matrix.
 > Changelog 1.3.0: requirement-tier heuristics (must-have vs nice-to-have), `evidence.keyword_frequency`, `evidence.fit_band` labels, `evidence.red_flags` lexicon (flag, never auto-reject).
@@ -25,11 +26,11 @@ Scores how well a job description matches the customer's targeting (seniority, i
     "must_haves": ["python", "spark", "aws"]
   },
   "years_matrix": {"python": 6, "spark": 4, "aws": 5},
-  "threshold": 60
+  "threshold": 25
 }
 ```
 
-`threshold` defaults to 60 when omitted. `years_matrix` is the source of truth for experience — it comes from the profile, never from inference. It may be null/absent when the profile has no years matrix.
+`threshold` defaults to 25 when omitted. `years_matrix` is the source of truth for experience — it comes from the profile, never from inference. It may be null/absent when the profile has no years matrix.
 
 ## Actions called
 
@@ -68,7 +69,7 @@ Emit `evidence.fit_band` alongside the numeric score:
 - `< 50` → `under`
 
 Bands are labels only — the `pass`/`reject` decision still follows
-`score >= threshold` (default 60). The coordinator may prioritize
+`score >= threshold` (default 25). The coordinator may prioritize
 `excellent`-band postings within a run, but never uses the band to pass a
 row below threshold.
 
@@ -95,7 +96,7 @@ Return ONLY the verdict envelope JSON:
 ```json
 {"skill":"fit-judge","version":"1.4.0","verdict":"pass|reject|hold",
  "score":0-100,"reasons":["..."],
- "evidence":{"seniority_match":true,"industry_match":true,"skill_gaps":["kubernetes"],"threshold":60,
+ "evidence":{"seniority_match":true,"industry_match":true,"skill_gaps":["kubernetes"],"threshold":25,
   "required_stack":["spark","delta lake","python"],
   "nice_to_have":["kubernetes"],
   "requirement_tier":{"spark":"must-have","kubernetes":"nice-to-have"},
@@ -105,7 +106,7 @@ Return ONLY the verdict envelope JSON:
   "seniority_signals":["staff","tech lead"]},"tokens":1234}
 ```
 
-- `score >= threshold` **and no other flag** → `pass`. An at-threshold score (e.g. exactly 60) with no flag advances — never held for operator review on the number alone.
+- `score >= threshold` **and no other flag** → `pass`. An at-threshold score (e.g. exactly 25) with no flag advances — never held for operator review on the number alone.
 - `score >= threshold` **with a flag** (red flag, seniority doubt, thin JD section, or any other concern) → `hold`; `reasons` names the flag and carries `retry_path: operator may advance if the flag is acceptable`.
 - `score < threshold` **and no flag** → `reject`; `reasons` must name the failing dimensions.
 - `score < threshold` **with a flag** worth a human look → `hold` (not a silent reject); `reasons` names the flag and the failing dimensions and carries `retry_path: operator may advance if the flag is acceptable, else reject`.

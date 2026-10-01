@@ -6,6 +6,9 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **fit-judge default threshold 60 → 25 (1.4.1).** Per operator tuning: `score >= 25` now passes. Fit bands unchanged (labels only). Shipped live in the operator's runtime alongside the v1.3.1 skill sync.
+
 ## [1.3.1] — 2026-09-30
 
 ### Added
