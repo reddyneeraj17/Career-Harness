@@ -159,13 +159,7 @@ transcript.
    `green`.
 4. Show the customer the dashboard.
 
-## Step 8 — Shadow week
-
-The first week is review-only: the harness prepares applications and holds
-every one for human approval before anything is submitted. Get the
-customer's explicit go-ahead before any real submission.
-
-## Step 9 — Hand over
+## Step 8 — Hand over
 
 Summarize for the customer: what was installed (kit version), the daily
 application target, where the dashboard is, how approvals work, and that
@@ -184,6 +178,5 @@ incomplete instead of improvising.
 - [ ] Accounts connected and verified in `credentials.list`
 - [ ] Schedules compiled; manifest written
 - [ ] Doctor green; dry-run scout produced ≥ 5 discovered rows
-- [ ] Shadow week explained; explicit go-ahead recorded before real submits
 
 ---

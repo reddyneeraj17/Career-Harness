@@ -50,9 +50,10 @@ Your Muse does the work; you answer questions. The sequence:
 4. It connects your schedules (job feeds, email scans, reply handling),
    runs a dry-run test with **zero real applications**, and shows you the
    dashboard.
-5. The first week runs in **shadow mode**: it prepares applications and
-   holds them for your review before anything is submitted. You flip the
-   switch when you're comfortable.
+5. From day one the harness runs the way you configured it: anything you
+   marked auto-send goes out on its own; anything you marked
+   approval-gated waits for you. The dry run in step 4 is your proof it
+   behaves before real applications go out.
 
 Your data — profile, resume, applications, messages — never leaves your
 Muse environment and is never sent back to the maintainer.

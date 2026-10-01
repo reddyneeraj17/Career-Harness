@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Fixed
+- **Shadow week removed (maintainer decision 2026-09-30).** The mandated
+  review-only first week is gone from SETUP_PROMPT and OPERATOR. From day
+  one the harness runs per the customer's configured automation settings:
+  auto-send actions go out, approval-gated ones wait. The dry-run smoke
+  test remains the pre-submit proof.
 - **Documentation factual review (2026-09-30).** SETUP_PROMPT: clone prose
   pinned the right tag (`v1.3.2`) and the version list now includes 1.3.1
   and 1.3.2; Step 2 no longer claims seed files are staged (they are read
