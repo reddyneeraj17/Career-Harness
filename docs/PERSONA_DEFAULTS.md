@@ -124,7 +124,7 @@ customer confirms aloud), security clearance (default None), languages
 | 22 | Pronouns | Skip |
 | 23 | Clearance | None (confirm on call) |
 | 24 | Languages | From resume (default English) |
-| | Essay questions | **Draft for my approval** (never auto-send) |
+| | Essay questions | Ask on the setup call: auto-send or draft-for-approval (settled 2026-09-30 — not a fixed default) |
 
 ### Accounts
 | Field | Default | Note |
