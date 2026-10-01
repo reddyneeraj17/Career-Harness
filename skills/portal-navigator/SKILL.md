@@ -2,10 +2,15 @@
 
 ---
 name: portal-navigator
-version: "1.6.0"
+version: "1.7.0"
 description: Drives one job application through an ATS portal with intent-before-submit, upload hash verification, and screenshot evidence.
 ---
 
+> Changelog 1.7.0: Submission quality gates — live-posting check before
+> intent (dead postings go `blocked`, never filled), ATS-parseable resume
+> requirement (text layer, never image-only), single-source-of-truth
+> pre-submit consistency check (persona wins every conflict), salary-0 as
+> last resort only, 60-second minimum pacing between submits on one domain.
 > Changelog 1.6.0: Challenge handling via the `challenge-solver` skill —
 > CAPTCHA/OTP/verification-link challenges are handed to challenge-solver
 > (checkbox auto-click, image-select one vision attempt, email-OTP retrieval
@@ -63,6 +68,33 @@ The `applying → submitted` transition MUST carry evidence with all four fields
 is incomplete — do not mark submitted until the confirmation screenshot file exists on
 disk and the confirmation text file is written. Before the transition, append the
 `event_log` row with all evidence paths so a lost transition never loses the evidence.
+
+### Submission quality gates (every application, no exceptions)
+
+1. **The posting is live.** Before step 1 (intent), load the URL and
+   confirm the posting is still open — not a 404, not "position closed /
+   expired / filled", not removed. Dead posting → `app_transition(app_id,
+   applying → blocked, evidence={reason: "posting_dead"})`. Never fill a
+   form on a dead posting; it wastes the run and looks like bot traffic.
+2. **The resume is ATS-parseable.** The tailored PDF must contain an
+   extractable text layer — never an image-only / scanned PDF. If the
+   file has no extractable text → `blocked` with
+   `reason: "resume_not_parseable"` and route back for re-tailor. An
+   unparseable upload is an auto-reject.
+3. **Single source of truth.** Every filled value traces to the persona,
+   the question bank, or a recorded approval. Before the submit click,
+   re-read the filled form: any value contradicting the persona (name,
+   email, phone, city, work-auth answers) → stop, correct from the
+   persona, re-verify. The persona wins every conflict.
+4. **Salary fallback is last resort.** Leave optional salary fields blank.
+   Enter `0` only when the portal rejects a blank numeric field. Never
+   invent a real number the customer didn't set.
+5. **Pacing.** At least 60 seconds between two submit clicks on the same
+   portal domain. Never rapid-fire applications — bot detection burns the
+   session and the applications with it.
+6. **Confirmation or it didn't happen.** `submitted` requires the
+   confirmation string captured and the screenshot file on disk (existing
+   evidence rule).
 
 ### Intent-before-submit protocol (follow exactly, in order)
 

@@ -2,12 +2,16 @@
 
 ---
 name: screening-answerer
-version: "1.4.0"
+version: "1.4.1"
 description: Answers one application screening question from the client persona (Excel-loaded) first, then standing profile answers, honoring the posting's selected employment lane; holds anything unknown for user review.
 ---
 
 # screening-answerer
 
+> Changelog 1.4.1 (2026-09-30): Consistency guard — a derived or
+> question-bank answer that contradicts a verbatim persona/profile value
+> loses; the persona value ships and the conflict is logged in evidence.
+> A default never overrides something the customer actually said.
 > Changelog 1.4.0 (2026-09-30): Question-bank lookup — before holding, the
 > skill consults the canonical `docs/PORTAL_QUESTION_BANK.md`: LOW-risk
 > questions fill automatically from the bank default or the mapped persona
@@ -165,6 +169,11 @@ The verdict envelope:
 - **Verbatim means verbatim.** Screening answers and the sponsorship
   sentence ship exactly as the client wrote them — no rephrasing, no
   softening.
+- **Consistency guard.** If a derived (step 2) or question-bank (step 4)
+  answer contradicts a verbatim persona or profile value from steps 1–3,
+  the verbatim value wins. Ship the persona value as `pass` and record
+  the conflict in evidence (`evidence.conflict_resolved: "<what lost>"`).
+  A default never overrides something the customer actually said.
 - **Unknown → question bank → `approval_enqueue`, never a guess.** An
   unmatched question is checked against `docs/PORTAL_QUESTION_BANK.md`
   first (LOW/MEDIUM fill, HIGH holds). No years, no salary, no
