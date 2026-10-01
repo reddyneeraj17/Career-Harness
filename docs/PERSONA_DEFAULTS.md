@@ -139,7 +139,7 @@ customer confirms aloud), security clearance (default None), languages
 | Field | Default | Note |
 |---|---|---|
 | max_per_day | 50 | |
-| max_per_run | 10 | |
+| max_per_run | 50 | Raised 2026-09-30 (maintainer): matches max_per_day |
 | hours | Any time | |
 | linkedin_actions_per_hour | 20 | Account protection |
 | auto_send.routine_email_replies | Send automatically | |
