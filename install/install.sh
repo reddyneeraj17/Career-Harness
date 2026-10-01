@@ -82,11 +82,23 @@ else
   pass "no customer PII detected"
 fi
 
+# 4b. dry-run regression guardrail: no hardcoded dry-run mode/flag may exist in
+# skills, server/client source, or templates. (Onboarding docs may still
+# describe the one-time "dry-run scout" verification step, and install.sh
+# --check is the installer's own dry-run terminology — neither is a harness
+# mode, so docs and install.sh are out of scope here.)
+echo "-- dry-run guardrail --"
+if grep -rIn --exclude-dir=node_modules -e "dry_run" -e "dryRun" \
+  "$KIT_DIR/skills" "$KIT_DIR/harness-core/server/src" "$KIT_DIR/harness-core/client/src" "$KIT_DIR/templates" 2>/dev/null; then
+  fail "hardcoded dry-run mode detected (see listing above)"
+else
+  pass "no hardcoded dry-run mode"
+fi
+
 if [[ $CHECK_MODE -eq 1 ]]; then
   echo "== --check done: $FAILURES failure(s) =="
   exit $((FAILURES > 0 ? 1 : 0))
 fi
-
 # 5. staging -----------------------------------------------------------------
 echo "-- staging --"
 WS="${HOME}/workspace"

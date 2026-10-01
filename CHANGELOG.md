@@ -6,6 +6,118 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.1] — 2026-09-30
+
+### Added
+- **Portal walls playbook (§9).** portal-navigator 1.5.0: reCAPTCHA/CAPTCHA/
+  bot-walls park (never bypass); expired OTP or no-resend option writes an
+  evidence note (`otp_expired`/`otp_no_resend`, step, timestamp) and parks —
+  never blocked/failed; Workday/Taleo walls (account-creation, SSO-only,
+  tenant blocks) park with the specific reason (`workday_wall:` /
+  `taleo_wall:`) — never `needs_me`/`hold`; Easy Apply modal timeouts write
+  an evidence note (`easy_apply_timeout`), back off and retry the step
+  once, then park — never failed, never retried more than once. New
+  `playbooks/taleo.md`; `taleo` added to the `ats_type` enum.
+  4 fixtures (P1–P4) validated live against the real skill (4/4 pass).
+- **Schedule/preferences reliability (§8).** `profile_put` is now the
+  single owner of the profile hash: the server computes a canonical hash
+  (sorted-keys compact JSON → SHA-256, `years_matrix` normalized to `[]`
+  when absent, campaigns included — a cadence change must trigger
+  recompile) over the effective profile document and returns it as
+  `profile_hash`; callers (compile-schedules, profile-watch) use the
+  returned value and never compute their own. `profile_put` args must come
+  from the validated parsed `profile.yaml`, never from memory/chat.
+  profile-watch detects drift by hashing the body actually reread via
+  `cron.view` (hash field blanked), not a local render. The chat watch
+  stamps `{{chat_id}}` from the compile worker's runtime context and
+  delivers only there. The Profile tab verifies saves by re-reading the
+  row and comparing caps before presenting success.
+  `profile_put canonical hash` test in `lifecycle.test.ts` (18 pass, 0 fail).
+- **Coordinator browser capability (§7).** run-coordinator owns one browser
+  session per run (spawn/steer/close); the parent may inspect, assist,
+  handle OTP, or take over at any time and the coordinator reconciles after
+  parent activity without fighting for control. Worker subagents never
+  drive APPLY browsers. run-coordinator 1.19.0: the old "check the vault"
+  gate called `credentials.list`, which was verified 2026-09-30 to be
+  absent from the worker tool surface — the coordinator no longer pretends
+  to check the vault. The parent (main agent) may pass pre-checked
+  `logins_available`/`boards_available`; otherwise the board session probe
+  (§6) is the source of truth.
+- **Board session health (§6).** job-board-search 1.3.0 probes each board
+  as healthy/logged_out/challenge_wall at run start: one saved-login
+  retry per board per run (Outlook OTP authorized), challenge walls never
+  bypassed; dead boards are swept around with a partial/hold outcome
+  naming each state; zero usable boards rejects and the coordinator closes
+  the run failed with a per-board blocker. `board_session_check` and
+  `board_session_failed` event_log rows make consecutive dead-board runs
+  visible in history; a zero-scan run never silently passes. run-coordinator
+  1.18.0. 3 fixtures (B1–B3) validated live against the real skills
+  (3/3 pass).
+- **Transition structured fields (§5).** `app_transition` now parses
+  variant_id/resume_path/resume_hash from evidence JSON on **every** edge and
+  persists them to the applications row (previously only `applying →
+  submitted` did; other edges left them opaque in the event payload).
+  Malformed JSON persists nothing; resume_hash is only accepted as a full
+  SHA-256 hex. New `intent_create` action mints intent_ids server-side with
+  the central id() helper — clients never invent UUIDs; it is idempotent
+  while the row is still `reviewed`. `reviewed → applying` now requires the
+  server-minted intent and rejects forged/missing ids. run-coordinator
+  1.17.0 and portal-navigator 1.4.0 call `intent_create` before the
+  transition. 6 new tests in `harness-core/server/test/lifecycle.test.ts`
+  (17 pass, 0 fail).
+- **Dry-run cleanup (§3).** Verified no hardcoded dry-run mode remains in
+  skills, server/client source, or templates — only the installer's
+  `--check` dry-run terminology and the one-time onboarding "dry-run scout"
+  verification step, both legitimate. Added a dry-run regression guardrail
+  to `install.sh --check` that fails on any `dry_run`/`dryRun` identifier in
+  those trees; verified it trips on a planted violation.
+- **Backlog sweep (§2).** run-coordinator skill 1.16.0: right after the login
+  gate, the coordinator recovers orphaned `applying` rows from failed/stalled
+  runs (tailored resume on file → `reviewed`, else → `screened`, with
+  `recovered from <run_id> (<status>)` reasons; never touches `applying`
+  rows of live runs) and processes the oldest `discovered`/`screened` rows
+  before claiming anything new. Backlog sweep, resume sweep, and SCOUT
+  claims share one candidate-processing ceiling (`cap_per_run`); backlog
+  first, new claims fill the remainder. Swept `discovered` rows lacking a JD
+  re-enter at JD-FETCH; `screened` rows enter at PICK without re-screening;
+  parked/blocked/needs_me rows are never swept. 4 coordinator fixtures in
+  `skills/tests/coordinator-fixtures.md`; C1 and C2 validated live against
+  the real skill (2/2 pass).
+- **Screening soft defaults (§1).** Employment type is now a defaultable
+  field, never a hold: when a JD leaves the type unstated, unclear, or
+  ambiguous, eligibility-judge (skill 1.2.0) defaults `selected_lane` to
+  `profile.targeting.preferred_lane` (new optional schema field; falls back
+  to the first of `profile.role_types`) and advances, stamping
+  `reasons[0]` as `defaulted to <lane>; type unstated in JD` so the
+  coordinator writes it to `status_reason`. An explicitly stated type that
+  is not enabled still rejects — the default never rescues a real mismatch.
+  fit-judge (skill 1.4.0): a score at threshold with no other flag now
+  passes instead of holding for operator review; holds are reserved for
+  flag situations (at/above or below threshold) and every hold carries its
+  `retry_path:` in `reasons`. resume-reviewer (skill 1.4.0): the tool-claim
+  check now distinguishes fabrication (invented value, or a verbatim term
+  with an inflated claim attached → `rejected`, quoting the invented value
+  and every source checked) from mechanical mismatch (term verbatim in the
+  JD or variant, carried through as-is → note at most, never a rejection).
+  11 scenario fixtures in `skills/tests/screening-fixtures.md`; 6 of them
+  validated live against the real judge skills (6/6 pass).
+- **Run-lifecycle hygiene (§4).** `run_open` now requires non-empty
+  `compiled_config` (campaign_id, caps, skill chain) and `live_config`
+  (mode, trigger) and fails loudly instead of writing a config-less row;
+  its response is now `{ok:true, run_id}` / `{ok:false, message}`.
+  `run_close` rejects unknown run_ids instead of returning ok:true.
+  `app_claim` stamps `status_reason` ("claimed from <source>; awaiting
+  screen") at claim time. `app_transition` never writes a blank reason
+  (explicit > evidence-derived > mechanical fallback, enforced at the write
+  layer), requires an explicit reason as the blocker for
+  parked/blocked/needs_me, and clears the blocker when leaving those
+  states. New `run_finalize_stale` action force-closes runs orphaned past
+  `max_age_hours` (default 3) with a diagnostic blocker without touching
+  application rows; the hourly harness-doctor (skill 1.2.0) calls it.
+  run-coordinator skill 1.15.0 documents the new `run_open` contract.
+  11 bun:test cases in `harness-core/server/test/lifecycle.test.ts` run the
+  real action handlers against an isolated sqlite DB.
+
 ### Changed
 - **Token-gated distribution docs (1.3.1).** All customer-facing docs now
   tell one story: the repo is private and every fetch needs the

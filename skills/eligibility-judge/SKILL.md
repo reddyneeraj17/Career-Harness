@@ -2,12 +2,13 @@
 
 ---
 name: eligibility-judge
-version: "1.1.0"
+version: "1.2.0"
 description: Screens a job posting for hard eligibility — role type, location, and agency rules — from the profile, never from guesses; emits the canonical selected employment lane.
 ---
 
 # Eligibility Judge
 
+> Changelog 1.2.0: Soft default for unstated/ambiguous employment type — default to `profile.targeting.preferred_lane` (fallback: first of `profile.role_types`) instead of holding; the default is recorded in `reasons[0]` as `defaulted to <lane>; type unstated in JD` so the coordinator writes it to `status_reason`. Never hold on a defaultable field.
 > Changelog 1.1.0 (2026-09-27): Emits canonical `selected_lane` plus `employment_types_offered` in evidence, per the multi-type posting rules. Ambiguous type is a hold, never an inference.
 
 Decides whether a posting clears the hard eligibility gates (role type, location, agency/C2C) using only the customer profile. This is a verdict-only skill: it judges, the coordinator transitions.
@@ -23,6 +24,7 @@ Decides whether a posting clears the hard eligibility gates (role type, location
   "jd_text": "full normalized job description text (may be empty)",
   "profile": {
     "role_types": ["full_time", "w2_contract"],
+    "targeting": {"preferred_lane": "w2_contract"},
     "locations": {"us_only": true, "remote": "ok", "metros": ["Houston", "Dallas", "Austin"]},
     "c2c_allowed": false
   }
@@ -44,12 +46,17 @@ name. Choose the lane the run will actually apply in:
   `employment_types_offered`, then choose the application lane: prefer an
   enabled lane; for "W2 or C2C" choose `c2c_contract` only when the posting
   or application genuinely permits C2C, otherwise `w2_contract`.
-- **Ambiguous type** (the JD does not state it clearly) → `hold` for
-  clarification when the type affects eligibility or H-1B routing; never
-  infer it from the source name.
-- **Unclear/unstated** → `employment_types_offered: ["unknown"]`,
-  `selected_lane: "unknown"`; pass through on the other checks and let
-  downstream stages hold on the missing fact.
+- **Type unstated, unclear, or ambiguous** → **default, never hold.**
+  `selected_lane` = `profile.targeting.preferred_lane`, falling back to the
+  first entry of `profile.role_types` when `preferred_lane` is absent.
+  `employment_types_offered: ["unknown"]`. The other checks proceed
+  normally — a row that passes them gets verdict `pass` in the defaulted
+  lane. `reasons[0]` MUST be the exact string
+  `defaulted to <lane>; type unstated in JD` (the coordinator writes it to
+  `status_reason`), and `selected_lane_evidence` records how the default
+  was chosen, e.g. `defaulted to w2_contract: type unstated in JD;
+  preferred_lane=w2_contract`. A missing employment type is a defaultable
+  field — never a hold.
 
 ## Actions called
 
@@ -60,7 +67,7 @@ name. Choose the lane the run will actually apply in:
 Return ONLY the verdict envelope JSON:
 
 ```json
-{"skill":"eligibility-judge","version":"1.1.0","verdict":"pass|reject|hold",
+{"skill":"eligibility-judge","version":"1.2.0","verdict":"pass|reject|hold",
  "score":0-100,"reasons":["..."],
  "evidence":{"posting_id":"...","checks":{"role_type":"pass|fail","location":"pass|fail|unknown","agency":"pass|fail|n/a"},
  "employment_types_offered":["w2_contract","c2c_contract"],"selected_lane":"w2_contract","selected_lane_evidence":"JD: 'W2 or C2C accepted'; C2C permitted on the application form"},"tokens":1234}
@@ -79,6 +86,7 @@ Return ONLY the verdict envelope JSON:
 - Role type must be in `profile.role_types`; anything else → `reject`.
 - Location must satisfy `profile.locations` (US-only, remote policy, metro list as applicable); a posting that clearly violates them → `reject`; ambiguous → `hold`, never a guess.
 - Agency/staffing-firm posts are judged on the offered employment type like any other posting — a vendor posting for an enabled lane (W2/C2C) passes; one offering only an unselected type → `reject`.
-- Never invent facts: if a required check cannot be decided from `jd_text` + `profile`, the verdict is `hold`, not a guess.
+- Never invent facts: if a required check cannot be decided from `jd_text` + `profile`, the verdict is `hold`, not a guess. Exception: employment type is defaultable (see Lane selection) — never hold on it.
+- Never hold on a defaultable field. Employment type unstated/ambiguous → default per Lane selection and advance; the default is auditable via `status_reason`.
 - No personal data lives in this file; all customer facts arrive via Inputs.
 - Append exactly one `event_log` row on exit. No state transitions — the coordinator owns them.

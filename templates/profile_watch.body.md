@@ -17,8 +17,10 @@ bodies. The harness-doctor remains report-only (drift backstop) — it never
 recompiles.
 
 ## 1. Detect
-1. Parse ~/workspace/profile.yaml as YAML. Canonicalize: JSON dump with sorted
-   keys, compact separators (',', ':'), UTF-8. sha256 -> current_hash.
+1. Parse ~/workspace/profile.yaml as YAML. Normalize: `years_matrix`
+   absent/null -> `[]` (the server applies the same normalization — without
+   it the hashes never agree). Canonicalize: JSON dump with sorted keys,
+   compact separators (',', ':'), UTF-8. sha256 -> current_hash.
    This MUST match the scheme in schedules_manifest.json notes and the
    profile_put return value. NEVER compare raw file bytes — YAML formatting
    churn is not a profile change.
@@ -39,9 +41,10 @@ VERBATIM, with these watcher-specific rules:
 4. cron.view each live job and compare the fully rendered body against the
    saved body. cron.update ONLY jobs whose body actually changed. cron.add
    if a job is missing. Never delete a job; disable via enabled:false.
-5. cron.view to verify every saved/updated body; recompute body hashes per
-   the manifest's hash scheme (sha256 of the rendered body with the
-   '# body_hash: ' field blanked).
+5. cron.view to verify every saved/updated body; recompute body hashes on
+   the ACTUAL live bodies read back via cron.view (§8) — sha256 of the
+   saved body text with the `# body_hash: ` field blanked. Never hash the
+   locally rendered copy: the live prompt is what the worker receives.
 6. Rewrite schedules_manifest.json: all jobs — every job entry MUST include the
    full dashboard-validated schema (`job_id`, `title`, `campaign`, `cadence`,
    `schedule`, `enabled`, `body_hash`); the dashboard rejects the manifest

@@ -2,12 +2,13 @@
 
 ---
 name: job-board-search
-version: "1.2.0"
+version: "1.3.0"
 description: Scout skill for the job_board campaign — runs lane-specific, targeting-derived search queries across the available job boards (Dice, Indeed, Glassdoor, ZipRecruiter) and posts deduplicated results with employment-type evidence for screening.
 ---
 
 # job-board-search
 
+> Changelog 1.3.0: Session probe + in-run re-login (§6) — at sweep start each board's session is probed and classified `healthy` / `logged_out` / `challenge_wall`; `logged_out` boards get one re-login attempt with the vault's saved login (email OTP via the connected Outlook mailbox when challenged). Dead boards are reported distinctly per state, never silently skipped; zero usable boards → `reject` so the coordinator fails the run loudly.
 > Changelog 1.2.0 (2026-09-27): Accepts lane-specific profile-derived queries (`lane` on each query); returns employment-type evidence per posting so the lane can be classified without guessing. The four-board access contract is unchanged — open-web expansion is explicitly NOT this skill's job; the coordinator routes expansion through `open-web-scout`.
 
 ## Inputs
@@ -41,9 +42,13 @@ uses the passed `queries[]` verbatim.
 
 The four searchable boards are **dice, indeed, glassdoor, ziprecruiter**.
 A board is searchable only when its login sits in the customer's credentials
-vault (saved at onboarding by the `account-connector` skill). The coordinator
-checks `credentials.list` (metadata only — never values) at run start and
-passes the available subset as `boards[]`.
+vault (saved at onboarding by the `account-connector` skill). `boards[]` is
+the availability list the parent/coordinator passes in — computed from the
+credentials vault where that namespace exists (main-agent context). Where it
+does not (worker context), the coordinator passes all four boards and the
+session probe below is the source of truth: a board with no usable session
+and no saved login to re-login with is reported `logged_out`, and the run
+holds with `needs_me` pointing at `account-connector`.
 
 - **Missing login → skip the board, search the rest.** A board with no vault
   login is simply absent from `boards[]`; its queries are never built and the
@@ -51,11 +56,44 @@ passes the available subset as `boards[]`.
   decision (or an account not yet connected) — honor it, don't stall the run.
 - **Zero boards available → the run holds** before SCOUT with `needs_me=true`,
   naming the missing accounts and pointing at `account-connector`.
-- **Mid-run auth wall** (stale session despite a vault login): skip that
-  board for this run, finish the rest, and record it in
-  `evidence.boards_skipped` with the reason. `reject` only when every board
-  failed; `hold` when partial results exist but a board behaved anomalously
-  (rate-limit warnings, CAPTCHA) and results may be incomplete.
+
+## Session probe + in-run re-login (at sweep start, every run)
+
+A vault login is not a live session. Before running any query, probe each
+board in `boards[]` with the browser task and classify it — report
+`logged_out` and `challenge_wall` distinctly, never as one "auth issue":
+
+1. **Probe.** Open the board's homepage or account page.
+   - Signed-in markers (profile name, "Sign out", saved searches) → `healthy`.
+   - Login form / "Sign in" prompt with no challenge → `logged_out`.
+   - "Verify you are human", Cloudflare/PerimeterX challenge, CAPTCHA wall → `challenge_wall`. Do not attempt to bypass it — record and move on.
+2. **Re-login** (only on `logged_out`, one attempt per board per run).
+   Apply the board's saved login from the credentials vault — in-run
+   re-login with saved credentials is authorized. If the board sends an
+   email OTP, read the latest code from the connected Outlook mailbox and
+   enter it — OTP-via-mailbox is authorized. Then re-probe:
+   - Signed in → `healthy` (`relogin_attempted: true, relogin_ok: true`).
+   - Challenge appears mid-login → `challenge_wall`.
+   - Credentials rejected → stays `logged_out` (`relogin_ok: false`).
+   Never loop retries; never try a board outside `boards[]`.
+3. **Sweep only `healthy` boards.** Record per board
+   `{board, session, relogin_attempted, relogin_ok}` in
+   `evidence.boards_session`.
+4. **Verdict rules (no silent skips).**
+   - Every board healthy (natively or via re-login) → normal sweep.
+   - Some boards dead → sweep the live ones; verdict `hold`, reasons naming
+     each dead board and its state (`glassdoor=challenge_wall`,
+     `dice=logged_out after failed re-login`). Results may be incomplete.
+   - Zero boards usable → verdict `reject`,
+     reason `all boards unusable: <board>=<state>, ...`. The coordinator
+     fails the run loudly on this — a zero-scan run is never reported as a
+     pass.
+- **Dead sessions are handled by the probe above, not skipped mid-run.**
+  A board that degrades mid-sweep (session dies after a healthy probe) is
+  recorded in `evidence.boards_skipped` with the reason and its queries are
+  abandoned for this run — `reject` only when every board failed; `hold`
+  when partial results exist but a board behaved anomalously (rate-limit
+  warnings, CAPTCHA) and results may be incomplete.
 
 ## Actions called
 
@@ -77,6 +115,7 @@ The verdict envelope, nothing else:
   "reasons": ["8 new postings from 12 queries", "2 queries returned no results", "glassdoor skipped: no vault login"],
   "evidence": {
     "boards_available": ["dice", "indeed", "ziprecruiter"],
+    "boards_session": [{"board": "dice", "session": "healthy", "relogin_attempted": true, "relogin_ok": true}, {"board": "indeed", "session": "healthy", "relogin_attempted": false}, {"board": "ziprecruiter", "session": "challenge_wall", "relogin_attempted": false}],
     "boards_skipped": [{"board": "glassdoor", "reason": "no vault login"}],
     "queries_run": 12,
     "queries_no_results": 2,

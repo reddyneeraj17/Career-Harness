@@ -57,6 +57,11 @@ targeting:
     # e.g. "Senior Data Engineer", "Staff Data Scientist", "ML Engineer".
     # Scouts build search queries from titles x seniority x industries.
     titles:     {required: true, type: list, items: {type: string}, min_items: 1}
+    # Default employment lane used when a JD leaves the employment type
+    # unstated or ambiguous (screening soft-default, §1). Should be one of
+    # the top-level role_types. When absent, judges fall back to the first
+    # entry of role_types.
+    preferred_lane: {required: false, type: string}
 
 comp:
   required: true

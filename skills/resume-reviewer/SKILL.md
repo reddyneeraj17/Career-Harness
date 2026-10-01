@@ -2,11 +2,13 @@
 
 ---
 name: resume-reviewer
-version: "1.3.0"
+version: "1.4.0"
 description: Gates tailored resumes and cover letters — cached verdicts, mechanical anti-fabrication checks against the variant and years matrix, company-term provenance and drift checks, forbidden-term enforcement — before anything ships.
 ---
 
 # Resume Reviewer
+
+> Changelog 1.4.0: Tool-claim check now distinguishes **fabrication** (value invented — in none of variant, JD, years matrix, or company_terms, or a verbatim term with an inflated claim attached → `rejected`) from **mechanical mismatch** (term verbatim in the JD or verbatim in the variant, carried through as-is → note at most, never a rejection). Verbatim passthrough is not fabrication.
 
 The review gate: judges a tailored resume PDF (or a cover letter) against the job description before it may be submitted. Verdicts are cached on `(jd_hash, artifact_hash)` so identical work is never reviewed twice. This is a verdict-only skill: it judges, the coordinator transitions.
 
@@ -49,7 +51,7 @@ unchanged. Resume mode (no cover inputs) behaves exactly as before.
 Return ONLY the verdict envelope JSON, with `verdict` mapped to the review outcome:
 
 ```json
-{"skill":"resume-reviewer","version":"1.3.0","verdict":"pass|reject|hold",
+{"skill":"resume-reviewer","version":"1.4.0","verdict":"pass|reject|hold",
  "score":0-100,"reasons":["..."],
  "evidence":{"review":"approved|approved-with-notes|rejected","notes":["..."],"cache_hit":true,"jd_hash":"...","artifact":"resume|cover_letter","artifact_hash":"..."},"tokens":1234}
 ```
@@ -62,12 +64,23 @@ Return ONLY the verdict envelope JSON, with `verdict` mapped to the review outco
 
 - Check `review_get` before doing any review work. On a cache hit, return the cached verdict unchanged — do not re-judge.
 - Banned-phrase check: any unverified claim or banned phrase in the tailored PDF → `rejected` with the phrase quoted in `notes`.
-- **Tool-claim check (mechanical).** Extract every technical tool, product, and
-  platform named in the tailored PDF. Each must resolve to one of: a
-  `years_matrix` key, a term in `jd_text`, or a `company_terms` row whose
-  `generic_equivalent` names a `years_matrix` capability. A named tool in none
-  of these → `rejected`, naming the tool. "Familiar with" / "exposure to" count
-  as claims.
+- **Tool-claim check: fabrication vs mechanical mismatch.** Extract every
+  technical tool, product, and platform named in the tailored PDF. Each must
+  resolve to one of: a `years_matrix` key, a term in `jd_text`, a
+  `company_terms` row whose `generic_equivalent` names a `years_matrix`
+  capability, or a **verbatim mention in the variant** (profile values used
+  as-is, no inflated claim attached).
+  - **Fabrication** → `rejected`: a named tool in NONE of those sources, or
+    a verbatim term with an inflated claim attached (variant "used Docker"
+    → tailored "Docker expert, 10 years"; see Lexicon drift). Quote the
+    invented value and name every source checked (variant, JD, matrix,
+    company_terms).
+  - **Mechanical mismatch** → never a rejection: a term verbatim in the JD
+    or verbatim in the variant, carried through as-is with no invented
+    value. Record it in `notes` at most. Verbatim passthrough is not
+    fabrication.
+  - "Familiar with" / "exposure to" count as claims for the resolution
+    check; the fabrication/mismatch distinction applies to them unchanged.
 - **Variant-containment check (mechanical).** Extract employers, titles, date
   ranges, degrees, certifications, and metrics from the tailored PDF and from
   `variant_path`. Every one in the tailored PDF must already exist in the

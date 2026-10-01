@@ -2,12 +2,13 @@
 
 ---
 name: fit-judge
-version: "1.3.0"
+version: "1.4.0"
 description: Scores job-description fit against targeting and the years matrix; below threshold it rejects. Emits the structured stack tags the tailor consumes.
 ---
 
 # Fit Judge
 
+> Changelog 1.4.0: At-threshold with no flag advances — `score >= threshold` and no other flag → `pass` (no more operator-review holds on bare at-threshold scores). Holds are reserved for flag situations only: at/above threshold with a flag, or below threshold with a flag worth a human look. Every `hold` carries its retry/advance path in `reasons` (`retry_path: ...`).
 > Changelog 1.1.0: `years_matrix` null/absent → verdict `hold` ("years_matrix absent from profile — cannot score fairly"); never score against an empty matrix.
 > Changelog 1.3.0: requirement-tier heuristics (must-have vs nice-to-have), `evidence.keyword_frequency`, `evidence.fit_band` labels, `evidence.red_flags` lexicon (flag, never auto-reject).
 
@@ -92,7 +93,7 @@ Quote the exact phrase found; one entry per distinct phrase.
 Return ONLY the verdict envelope JSON:
 
 ```json
-{"skill":"fit-judge","version":"1.3.0","verdict":"pass|reject|hold",
+{"skill":"fit-judge","version":"1.4.0","verdict":"pass|reject|hold",
  "score":0-100,"reasons":["..."],
  "evidence":{"seniority_match":true,"industry_match":true,"skill_gaps":["kubernetes"],"threshold":60,
   "required_stack":["spark","delta lake","python"],
@@ -104,17 +105,20 @@ Return ONLY the verdict envelope JSON:
   "seniority_signals":["staff","tech lead"]},"tokens":1234}
 ```
 
-- `score >= threshold` → `pass`.
-- `score < threshold` → `reject`; `reasons` must name the failing dimensions.
-- JD text missing or too thin to score → `hold`, never a guess.
-- `years_matrix` null/absent entirely → `hold` with reason "years_matrix absent from profile — cannot score fairly". Do NOT score against an empty matrix (that would turn every must-have into a gap and mass-reject).
+- `score >= threshold` **and no other flag** → `pass`. An at-threshold score (e.g. exactly 60) with no flag advances — never held for operator review on the number alone.
+- `score >= threshold` **with a flag** (red flag, seniority doubt, thin JD section, or any other concern) → `hold`; `reasons` names the flag and carries `retry_path: operator may advance if the flag is acceptable`.
+- `score < threshold` **and no flag** → `reject`; `reasons` must name the failing dimensions.
+- `score < threshold` **with a flag** worth a human look → `hold` (not a silent reject); `reasons` names the flag and the failing dimensions and carries `retry_path: operator may advance if the flag is acceptable, else reject`.
+- JD text missing or too thin to score → `hold`, never a guess; `reasons` carries `retry_path: re-run after jd-fetch recovers usable text`.
+- `years_matrix` null/absent entirely → `hold` with reason "years_matrix absent from profile — cannot score fairly" and `retry_path: repopulate years_matrix in the profile, then re-screen`. Do NOT score against an empty matrix (that would turn every must-have into a gap and mass-reject).
+- **Every `hold` must carry its retry/advance path.** A hold with no path is a silent drop — encode the path in `reasons` as `retry_path: ...`.
 
 ## Hard limits
 
 - Never invent years of experience. Skill coverage is checked against `years_matrix` only; a must-have skill absent from the matrix counts as a gap, not as zero-with-a-guess.
 - If `years_matrix` is null/absent entirely, return `hold` — never substitute an empty matrix, and never fabricate per-skill years to fill it.
 - Score is decomposable: seniority match, industry match, must-have coverage. Put the breakdown in `evidence` so a rejection is explainable.
-- Do not lower the threshold to pass a row — the threshold comes from Inputs; borderline rows are `hold` with reasons, not quiet passes.
+- Do not lower the threshold to pass a row — the threshold comes from Inputs. A row exactly at threshold with no flag passes per the Output rules above; a row at threshold with a flag is `hold` with reasons and its retry path, not a quiet pass.
 - `required_stack`, `nice_to_have`, and `seniority_signals` are derived from `jd_text` only — never enriched from knowledge of the company. Quote the JD phrasing each tag came from when ambiguous. The coordinator passes `required_stack` to `resume-tailor`.
 - No personal data lives in this file; all customer facts arrive via Inputs.
 - Append exactly one `event_log` row on exit. No state transitions — the coordinator owns them.

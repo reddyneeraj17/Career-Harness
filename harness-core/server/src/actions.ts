@@ -43,7 +43,8 @@ function linkedinProfileUrl(row: typeof schema.profile.$inferSelect | undefined)
 // application row, even when the caller omits args.reason. Historical
 // transitions recorded the explanation only in the event payload's evidence;
 // deriveTransitionReason recovers it so the dashboard Reason column works.
-const REASON_TERMINAL_STATES = new Set(["blocked", "rejected", "parked", "needs_me", "submitted", "confirmed"]);
+// Attention states additionally require the reason as their blocker.
+const ATTENTION_STATES = new Set(["blocked", "parked", "needs_me"]);
 const REASON_MAX = 280;
 
 function truncateReason(text: string): string {
@@ -76,6 +77,12 @@ function deriveTransitionReason(evidence: string | null | undefined): string | n
   return truncateReason(raw);
 }
 const runMode = z.enum(["scheduled", "manual"]);
+// run_open must always stamp a run with its configs — a run row with empty
+// configs is a bug (§4), so the action fails loudly instead of writing it.
+const runOpenResponse = z.union([
+  z.object({ ok: z.literal(true), run_id: z.string() }),
+  z.object({ ok: z.literal(false), message: z.string() }),
+]);
 const postingRow = z.object({
   posting_id: z.string().min(1), company: z.string().min(1), role: z.string().min(1), url: z.string().min(1), source: z.string().min(1),
   jd_path: z.string().nullable().optional(), jd_hash: z.string().nullable().optional(), first_seen: z.string().datetime().optional(), last_seen: z.string().datetime().optional(),
@@ -119,7 +126,7 @@ const strictProfile = z.object({
   work_auth: z.object({ status: workStatus, sponsor_required: z.boolean(), h1b_gate: z.enum(["hard", "soft"]) }).catchall(jsonValue),
   role_types: z.array(roleType).min(1, "Select at least one employment type."),
   locations: z.object({ priority: z.array(z.string().trim().min(1)).min(1), relocation: z.string().trim().min(1) }).catchall(jsonValue),
-  targeting: z.object({ industries: z.array(z.string().trim().min(1)).min(1), seniority: z.array(seniority).min(1), tiers: z.array(z.number().int().min(1).max(3)).min(1), titles: z.array(z.string().trim().min(1)).min(1) }).catchall(jsonValue),
+  targeting: z.object({ industries: z.array(z.string().trim().min(1)).min(1), seniority: z.array(seniority).min(1), tiers: z.array(z.number().int().min(1).max(3)).min(1), titles: z.array(z.string().trim().min(1)).min(1), preferred_lane: z.string().trim().min(1).optional() }).catchall(jsonValue),
   comp: z.object({ floor: z.union([z.number().nonnegative(), z.string().trim().min(1), z.null()]), note: z.string().trim().min(1), zero_ok: z.boolean().optional() }).catchall(jsonValue),
   start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   answers: z.object({ relocate: z.string().trim().min(1), covenants: z.string().trim().min(1), drivers_license: z.string().trim().min(1), degree_dates: z.string().trim().min(1), home_zip: z.string().trim().min(1), work_authorized_us: z.string().trim().min(1) }).catchall(answerValue),
@@ -154,7 +161,7 @@ const yamlProfileSchema = z.object({
   work_auth: z.object({ status: workStatus, sponsor_required: z.boolean(), h1b_gate: z.enum(["hard", "soft"]) }),
   role_types: z.array(roleType).min(1, "Select at least one employment type."),
   locations: z.object({ us_only: z.boolean(), remote: z.enum(["ok", "only", "no"]), metros: z.array(z.string()).optional() }),
-  targeting: z.object({ tiers: z.array(z.number().int().min(1).max(3)), industries: z.array(z.string()).min(1), seniority: z.array(seniority).min(1), titles: z.array(z.string()).min(1) }),
+  targeting: z.object({ tiers: z.array(z.number().int().min(1).max(3)), industries: z.array(z.string()).min(1), seniority: z.array(seniority).min(1), titles: z.array(z.string()).min(1), preferred_lane: z.string().trim().min(1).optional() }),
   comp: z.object({ floor: z.union([z.number(), z.string(), z.null()]), negotiable_answer: z.string().min(1), zero_ok: z.boolean() }),
   start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   answers: z.object({ relocate: z.string(), restrictive_covenants: z.string(), drivers_license: z.string(), degree_dates: z.string() }).catchall(answerValue),
@@ -350,6 +357,7 @@ function renderProfileYaml(profile: ProfileInput, existing: string, existingPars
     withUnknownNestedKeys("locations", locations.block, existingParsed),
     withUnknownNestedKeys("targeting", [
       "targeting:", `  tiers: ${yamlList(profile.targeting.tiers)}`, `  industries: ${yamlList(profile.targeting.industries)}`, `  seniority: ${yamlList(profile.targeting.seniority)}`, `  titles: ${yamlList(profile.targeting.titles)}`,
+      ...(profile.targeting.preferred_lane ? [`  preferred_lane: ${q(profile.targeting.preferred_lane)}`] : []),
     ].join("\n"), existingParsed),
     withUnknownNestedKeys("comp", [
       "comp:", `  floor: ${floor}`, `  negotiable_answer: ${q(profile.comp.note)}`, `  zero_ok: ${zeroOk}`,
@@ -367,6 +375,23 @@ function renderProfileYaml(profile: ProfileInput, existing: string, existingPars
     ...extensions,
   ].join("\n\n");
   return { text: `${header ? `${header}\n\n` : ""}${body.trim()}\n`, warnings: locations.warning ? [locations.warning] : [] };
+}
+
+// canonicalProfileHash — the SINGLE owner of the profile hash (§8). Canonical
+// JSON (sorted keys, compact separators), UTF-8, sha256. This is the scheme
+// profile-watch and the manifest use; nothing else computes a profile hash.
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, v]) => v !== undefined)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(",")}}`;
+}
+async function canonicalProfileHash(profile: unknown): Promise<string> {
+  const bytes = new TextEncoder().encode(canonicalJson(profile));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 async function putProfileRow(ctx: Ctx, args: ProfileRowInput): Promise<string> {
@@ -537,7 +562,7 @@ const STATE_EDGE_DOCS = Object.entries(LEGAL).flatMap(([from, destinations]) => 
   from,
   to,
   gate: from === "reviewed" && to === "applying"
-    ? "Requires intent_id"
+    ? "Requires a server-minted intent_id (intent_create)"
     : from === "applying" && to === "submitted"
       ? "Requires evidence.resume_path and evidence.resume_hash"
       : from === "blocked" && to === "discovered"
@@ -582,6 +607,25 @@ function parseSubmissionEvidence(value: string | null): { data?: SubmissionEvide
   const checked = submissionEvidenceSchema.safeParse(record);
   if (!checked.success) return { error: checked.error.issues[0]?.message ?? "Submission evidence is invalid." };
   return { data: checked.data };
+}
+
+// Structured transition fields (§5): variant_id / resume_path / resume_hash
+// are parsed from evidence JSON on EVERY edge and persisted to the
+// applications row, so recovery never requires digging through event_log.
+// Lenient by design — malformed JSON or missing fields simply persist
+// nothing. resume_hash is only accepted as a full SHA-256 hex value.
+// The strict submission validator above still governs applying → submitted.
+function parseStructuredEvidence(value: string | null): { variant_id?: string; resume_path?: string; resume_hash?: string } {
+  if (!value) return {};
+  let parsed: unknown;
+  try { parsed = JSON.parse(value); } catch { return {}; }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+  const record = parsed as Record<string, unknown>;
+  const out: { variant_id?: string; resume_path?: string; resume_hash?: string } = {};
+  if (typeof record.variant_id === "string" && record.variant_id.trim()) out.variant_id = record.variant_id.trim();
+  if (typeof record.resume_path === "string" && record.resume_path.trim()) out.resume_path = record.resume_path.trim();
+  if (typeof record.resume_hash === "string" && /^[a-f0-9]{64}$/i.test(record.resume_hash.trim())) out.resume_hash = record.resume_hash.trim();
+  return out;
 }
 
 function canonicalConfirmationPath(row: { campaignId: string; runId: string | null; appId: string }): string | null {
@@ -919,20 +963,29 @@ export const Actions = {
   }),
 
   profile_put: defineAction({
-    request: profilePutPayload, response: z.object({ ok: z.literal(true), updated_at: z.string() }),
+    request: profilePutPayload, response: z.object({ ok: z.literal(true), updated_at: z.string(), profile_hash: z.string() }),
     async handler(ctx, args) {
       // compile-schedules parses profile.yaml and may not carry years_matrix
       // (older schema): never wipe the live matrix with an absent field.
       const db0 = ctx.db<typeof schema>();
       const live = args.years_matrix === undefined ? (await db0.select().from(schema.profile).where(eq(schema.profile.id, 1)).limit(1))[0] : undefined;
-      const updatedAt = await putProfileRow(ctx, live ? { ...args, years_matrix: yearsMatrixList(live) } : args);
+      const effective = live ? { ...args, years_matrix: yearsMatrixList(live) } : args;
+      const updatedAt = await putProfileRow(ctx, effective);
       const db = ctx.db<typeof schema>(); const caps = jsonObject(args.caps); const capPerRun = Number(caps.per_run); const capPerDay = Number(caps.per_day);
       for (const [campaignId, campaign] of Object.entries(args.campaigns ?? {})) {
         const type = campaign.type ?? campaign.group ?? campaignId;
         await db.insert(schema.campaigns).values({ campaignId, type, cadence: campaign.cadence, capPerRun, capPerDay, gates: campaign.gates ?? {}, sources: campaign.sources ?? [], cronId: campaign.cron_id ?? null })
           .onConflictDoUpdate({ target: schema.campaigns.campaignId, set: { type, cadence: campaign.cadence, capPerRun, capPerDay, gates: campaign.gates ?? {}, sources: campaign.sources ?? [], cronId: campaign.cron_id ?? null } });
       }
-      ctx.invalidateQueries(); return { ok: true as const, updated_at: updatedAt };
+      // The profile hash is owned here (§8): canonical hash of the exact
+      // profile document put (campaigns included — a cadence change must
+      // trigger recompile; years_matrix normalized to [] when absent so the
+      // hash is stable regardless of the carry-over path). Callers use this
+      // value — never compute their own. The profile-watch detection step
+      // applies the same normalization before comparing.
+      const normalized = { ...effective, years_matrix: Array.isArray(effective.years_matrix) ? effective.years_matrix : [] };
+      const profileHash = await canonicalProfileHash(normalized);
+      ctx.invalidateQueries(); return { ok: true as const, updated_at: updatedAt, profile_hash: profileHash };
     },
   }),
 
@@ -1117,8 +1170,8 @@ export const Actions = {
       const db = ctx.db<typeof schema>(); const appId = id("app"); const created = Date.now(); const day = chicagoDay();
       const openRun = (await db.select().from(schema.runs).where(and(eq(schema.runs.campaignId, args.campaign_id), eq(schema.runs.status, "running"))).orderBy(desc(schema.runs.started)).limit(1))[0];
       if (!openRun) return { ok: false, reason: "No open run exists for this campaign." };
-      await db.run(sql`INSERT INTO applications (app_id, posting_id, company_norm, role_norm, state, campaign_id, run_id, created_at, updated_at, kit_version)
-        SELECT ${appId}, p.posting_id, p.company_norm, p.role_norm, 'discovered', c.campaign_id, ${openRun.runId}, ${created}, ${created}, ${openRun.kitVersion}
+      await db.run(sql`INSERT INTO applications (app_id, posting_id, company_norm, role_norm, state, campaign_id, run_id, created_at, updated_at, kit_version, status_reason)
+        SELECT ${appId}, p.posting_id, p.company_norm, p.role_norm, 'discovered', c.campaign_id, ${openRun.runId}, ${created}, ${created}, ${openRun.kitVersion}, 'claimed from ' || p.source || '; awaiting screen'
         FROM postings p JOIN campaigns c ON c.campaign_id = ${args.campaign_id}
         WHERE p.posting_id = ${args.posting_id}
           AND NOT EXISTS (SELECT 1 FROM applications a WHERE a.posting_id=p.posting_id)
@@ -1177,16 +1230,46 @@ export const Actions = {
     },
   }),
 
+  // Explicit intent action (§5): the ONLY way to mint an intent_id. The id
+  // is generated server-side with the central id() helper — clients never
+  // invent UUIDs. Idempotent while the row is still in reviewed: a crashed
+  // worker retrying gets the same intent back. The state machine is the
+  // double-apply guard (reviewed → applying is single-shot).
+  intent_create: defineAction({
+    request: z.object({ app_id: z.string().min(1) }),
+    response: z.object({ ok: z.boolean(), intent_id: z.string().optional(), message: z.string().optional() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const row = (await db.select().from(schema.applications).where(eq(schema.applications.appId, args.app_id)).limit(1))[0];
+      if (!row) return { ok: false, message: "Application not found." };
+      if (row.state !== "reviewed") return { ok: false, message: `Intent can only be created from reviewed (current state: ${row.state}).` };
+      if (row.intentId) return { ok: true, intent_id: row.intentId };
+      const intentId = id("intent"); const at = now();
+      await db.batch([
+        db.update(schema.applications).set({ intentId, updatedAt: at }).where(eq(schema.applications.appId, args.app_id)),
+        db.insert(schema.events).values({ runId: row.runId, appId: row.appId, type: "intent_created", payload: { intent_id: intentId }, at }),
+      ]);
+      ctx.invalidateQueries(); return { ok: true, intent_id: intentId };
+    },
+  }),
+
   app_transition: defineAction({
     request: z.object({ app_id: z.string(), from: z.string(), to: z.string(), evidence: z.string().nullable(), intent_id: z.string().nullable().optional(), reason: z.string().trim().min(1).max(280).nullable().optional() }), response: okResponse,
     async handler(ctx, args) {
       const allowed = LEGAL[args.from] ?? [];
       if (!allowed.includes(args.to)) return { ok: false, message: `Illegal transition: ${args.from} → ${args.to}.` };
-      if (args.from === "reviewed" && args.to === "applying" && !args.intent_id) return { ok: false, message: "An intent_id is required before applying." };
+      const structured = parseStructuredEvidence(args.evidence);
       const submittedEvidence = args.to === "submitted" ? parseSubmissionEvidence(args.evidence) : null;
       if (submittedEvidence?.error) return { ok: false, message: submittedEvidence.error };
       const db = ctx.db<typeof schema>(); const row = (await db.select().from(schema.applications).where(eq(schema.applications.appId, args.app_id)).limit(1))[0];
       if (!row || row.state !== args.from) return { ok: false, message: row ? `Current state is ${row.state}, not ${args.from}.` : "Application not found." };
+      // Intent contract (§5): the intent_id is minted server-side by
+      // intent_create and must match the stored intent. Client-generated
+      // UUIDs are not accepted.
+      if (args.from === "reviewed" && args.to === "applying") {
+        if (!args.intent_id) return { ok: false, message: "Call intent_create first: reviewed → applying requires a server-minted intent_id." };
+        if (args.intent_id !== row.intentId) return { ok: false, message: "intent_id does not match the intent created for this application." };
+      }
       if (args.from === "blocked" && args.to === "discovered") {
         const correction = parseCorrectionEvidence(args.evidence);
         if (!correction) return { ok: false, message: "Blocked → discovered requires JSON evidence with coordinator_correction=true, a valid event_log_id, and a reason." };
@@ -1197,25 +1280,47 @@ export const Actions = {
       const confirmationPath = evidence?.confirmation
         ? evidence.confirmation_path ?? canonicalConfirmationPath(row)
         : evidence?.confirmation_path ?? row.confirmationPath;
+      // Structured fields (§5): variant/resume path+hash persist on every
+      // edge from evidence JSON — the strict submission validator above
+      // still governs applying → submitted, and screenshot/confirmation
+      // are only written on submission.
+      const structuredResumePath = structured.resume_path ?? row.resumePath;
+      const structuredResumeHash = structured.resume_hash?.toLowerCase() ?? row.resumeHash;
+      const structuredVariantId = structured.variant_id ?? row.variantId;
+      // Reason hygiene (§4): no transition may write a blank reason. Explicit
+      // reason wins, then evidence-derived, then a mechanical fallback — the
+      // write layer guarantees non-blank, never convention. Transitions into
+      // parked/blocked/needs_me must carry an explicit or evidence-derived
+      // reason (it becomes the blocker); the mechanical fallback is not an
+      // acceptable blocker, so those transitions fail without one. Leaving an
+      // attention state clears the blocker.
+      const explicitReason = args.reason?.trim() || null;
+      const derivedReason = explicitReason ? null : deriveTransitionReason(args.evidence);
+      let statusReason = explicitReason ?? derivedReason;
+      if (!statusReason) {
+        if (ATTENTION_STATES.has(args.to)) return { ok: false, message: `Transition to ${args.to} requires an explicit reason (it becomes the blocker).` };
+        statusReason = `advanced ${args.from} → ${args.to}`;
+      }
+      statusReason = truncateReason(statusReason);
+      if (!statusReason) return { ok: false, message: "Transition requires a non-blank reason." };
+      const blocker = ATTENTION_STATES.has(args.to) ? statusReason : (args.to === "reviewed" || args.to === "discovered" ? null : row.blocker);
       await db.batch([
         db.update(schema.applications).set({
           state: args.to,
           evidencePath: args.evidence,
           intentId: args.intent_id ?? row.intentId,
-          resumePath: evidence?.resume_path ?? row.resumePath,
-          resumeHash: evidence?.resume_hash.toLowerCase() ?? row.resumeHash,
-          variantId: evidence?.variant_id ?? row.variantId,
+          resumePath: evidence?.resume_path ?? structuredResumePath,
+          resumeHash: evidence?.resume_hash.toLowerCase() ?? structuredResumeHash,
+          variantId: evidence?.variant_id ?? structuredVariantId,
           screenshotPath: evidence ? evidence.screenshot_path ?? null : row.screenshotPath,
           confirmation: evidence?.confirmation ?? row.confirmation,
           confirmationPath,
-          // Explicit reason wins; otherwise derive one from the transition
-          // evidence for terminal/attention states so the dashboard Reason
-          // column never goes blank when the worker omits args.reason.
-          statusReason: args.reason ?? (REASON_TERMINAL_STATES.has(args.to) ? deriveTransitionReason(args.evidence) : null) ?? row.statusReason,
+          statusReason,
+          blocker,
           updatedAt: changed,
           submittedAt: args.to === "submitted" ? changed : row.submittedAt,
         }).where(and(eq(schema.applications.appId, args.app_id), eq(schema.applications.state, args.from))),
-        db.insert(schema.events).values({ runId: row.runId, appId: row.appId, type: "state_transition", payload: { from: args.from, to: args.to, reason: args.reason ?? null, evidence: args.evidence, intent_id: args.intent_id ?? null }, at: changed }),
+        db.insert(schema.events).values({ runId: row.runId, appId: row.appId, type: "state_transition", payload: { from: args.from, to: args.to, reason: args.reason ?? null, evidence: args.evidence, intent_id: args.intent_id ?? null, variant_id: structuredVariantId, resume_path: structuredResumePath, resume_hash: structuredResumeHash }, at: changed }),
       ]);
       ctx.invalidateQueries(); return { ok: true };
     },
@@ -1546,13 +1651,46 @@ export const Actions = {
   }),
 
   run_open: defineAction({
-    request: z.object({ run_id: z.string().optional(), campaign_id: z.string(), kit_version: z.string().nullable().optional(), compiled_config: jsonValue.optional(), live_config: jsonValue.optional(), mode: runMode.optional() }), response: z.object({ run_id: z.string() }),
-    async handler(ctx, args) { const runId = args.run_id ?? id("run"); await ctx.db<typeof schema>().insert(schema.runs).values({ runId, campaignId: args.campaign_id, kitVersion: args.kit_version ?? null, started: now(), status: "running", mode: args.mode ?? "scheduled", compiledConfig: args.compiled_config ?? {}, liveConfig: args.live_config ?? {} }); ctx.invalidateQueries(); return { run_id: runId }; },
+    request: z.object({ run_id: z.string().optional(), campaign_id: z.string(), kit_version: z.string().nullable().optional(), compiled_config: jsonValue, live_config: jsonValue, mode: runMode.optional() }),
+    response: runOpenResponse,
+    async handler(ctx, args): Promise<z.infer<typeof runOpenResponse>> {
+      const isEmptyConfig = (v: unknown) => v == null || typeof v !== "object" || Object.keys(v).length === 0;
+      if (isEmptyConfig(args.compiled_config)) return { ok: false, message: "run_open requires a non-empty compiled_config (campaign_id, caps, skill chain). Refusing to write a config-less run row." };
+      if (isEmptyConfig(args.live_config)) return { ok: false, message: "run_open requires a non-empty live_config (mode, trigger). Refusing to write a config-less run row." };
+      const runId = args.run_id ?? id("run"); await ctx.db<typeof schema>().insert(schema.runs).values({ runId, campaignId: args.campaign_id, kitVersion: args.kit_version ?? null, started: now(), status: "running", mode: args.mode ?? "scheduled", compiledConfig: args.compiled_config, liveConfig: args.live_config }); ctx.invalidateQueries(); return { ok: true, run_id: runId };
+    },
   }),
 
   run_close: defineAction({
     request: z.object({ run_id: z.string(), status: z.string(), counts: jsonValue.optional(), tokens: jsonValue.optional(), needs_me: z.boolean().optional(), blocker: z.string().nullable().optional() }), response: okResponse,
-    async handler(ctx, args) { const db = ctx.db<typeof schema>(); const pending = (await db.select({ count: sql<number>`count(*)` }).from(schema.applications).where(and(eq(schema.applications.runId, args.run_id), eq(schema.applications.state, "applying"), or(isNull(schema.applications.outcome), eq(schema.applications.outcome, "")))))[0]; if (countNumber(pending?.count) > 0) return { ok: false, message: "Run cannot close while applying rows lack an outcome." }; await db.update(schema.runs).set({ ended: now(), status: args.status, counts: args.counts ?? {}, tokens: args.tokens ?? {}, needsMe: args.needs_me ?? false, blocker: args.blocker ?? null }).where(eq(schema.runs.runId, args.run_id)); ctx.invalidateQueries(); return { ok: true }; },
+    async handler(ctx, args) { const db = ctx.db<typeof schema>(); const run = (await db.select({ runId: schema.runs.runId }).from(schema.runs).where(eq(schema.runs.runId, args.run_id)).limit(1))[0]; if (!run) return { ok: false, message: `Run not found: ${args.run_id}.` }; const pending = (await db.select({ count: sql<number>`count(*)` }).from(schema.applications).where(and(eq(schema.applications.runId, args.run_id), eq(schema.applications.state, "applying"), or(isNull(schema.applications.outcome), eq(schema.applications.outcome, "")))))[0]; if (countNumber(pending?.count) > 0) return { ok: false, message: "Run cannot close while applying rows lack an outcome." }; await db.update(schema.runs).set({ ended: now(), status: args.status, counts: args.counts ?? {}, tokens: args.tokens ?? {}, needsMe: args.needs_me ?? false, blocker: args.blocker ?? null }).where(eq(schema.runs.runId, args.run_id)); ctx.invalidateQueries(); return { ok: true }; },
+  }),
+
+  // Orphan-run finalizer (§4): closes runs left open past max_age_hours with a
+  // diagnostic blocker. Called by the hourly harness-doctor. Application rows
+  // are NOT touched: discovered/screened rows stay retryable for the backlog
+  // sweep, and stuck applying rows belong to the doctor's verify-only flow.
+  // Unlike run_close this force-closes even with pending applying rows — that
+  // is the point; the untouched count is reported for visibility.
+  run_finalize_stale: defineAction({
+    request: z.object({ max_age_hours: z.number().min(0.25).max(72).default(3) }), response: z.object({ ok: z.boolean(), finalized: z.array(z.string()), applying_left: z.number(), message: z.string().optional() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>(); const changed = now();
+      const cutoff = new Date(Date.now() - args.max_age_hours * 3600_000);
+      const orphans = await db.select({ runId: schema.runs.runId, campaignId: schema.runs.campaignId }).from(schema.runs).where(and(isNull(schema.runs.ended), lt(schema.runs.started, cutoff)));
+      const finalized: string[] = []; let applyingLeft = 0;
+      for (const o of orphans) {
+        const applying = countNumber((await db.select({ count: sql<number>`count(*)` }).from(schema.applications).where(and(eq(schema.applications.runId, o.runId), eq(schema.applications.state, "applying"))))[0]?.count);
+        applyingLeft += applying;
+        const blocker = `orphaned: no run_close within ${args.max_age_hours}h of run_open (${applying} applying row(s) left untouched for verify-only)`;
+        await db.batch([
+          db.update(schema.runs).set({ ended: changed, status: "failed", blocker, needsMe: false }).where(eq(schema.runs.runId, o.runId)),
+          db.insert(schema.events).values({ runId: o.runId, type: "run_finalized_stale", payload: { max_age_hours: args.max_age_hours, applying_left: applying, campaign_id: o.campaignId }, at: changed }),
+        ]);
+        finalized.push(o.runId);
+      }
+      ctx.invalidateQueries(); return { ok: true, finalized, applying_left: applyingLeft };
+    },
   }),
 
   // Operator cancellation: the dashboard's Cancel run button marks an active run

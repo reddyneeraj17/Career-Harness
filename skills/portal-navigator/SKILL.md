@@ -2,9 +2,12 @@
 
 ---
 name: portal-navigator
-version: "1.3.0"
+version: "1.5.0"
 description: Drives one job application through an ATS portal with intent-before-submit, upload hash verification, and screenshot evidence.
 ---
+
+> Changelog 1.5.0: Portal walls playbook (§9) — reCAPTCHA/CAPTCHA/bot-walls park, never bypass; expired OTP / no-resend → evidence note + park, never fail; Workday/Taleo walls → park with the specific reason, never hold; Easy Apply timeouts → evidence note + one backoff retry, then park, never fail. New `playbooks/taleo.md`; `taleo` added to `ats_type`.
+> Changelog 1.4.0: Intent is minted server-side via `intent_create(app_id)` — the navigator never generates its own UUID; `reviewed → applying` requires the returned intent_id.
 
 # portal-navigator
 
@@ -20,7 +23,7 @@ description: Drives one job application through an ATS portal with intent-before
 {
   "app_id": "app-9f2c…",
   "url": "https://…",  // copied verbatim from the ledger row via snapshot; never from a summary. Re-read the row before step 1; mismatch → stop and report.
-  "ats_type": "workday|greenhouse|lever|ashby|icims|easy-apply|generic",
+  "ats_type": "workday|greenhouse|lever|ashby|icims|taleo|easy-apply|generic",
   "pdf_path": "goals/<campaign>/hidden_files/<run>/resumes/<company>-<role>.pdf",
   "resume_hash": "<sha256(PDF bytes)[:12]>",
   "cover_letter_path": "<optional: goals/<campaign>/hidden_files/<run>/letters/<app_id>_cover_letter.txt>",
@@ -57,7 +60,7 @@ disk and the confirmation text file is written. Before the transition, append th
 
 ### Intent-before-submit protocol (follow exactly, in order)
 
-1. **Write intent first.** Generate a fresh uuid4 `intent_id`. Call `app_transition(app_id, reviewed → applying, intent_id=<uuid>, evidence={url})`. **If the row is not in `reviewed` state, the transition is refused — stop immediately.** This is the double-claim guard; do not open the browser.
+1. **Write intent first.** Call `intent_create(app_id)` — the server mints the `intent_id` (never generate your own UUID). Then call `app_transition(app_id, reviewed → applying, intent_id=<returned>, evidence={url})`. **If the row is not in `reviewed` state, the transition is refused — stop immediately.** This is the double-claim guard; do not open the browser.
 2. **Fill the form** per `playbooks/<ats_type>.md`. Screenshot every page before and after filling.
 3. **Re-verify the upload.** Hash the exact file bytes about to be uploaded and compare to the input `resume_hash`. Mismatch → `app_transition(app_id, applying → blocked, evidence={reason: "hash_mismatch"})` and **stop**.
 4. **Click submit exactly once.** Never click twice. Never re-submit while an intent is unresolved.
@@ -74,7 +77,10 @@ disk and the confirmation text file is written. Before the transition, append th
 
 - Unknown mandatory question → `approval_enqueue` (kind `screening_question`, with `app_id`), then `app_transition(app_id, applying → needs_me, evidence={approval_id, field})`. Never guess.
 - **Mandatory cover-letter field** → if `cover_letter_path` + `cover_letter_hash` were supplied (reviewer-approved), hash-verify the file bytes and attach/upload per the ATS playbook; record `cover_letter_path` in the submitted evidence. If no approved letter was supplied, treat it like any unknown mandatory field: `approval_enqueue` → `needs_me`. Never write a letter at the portal.
-- CAPTCHA / SMS / bot-wall → `app_transition(app_id, applying → parked, evidence={reason, checkpoint_path})`. **Never bypass.** Park the URL + filled-field snapshot so a human can resume.
+- CAPTCHA / reCAPTCHA / SMS / bot-wall → `app_transition(app_id, applying → parked, evidence={reason, checkpoint_path})`. **Never bypass.** Park the URL + filled-field snapshot so a human can resume.
+- **Expired OTP / no resend option** → evidence note (`otp_expired` or `otp_no_resend`, which step, timestamp) + `app_transition(app_id, applying → parked, evidence={reason, checkpoint_path})`. Transient — the operator requests a fresh code and resumes. Never `blocked`/`failed` for an OTP expiry.
+- **Workday / Taleo walls** (account-creation wall, SSO-only login, "sign in to continue" with no usable path, tenant blocks) → `app_transition(app_id, applying → parked, evidence={reason: "workday_wall: <specific>" | "taleo_wall: <specific>", checkpoint_path})`. **Park with the reason, not hold** — these are portal-side blocks for the operator, not missing profile facts for `needs_me`.
+- **Easy Apply timeouts** → evidence note (`easy_apply_timeout`, which modal step) + back off: wait, retry the step **once**. Still timing out → `parked` with checkpoint. Never `blocked`/`failed` for a timeout alone; never hammer the modal with retries.
 - "Already applied" banner → `app_transition(app_id, applying → blocked, evidence={reason: "duplicate_portal", screenshot_path})`.
 - Newly discovered ATS quirks (wrong `ats_type` detected, new banner text, new park cause) → `companies_update` with the correction or `park_count` increment.
 
